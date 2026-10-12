@@ -330,14 +330,40 @@ raggiungibile, le credenziali funzionano (GCM) ed è **vuoto**: nessun push è a
 | `git reset --hard` bloccato dall'hook | ✅ |
 | `git push origin main` bloccato dall'hook | ✅ |
 | `git push origin auto/build` **funziona** | ✅ |
-| Push diretto su `main` rifiutato dal server | ⚠️ vedi sotto |
+| Push diretto su `main` rifiutato dal server | ✅ osservato, vedi sotto |
 
-**L'unico criterio non verificato dall'agente, e perché non può esserlo**
-Le tre reti sono in serie, quindi le prime due impediscono di collaudare la terza dall'interno del
-loop: `git push origin main` viene fermato dall'hook **prima** di raggiungere GitHub. Il criterio è
-quindi verificabile solo dall'umano, con un test innocuo (`git push --force origin 406d7e2:main`,
-no-op se passasse perché `main` è già lì). Dato per fatto sulla parola dell'umano, **non** per
-osservazione diretta dell'agente: la distinzione va mantenuta nel registro.
+**Terza rete: rifiuto osservato, non dedotto**
+Ruleset `main protetto` su GitHub: enforcement `Active`, **bypass list vuota**, target `main`,
+regole `Require a pull request before merging` + `Block force pushes` + `Restrict deletions`.
+Prova eseguita dall'umano dal suo terminale:
+
+```
+git push origin auto/build:main
+remote: error: GH013: Repository rule violations found for refs/heads/main.
+remote: - Changes must be made through a pull request.
+ ! [remote rejected] auto/build -> main (push declined due to repository rule violations)
+```
+
+`git ls-remote` dopo il tentativo: `main` fermo a `406d7e2`. Il rifiuto non ha lasciato nulla dietro.
+
+**Il primo test proposto era invalido: va ricordato, non cancellato**
+Il tentativo precedente era `git push --force origin 406d7e2:main`, scelto perché no-op (`main` era
+già a `406d7e2`) e quindi innocuo se la protezione fosse mancata. Ha risposto `Everything up-to-date`:
+git ha visto il ref remoto già coincidente e **non ha contattato il server**. Un push che non aggiorna
+alcun ref non può essere rifiutato, quindi il test dava lo stesso output con la protezione attiva e
+con la protezione assente — zero potere discriminante.
+
+La regola generale che ne esce: **un test di un freno deve poter fallire.** Se è costruito per essere
+innocuo al punto da non produrre l'evento che il freno dovrebbe intercettare, non misura il freno:
+misura solo sé stesso. Vale per le prove dell'hook quanto per i test di `verify`, ed è lo stesso
+principio per cui F1.4 pretende di vedere il lint diventare rosso violando ogni regola.
+
+**Limite strutturale, confermato**
+Le tre reti sono in serie, quindi le prime due impediscono all'agente di collaudare la terza:
+`git push origin auto/build:main` contiene `main` e l'hook lo ferma prima di GitHub. La terza rete
+è verificabile **solo** dall'umano. Non è un difetto da correggere, ma va saputo: su quel criterio
+il sistema non può autocertificarsi, e se un giorno le prime due venissero disattivate è l'unica
+che resta in piedi.
 
 **Nota sul piano GitHub:** la branch protection su repo **privati** richiede storicamente un piano a
 pagamento. Qui è stata configurata senza problemi, quindi il piano la consente. Se in futuro il repo
