@@ -125,9 +125,29 @@ così gli archivi di installazione scaricati a mano non finiscono nel repo.
 di Claude Code ha bloccato `git push origin HEAD:main` con motivo `[Git Destructive]`, indipendentemente
 dalla nostra configurazione.
 
-**Mancante per chiudere F1.2**
-- Riavvio della sessione (carica hook + deny rules, e risolve il PATH)
-- Identità git: `user.name` e `user.email` non configurati
-- URL del repo GitHub privato (da creare dall'umano: `gh` è bloccato dal proxy)
+**Configurato dopo che l'umano ha fornito i dati**
+- `user.name = therangerhoxel`, `user.email = alessandro.cinque.smart@gmail.com`,
+  `credential.helper = manager` (GCM, incluso in MinGit) — tutto **repo-local**, non globale:
+  la configurazione git del resto della macchina non viene toccata.
+- `remote.origin.url = https://github.com/TheRangerHoxel/travel-together.git`
 
-**Nessun commit ancora creato.** Il repo è inizializzato e vuoto.
+**Commit creati** (branch `auto/build`)
+- `406d7e2` — F1.2: commit iniziale con i file di Fase 0 (14 file, nessun codice applicativo)
+- `7dd8e05` — F1.2: `.gitattributes` per normalizzare i fine riga a LF
+
+`main` è fermo a `406d7e2`; `auto/build` è a `7dd8e05`. Working tree pulito.
+
+**Perché `.gitattributes` adesso e non dopo**
+`core.autocrlf` era `true` (default di MinGit): git convertiva LF↔CRLF in modo implicito. Su un
+progetto JS questo riempie i diff di righe che nessuno ha toccato e fa litigare lint e prettier con
+git. Fissarlo prima che arrivi il codice costa zero; dopo richiede un commit di rinormalizzazione su
+tutto l'albero. F1.2 ha quindi due commit invece di uno: deliberato, preferito a un `--amend`.
+
+**Mancante per chiudere F1.2 — tutto dipende dal riavvio**
+- [ ] Riavvio sessione: carica hook e deny rules, e risolve il PATH ereditato
+- [ ] Verifica dei freni **eseguendo** i comandi vietati (il criterio centrale di F1.2)
+- [ ] Verifica che `$CLAUDE_PROJECT_DIR` si risolva su Windows; altrimenti percorso assoluto
+- [ ] `git push -u origin main` — **lo fa l'umano**: l'agente non pusha su main
+- [ ] Branch protection su `main` — lo fa l'umano su GitHub
+- [ ] `git push -u origin auto/build` — lo fa l'agente, ed è anche la prova che il freno
+      non blocca il flusso normale
