@@ -41,6 +41,24 @@ module.exports = [
   },
 
   {
+    // File che girano in Node, non nell'app: config di jest, setup e script.
+    // Senza questo blocco eslint li tratta come codice dell'app e non conosce
+    // __dirname, require e process.
+    files: ['*.config.js', 'jest.setup.*.js', 'scripts/**/*.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: {
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        module: 'writable',
+        require: 'readonly',
+        process: 'readonly',
+        global: 'writable',
+      },
+    },
+  },
+
+  {
     // import/no-unresolved e' disattivata deliberatamente: il resolver TypeScript
     // che eslint-config-expo porta con se' espone un'interfaccia che la sua stessa
     // versione di eslint-plugin-import non sa caricare ("invalid interface loaded
