@@ -151,25 +151,25 @@ Interfacce in `core/ports` e implementazione in RAM in `adapters/memory`.
 `findMatches(richiesta, offerte, config)` in `core/usecases`. Funzione pura.
 
 **Criteri di accettazione** (vincoli duri, uno per uno)
-- [ ] Plant di partenza diverso → nessun match
-- [ ] Plant di destinazione diverso → nessun match
-- [ ] Data diversa → nessun match
-- [ ] Orario fuori dalla finestra di tolleranza → nessun match
-- [ ] Orario **esattamente al limite** della finestra → è un match (confine incluso, documentato)
-- [ ] `seatsAvailable == 0` → nessun match
-- [ ] Offerta del richiedente stesso → nessun match
-- [ ] Richiedente con richiesta già `pending` su quell'offerta → nessun match
-- [ ] Richiedente con richiesta già `accepted` su quell'offerta → nessun match
+- [x] Plant di partenza diverso → nessun match
+- [x] Plant di destinazione diverso → nessun match
+- [x] Data diversa → nessun match
+- [x] Orario fuori dalla finestra di tolleranza → nessun match
+- [x] Orario **esattamente al limite** della finestra → è un match (confine incluso, documentato)
+- [x] `seatsAvailable == 0` → nessun match
+- [x] Offerta del richiedente stesso → nessun match
+- [x] Richiedente con richiesta già `pending` su quell'offerta → nessun match
+- [x] Richiedente con richiesta già `accepted` su quell'offerta → nessun match
 
 **Criteri di accettazione** (punteggio)
-- [ ] A parità di tutto, l'offerta con orario più vicino è prima in classifica
-- [ ] L'offerta con stesso plant di appartenenza precede quella con plant diverso
-- [ ] Il punteggio è deterministico: due esecuzioni sugli stessi input danno lo stesso ordine
-- [ ] Ordinamento stabile a parità di punteggio (nessuna dipendenza dall'ordine di input)
+- [x] A parità di tutto, l'offerta con orario più vicino è prima in classifica
+- [x] L'offerta con stesso plant di appartenenza precede quella con plant diverso
+- [x] Il punteggio è deterministico: due esecuzioni sugli stessi input danno lo stesso ordine
+- [x] Ordinamento stabile a parità di punteggio (nessuna dipendenza dall'ordine di input)
 
 **Criteri di accettazione** (purezza)
-- [ ] Nessun import di rete, filesystem o `Date` in tutto il modulo (verificato dal lint)
-- [ ] La funzione non muta gli array in input
+- [x] Nessun import di rete, filesystem o `Date` in tutto il modulo (verificato dal lint)
+- [x] La funzione non muta gli array in input
 
 ## T04 Creazione trasferta
 

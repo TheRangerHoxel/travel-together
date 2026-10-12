@@ -18,9 +18,13 @@ export interface Trip {
   readonly ownerId: ProfileId;
   readonly fromPlantId: PlantId;
   readonly toPlantId: PlantId;
-  /** ISO 8601, es. "2026-11-03T07:30:00+01:00". */
+  /**
+   * ISO 8601 **normalizzato UTC**, es. "2026-11-03T06:30:00.000Z".
+   * La `Z` non e' opzionale: il dominio confronta gli istanti come stringhe, e il
+   * confronto lessicografico coincide con quello cronologico solo a offset uguale.
+   */
   readonly departureAt: string;
-  /** ISO 8601, oppure null se il rientro non e' pianificato. */
+  /** Stesso formato di `departureAt`, oppure null se il rientro non e' pianificato. */
   readonly returnAt: string | null;
   readonly hasCar: boolean;
   /** Posti totali dell'auto. Zero se non c'e' auto. */

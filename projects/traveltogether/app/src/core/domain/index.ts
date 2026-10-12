@@ -12,6 +12,11 @@ export { makeTrip } from './trip';
 
 export type { SeatOffer } from './seat-offer';
 
+export type { TripRequest } from './trip-request';
+
+export type { Instant } from './instant';
+export { parseUtcInstant } from './instant';
+
 export type { MatchRequest, MatchRequestId, MatchRequestStatus } from './match-request';
 
 export type { Badge, BadgeId } from './badge';

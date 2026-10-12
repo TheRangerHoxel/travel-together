@@ -847,3 +847,150 @@ Due osservazioni del reviewer che non sono difetti ma vanno capite:
 **Prossimo passo:** T03, il motore di matching. È il pezzo di maggior valore del prodotto e ha tredici
 criteri su tre dimensioni (vincoli duri, punteggio, purezza): è il primo task che merita davvero il
 planner.
+
+---
+
+## 2026-10-12 — T03 · Motore di matching · **COMPLETO** ✅
+
+`verify` verde: **88 test unitari in 8 suite** (erano 45). I criteri sono **15**, non 13 come avevo
+scritto: 9 vincoli duri, 4 di punteggio, 2 di purezza. Li ha ricontati il planner.
+
+**Il planner è servito, e si è fermato dove doveva.** Ha prodotto il piano e poi si è bloccato su due
+checkpoint ⛔ prima di far scrivere una riga di codice, perché toccavano un contratto approvato in
+Fase 0. L'umano ha deciso su entrambi.
+
+### Le tre decisioni approvate prima di implementare
+
+1. **La firma non poteva soddisfare due dei suoi stessi criteri.** `findMatches(richiesta, offerte,
+   config)` non riceveva le candidature esistenti, ma due criteri escludono un'offerta se il
+   richiedente ha già una richiesta `pending` o `accepted` su di essa. Ora ha quattro parametri e
+   ritorna `Result`. `ARCHITECTURE.md` aggiornato: il documento era in ritardo sul backlog, non il
+   contrario.
+2. **`core/usecases` non importa `config/` nel codice di produzione**, benché il lint lo permetta. La
+   contraddizione fra documento e lint l'ha trovata il planner leggendo `eslint.config.js`, non
+   assumendolo. L'unico arco vive nel test di conformità.
+3. **I valori di config sono letterali**, non variabili d'ambiente: una soglia di tolleranza non è un
+   segreto, e via `.env` sarebbe `string | undefined` a runtime, cioè non verificabile a compile time.
+
+### Decisioni prese in corsa, diverse dal piano
+
+- **Millisecondi invece di secondi.** Il piano calcolava il punteggio in secondi; l'implementazione usa
+  millisecondi, perché è l'unità in cui il parser restituisce già `millisOfDay` e perché evita una
+  divisione che reintrodurrebbe la virgola mobile. Conseguenza visibile: i punteggi pinnati nel test
+  sono `3_600_001` e `1_200_000`.
+- **`instant.ts` sta in `domain/`, non in `usecases/`.** T04 ("partenza nel passato") avrà bisogno
+  dello stesso parser: due implementazioni della stessa regola in due punti è il modo in cui divergono —
+  la stessa lezione già scritta per `makeTrip` e le regole di creazione di T04.
+- **T03 ha toccato un file di T01.** Il commento di `Trip.departureAt` mostrava un esempio con offset
+  `+01:00`, cioè la forma che questo task rende invalida: un commento che pubblicizza la forma sbagliata
+  è una trappola, e correggerlo nel task che ha creato la divergenza è la scelta giusta.
+
+### Il punteggio è a dominanza, non a somma pesata
+
+`score = finestra − delta + (stessoPlant ? finestra+1 : 0)`, tutto intero.
+
+Il criterio "l'offerta con stesso plant di appartenenza precede quella con plant diverso" è enunciato
+**senza condizioni**. Con pesi configurabili sarebbe vero solo finché il peso del plant supera
+l'escursione della vicinanza oraria: chi un domani abbassasse quel numero in `config/` invertirebbe la
+semantica di un criterio di accettazione **con tutti i test verdi**, perché i test usano fixture di
+config e non i valori di produzione. Il bonus è quindi derivato dalla finestra e non configurabile.
+
+Il reviewer ha verificato l'algebra: la dominanza è violata solo se `finestra + 1 + dy ≤ dx`, ma il
+vincolo duro impone `dx ≤ finestra` e `dy ≥ 0` — contraddizione per **ogni** input accettato. Nessun
+valore di `toleranceMinutes` la rompe, overflow compreso.
+
+### Ambiguità di `TASKS.md` risolta per interpretazione
+
+"Ordinamento **stabile** a parità di punteggio" e "**nessuna dipendenza dall'ordine di input**" sono in
+tensione: un sort stabile *conserva* l'ordine di input, cioè ne dipende. Si è adottato un **ordine
+totale** con `tripId` come ultima chiave, perché è l'unica lettura in cui il criterio ha un test capace
+di fallire: stesso insieme, input permutato, output identico. Su Postgres, poi, l'ordine delle righe
+senza `ORDER BY` non è garantito: senza ultima chiave la lista si riordinerebbe fra due aperture della
+stessa schermata, e si presenterebbe come "l'app è instabile" invece che come un bug del matching.
+
+### Le due sonde
+
+- **Campo di `MATCH_CONFIG` rinominato** → `tsc` rosso con `TS2741: Property 'toleranceMinutes' is
+  missing`. Il legame tipo↔valori esiste davvero.
+- **`new Date()` dentro `find-matches.ts`** → lint rosso con il messaggio sull'orologio.
+
+Il reviewer ha verificato anche il presupposto della prima: `tsc --listFiles` include i file di test,
+quindi la protezione è reale. E ha delimitato la seconda: il selettore cattura `new Date()` e
+`Date.now()`, **non** `Date.parse` né `Date.UTC`. Il criterio dice "verificato dal lint", ma la
+copertura vera è distribuita su tre step di `verify` — lint per l'orologio, la guardia di `test:unit`
+per la rete, Metro che non risolve `node:fs` per il filesystem. Nel complesso più forte di quanto il
+criterio chieda, ma non per il meccanismo che il criterio nomina.
+
+### Bocciatura al primo round, per una trappola che avevo creato io
+
+Il reviewer ha approvato il motore riga per riga e ha bocciato per **tre cose fuori dai file nuovi**:
+
+1. **La fixture `trasfertaValida` di T01 usava ancora `+01:00`.** Avevo ristretto il contratto di
+   `Trip.departureAt` a UTC, corretto il commento, e lasciato il controesempio una riga sotto — nel
+   punto dove fa danno. Chi scriverà T04 parte da quella fixture perché si chiama "valida": avrebbe
+   confrontato un offset con una `Z` ottenendo una risposta sbagliata e plausibile, test verde.
+   Nessuna asserzione dipendeva da quei due valori, il che è anche la prova che **nessun test oggi
+   pinna il formato di `departureAt` su `Trip`**.
+2. **Nessuna voce di esecuzione in `PROGRESS.md`** — la seconda volta dopo T02. La regola è vincolante
+   e l'osservabilità sta sopra la performance nella gerarchia. Non è ambiguità: è disattenzione mia,
+   due volte sullo stesso adempimento.
+3. Le 15 caselle di `TASKS.md` da spuntare.
+
+**Prossimo passo:** T04 (creazione trasferta). Vincolo che gli arriva da qui: deve **delegare** a
+`makeTrip` per gli invarianti e usare `parseUtcInstant` per la data nel passato, non riscrivere né
+l'uno né l'altro. E deve normalizzare gli istanti in scrittura, altrimenti produce dati che il motore
+di matching ometterà in silenzio.
+
+---
+
+## 2026-10-12 — T03 · **PIANIFICAZIONE** (nessun codice scritto) ⛔ in attesa di approvazione
+
+Il planner ha scomposto T03 in sei step. Il piano completo è nella risposta in chat; qui restano le
+decisioni e i checkpoint, perché vincolano il developer e vanno ritrovati senza rileggere la chat.
+
+**Tre nodi sciolti, con ciò che ne consegue**
+
+1. **La firma di `ARCHITECTURE.md` non basta.** Due criteri parlano delle candidature già esistenti del
+   richiedente, che `findMatches(richiesta, offerte, config)` non riceve. Proposto un **quarto
+   parametro** `candidature: readonly MatchRequest[]`, con `config` ultimo, e il ritorno che diventa
+   `Result<readonly ScoredMatch[], MatchError>` (serve un canale d'errore per l'istante non
+   normalizzato e per la config incoerente). Scartato infilarle dentro `TripRequest`: sono un'altra
+   entità, con un altro repository e un altro ciclo di vita, e l'oggetto andrebbe assemblato comunque.
+   **Entrambe le modifiche richiedono di aggiornare `ARCHITECTURE.md` § "Il motore di matching":
+   checkpoint umano, il piano non parte prima.**
+
+2. **`TripRequest` non è un buco di T01.** T01 ha consegnato le sei entità elencate nei suoi criteri;
+   `TripRequest` compare solo nella firma del motore. Va definito in T03, in
+   `core/domain/trip-request.ts`, come **proiezione simmetrica a `SeatOffer`**: solo i campi che
+   partecipano ai vincoli duri e al punteggio (`requesterId`, `requesterPlantId`, `fromPlantId`,
+   `toPlantId`, `departureAt`). Chi lo costruisce da un `Trip` è affare di T13, non di T03.
+
+3. **`MatchConfig`: il tipo nel core, i valori in `config/`.** Verificato su `eslint.config.js` e non
+   assunto: il grafo permette `usecases → config`, mentre `ARCHITECTURE.md` e il commento di
+   `core/usecases/index.ts` dicono "dipende SOLO da domain/ e ports/". **I due documenti e il lint non
+   concordano, e la cosa va decisa dall'umano.** Il piano tiene la riga stretta: il codice di
+   produzione del core **non** importa `config/` (riceve la config come parametro); l'unico arco
+   `usecases → config` vive in un test di conformità, che è ciò che rende verificabile dalla macchina
+   la regola "niente valori magici" — senza di esso `config/` esporterebbe un oggetto che nessuno
+   confronta con il tipo, perché `config/` non può importare il core.
+
+**Decisione di progetto che vale la pena ritrovare:** la dominanza fra "stesso plant" e "orario più
+vicino" è ottenuta **per costruzione** e non con pesi configurabili. `proximityPoints = tolleranza_s −
+delta_s` (intero, 0..tolleranza_s) e il bonus di plant è `tolleranza_s + 1`: il caso peggiore con lo
+stesso plant batte sempre il caso migliore con plant diverso. Niente float (nessuna parità finta,
+nessun epsilon) e nessun peso che un domani qualcuno possa abbassare in `config/` invertendo in
+silenzio la semantica di un criterio di accettazione.
+
+**Ambiguità in `TASKS.md` risolta per interpretazione:** "ordinamento stabile a parità di punteggio"
+e "nessuna dipendenza dall'ordine di input" sono in tensione — un sort stabile *conserva* l'ordine di
+input. Si adotta un **ordine totale** con `tripId` come ultima chiave: è l'unica lettura in cui il
+criterio ha un test capace di fallire (stesso insieme di offerte permutato → output identico).
+
+**Tre proposte annotate in `IDEAS.md`**, nessuna implementata: sovrapposizione del rientro nel
+punteggio (richiede `returnAt` su `SeatOffer`, che non esiste), istante normalizzato come tipo
+brandizzato, esclusione delle offerte già partite.
+
+**Domanda aperta all'umano, di prodotto e non di codice:** una candidatura `rejected` non blocca il
+match (il PRD parla di "pendente o accettata"), quindi `findMatches` ripropone l'offerta — ma T05 ha
+il criterio "doppia candidatura sulla stessa offerta → rifiutata". Se T05 lo legge come "esiste già una
+riga", il collega vede un match, si candida e riceve un errore. Da decidere entro T05.

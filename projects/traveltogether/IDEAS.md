@@ -30,6 +30,27 @@ Stati: `proposta` (default, scritto dall'agente) · `accettata` / `rifiutata` / 
 Voci nate durante la Fase 0, tutte derivate da tagli di scope decisi con te.
 Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate per non perderle.
 
+### Normalizzare l'istante al confine dell'adapter — ⚠️ rischio concreto per T09
+- **Cosa** — aggiungere a T09 il criterio di accettazione: *la suite di contratto verifica che `listOpenOffers` restituisca istanti accettati da `parseUtcInstant`*.
+- **Perché** — rilievo del reviewer su T03, ed è il più urgente dell'elenco. PostgREST serializza un `timestamptz` come `2026-11-03T06:00:00+00:00` (offset, non `Z`) e con precisione al **microsecondo**. Entrambe le forme vengono rifiutate dal parser, e `findMatches` risponde a un istante illeggibile omettendo l'offerta: a T09 **ogni** offerta proveniente da Supabase sparirebbe in silenzio e il motore tornerebbe `ok([])` — "nessun collega compatibile", indistinguibile da un risultato legittimo. È esattamente lo scenario che il `Result` è stato introdotto per evitare, aggirato dal lato dell'offerta.
+- **Impatto** — `adapters/supabase` e la suite di contratto. Il buco si chiude dove va chiuso, nell'adapter, e `findMatches` resta pura. Estende la voce "Istante normalizzato UTC come tipo brandizzato": va scritta come sua continuazione, non come doppione.
+- **Costo** — S se affrontata dentro T09, M se scoperta dopo.
+- **Stato** — proposta
+
+### Rendere l'unicità dei `tripId` una garanzia della macchina
+- **Cosa** — o `findMatches` ritorna un `MatchError` `duplicate-offer-id`, o il port dichiara l'unicità e la suite di contratto la verifica.
+- **Perché** — rilievo del reviewer su T03: l'ordine totale usa `tripId` come ultima chiave, quindi se due offerte lo condividessero il comparatore tornerebbe `0` e il criterio "nessuna dipendenza dall'ordine di input" cadrebbe per quella classe di input — oltre a mostrare la stessa trasferta due volte. Oggi la precondizione è dichiarata nel doc, garantita a monte da uno storage indicizzato per id, e **non verificata da nessun test**: è un presupposto non protetto in una funzione il cui output pilota una schermata.
+- **Impatto** — `core/usecases/find-matches.ts` oppure `adapters/contract`. Reversibile.
+- **Costo** — S.
+- **Stato** — proposta
+
+### Stringere il lint su `config/` e sull'orologio
+- **Cosa** — due regole: togliere `'config'` da `GRAFO.usecases` riammettendolo solo per `src/core/**/*.test.ts`; ed estendere il selettore anti-orologio a `MemberExpression[object.name='Date']`.
+- **Perché** — rilievo del reviewer su T03. La prima: la regola "il core di produzione non importa `config/`" è oggi affidata al giudizio di chi rivede, ma `CLAUDE.md` dice che dove è esprimibile come lint deve imporla il lint — e qui lo è. La seconda: il selettore attuale cattura `new Date()` e `Date.now()`, ma lascia passare `Date.parse` e `Date.UTC`; sono deterministici, però `Date.parse` su forme non-ISO è *implementation-defined* e Hermes e V8 non si comportano allo stesso modo — cioè proprio la scorciatoia che `instant.ts` esiste per evitare.
+- **Impatto** — `app/eslint.config.js`. Reversibile. Da provare violando entrambe le regole, come per F1.4.
+- **Costo** — S.
+- **Stato** — proposta
+
 ### Preferenza di matching per genere
 - **Cosa** — filtro opzionale per condividere l'auto solo con colleghi dello stesso genere.
 - **Perché** — il documento la cita come leva di adozione per gli utenti più riservati, ed è un bisogno reale su un viaggio di 2–3 ore con uno sconosciuto.
@@ -118,6 +139,27 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Cosa** — estendere le deny rules da `./.claude/**` a `**/.claude/**` e `**/AGENTS.md`, così la prima rete copre anche le cartelle di configurazione che arrivano dentro un pacchetto scaricato.
 - **Perché** — scoperto in F1.3: il template Expo crea `app/.claude/settings.json` (che abilita un plugin di Claude Code) e `app/AGENTS.md` (istruzioni all'agente). Le deny rules attuali usano percorsi relativi alla radice e **non** li coprono; li ha intercettati solo l'hook, che fa match sulla sottostringa `.claude/settings` ovunque compaia. Le reti sovrapposte hanno funzionato — ma una delle due aveva un buco, e conviene chiuderlo invece di contare sull'altra.
 - **Impatto** — solo `.claude/settings.json` dell'officina. Reversibile. Nessun effetto sul codice applicativo. Da valutare se il rumore sui falsi positivi (ogni pacchetto che spedisce un `AGENTS.md`) valga la copertura.
+- **Costo** — S.
+- **Stato** — proposta
+
+### Sovrapposizione del rientro come terza componente di punteggio
+- **Cosa** — aggiungere `returnAt` a `SeatOffer` e usare la sovrapposizione della durata della trasferta nel punteggio di `findMatches`, con pesi dichiarati in `config/`.
+- **Perché** — il `PRD.md` elenca **tre** componenti di punteggio morbido (vicinanza dell'orario, sovrapposizione della durata, stesso plant di appartenenza), ma `SeatOffer` espone solo `departureAt`: la seconda è oggi inesprimibile e i criteri di T03 in `TASKS.md` non la citano. Chi legge il PRD e poi il codice trova una componente mancante senza spiegazione. Sul prodotto conta: due colleghi che partono insieme ma rientrano a tre giorni di distanza condividono solo l'andata, e il punteggio oggi non lo distingue.
+- **Impatto** — `core/domain/seat-offer.ts` (campo nuovo), `TripRepository.listOpenOffers` e i due adapter (la proiezione deve portare `returnAt`), `findMatches` e la suite di contratto. **Rompe l'interfaccia `SeatOffer`**: dopo T09 è un checkpoint ⛔. Richiede anche di rendere espliciti i pesi fra le tre componenti, che oggi non esistono perché la dominanza fra plant e orario è ottenuta per costruzione.
+- **Costo** — M.
+- **Stato** — proposta
+
+### Istante normalizzato UTC come tipo brandizzato
+- **Cosa** — un tipo `Instant` (stringa brandizzata) prodotto da un unico parser in `core/domain`, al posto di `departureAt: string` su `Trip`, `SeatOffer` e `TripRequest`.
+- **Perché** — la decisione di T02 (`PROGRESS.md`) è che il confronto lessicografico fra istanti è corretto **solo** su stringhe normalizzate UTC con la `Z`: `2026-11-03T07:00:00+01:00` e `2026-11-03T06:00:00Z` sono lo stesso istante e due stringhe diverse. Oggi il tipo è `string`, quindi la garanzia vive nelle convenzioni e in un controllo a runtime ripetuto da ogni consumatore (T03 lo fa, T04 dovrà rifarlo). Con un tipo brandizzato la validazione avviene una volta al confine e il compilatore impedisce di confrontare una stringa non normalizzata. È la variante dell'idea "`Trip` come tipo opaco" applicata al tempo, dove l'errore è più insidioso perché il dato *sembra* giusto.
+- **Impatto** — `core/domain` (nuovo modulo + tre entità), ogni adapter che materializza entità, i fixture dei test. Reversibile ma **rompe le firme**: dopo T02 è un checkpoint ⛔.
+- **Costo** — M.
+- **Stato** — proposta
+
+### Escludere dai match le offerte già partite
+- **Cosa** — far sparire dalle proposte le offerte il cui `departureAt` è nel passato, decidendo **dove**: un vincolo in più in `findMatches` con l'istante passato come dato, oppure un filtro nell'orchestratore che legge il `Clock`.
+- **Perché** — `findMatches` è pura e non ha orologio per scelta, quindi oggi un'offerta di ieri resta un match valido a tempo indeterminato. T04 impedisce di *creare* una trasferta nel passato, ma non impedisce al tempo di passare dopo la creazione: con il seed di T17 e una demo mostrata giorni dopo, la schermata dei match può proporre un viaggio già avvenuto. Nessuno dei tredici criteri di T03 lo copre, quindi non è un difetto di T03 — è una decisione mancante.
+- **Impatto** — se entra in `findMatches`, cambia la firma (quarto/quinto parametro) e va deciso prima che T13 dipenda dalla forma; se resta nell'orchestratore, nessuna firma cambia ma la regola finisce fuori dal core, dove nessun test puro la copre. Reversibile.
 - **Costo** — S.
 - **Stato** — proposta
 

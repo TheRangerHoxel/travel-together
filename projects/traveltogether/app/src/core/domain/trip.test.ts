@@ -10,8 +10,13 @@ function trasfertaValida(modifiche: Partial<Trip> = {}): Trip {
     ownerId: 'profile-1',
     fromPlantId: 'pomigliano',
     toPlantId: 'foggia',
-    departureAt: '2026-11-03T07:30:00+01:00',
-    returnAt: '2026-11-05T17:00:00+01:00',
+    // Forma canonica UTC con la Z, come prescrive il contratto di Trip.
+    // Prima di T03 erano scritti con offset `+01:00`: nessuna asserzione di questo
+    // file dipende dai due valori, quindi la cosa non rompeva niente qui — ma era
+    // la base da cui T04 avrebbe copiato, e il confronto lessicografico fra un
+    // offset e una Z da' risposte sbagliate e plausibili.
+    departureAt: '2026-11-03T06:30:00.000Z',
+    returnAt: '2026-11-05T16:00:00.000Z',
     hasCar: true,
     seatsTotal: 3,
     seatsAvailable: 3,

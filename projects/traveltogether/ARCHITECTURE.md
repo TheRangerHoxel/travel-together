@@ -123,6 +123,17 @@ Una sola direzione: `ui/` → `usecases/` → `ports/` ← `adapters/`. Niente i
 **Queste regole le impone il lint** (`eslint-plugin-boundaries`), non il giudizio di chi rivede.
 Una violazione fa fallire `verify`: non apre una discussione.
 
+**Un punto in cui lint e documento non coincidono, e come si risolve.** Il lint permette
+`core/usecases → config/`; questo documento dice che gli usecase dipendono **solo** da `domain/` e
+`ports/`. Vince il documento, di fatto: **il codice di produzione del core non importa `config/`**, i
+valori entrano come parametro, e il core resta compilabile ed eseguibile senza `config/`.
+
+L'unico arco che esiste davvero vive in un **test di conformità** dentro `core/usecases`, che importa
+i valori reali e li lega al tipo. Serve a una cosa sola: far diventare rosso `tsc --noEmit` se i
+valori in `config/` divergono dal tipo che il core si aspetta. Senza, `config/` esporterebbe un
+oggetto che nessuno confronta con niente, e un campo rinominato arriverebbe a runtime come
+`undefined` — che nei conti diventa `NaN`, e `NaN` fa fallire ogni confronto in silenzio.
+
 ### Dependency inversion sui punti che cambieranno
 
 Lo storage è il punto che cambierà. Oggi è Supabase; domani potrebbe essere un DB aziendale, o SAP
@@ -151,12 +162,34 @@ eleganza: è la ragione per cui il sistema automatico è contenibile.
 findMatches(
   richiesta: TripRequest,
   offerte: readonly SeatOffer[],
+  candidature: readonly MatchRequest[],
   config: MatchConfig
-): readonly ScoredMatch[]
+): Result<readonly ScoredMatch[], MatchError>
 ```
 
 **Funzione pura.** Nessun I/O, nessuna rete, nessun orologio. Date e orari arrivano come dati, la
 configurazione come parametro. Determinismo totale: stessi input, stesso output, sempre.
+
+**Modifica alla firma, decisa in T03 e approvata dall'umano.** La versione di Fase 0 aveva tre
+parametri e ritorno diretto. Due cambi:
+
+- **`candidature`** — due criteri di accettazione di T03 escludono un'offerta se il richiedente ha già
+  una candidatura `pending` o `accepted` su di essa. La firma a tre parametri non riceveva quel dato,
+  quindi non poteva soddisfare due dei suoi stessi criteri. Le candidature entrano come dato, non da
+  un port: la purezza resta intatta e `[]` è il caso di default. **Il filtro su quali stati bloccano
+  resta dentro il core**: passare un insieme di id già pre-filtrato sposterebbe una regola di dominio
+  nel chiamante, cioè in UI o in un adapter.
+- **`Result`** — un `departureAt` malformato o una tolleranza incoerente devono essere distinguibili
+  da "nessun collega compatibile". Senza canale d'errore si presenterebbero come lista vuota, e in
+  demo sarebbero indistinguibili da un risultato legittimo.
+
+**Il punteggio è a dominanza, non a somma pesata.** Il criterio "l'offerta con stesso plant di
+appartenenza precede quella con plant diverso" è enunciato senza condizioni. Con pesi configurabili
+sarebbe vero solo finché il peso del plant supera l'escursione della vicinanza oraria: chi un domani
+abbassasse quel peso in `config/` invertirebbe la semantica di un criterio di accettazione **con tutti
+i test verdi**, perché i test usano fixture di config e non i valori di produzione. Il bonus di plant
+è quindi derivato dalla finestra di tolleranza, non configurabile, e tutta l'aritmetica è intera —
+niente parità finte da virgola mobile.
 
 È il pezzo di maggior valore del prodotto, quindi è anche quello che riceve la verifica più forte:
 una tabella di casi che copre ogni vincolo duro, ogni confine (esattamente al limite della finestra di
