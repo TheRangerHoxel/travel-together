@@ -65,6 +65,34 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Costo** — M.
 - **Stato** — proposta
 
+### Le letture di lista omettono le righe invalide invece di passarle
+- **Cosa** — nei repository, far saltare dalle liste le righe che violano gli invarianti di dominio, come già si fa per l'offerta con owner senza profilo.
+- **Perché** — rilievo del reviewer su T02. Oggi `findById` valida ma le liste no, quindi l'enunciato "un `Trip` che arriva da un port è valido" è vero per una lettura e falso per l'altra. Il caso concreto che lo rende serio: `listOpenOffers` proietta senza validare, quindi una riga corrotta con `seatsTotal: 2` e `seatsAvailable: 5` diventa **un'offerta pubblicata con cinque posti**, entra in `findMatches` e ci resta — e il collega scopre il problema quando si candida. Omettere tiene insieme il degrado proporzionato e la garanzia che ciò che attraversa il port è valido.
+- **Impatto** — `adapters/*`. Nessun cambio di interfaccia. Il costo è la perdita silenziosa, cioè lo stesso problema di osservabilità della voce qui sotto.
+- **Costo** — S.
+- **Stato** — proposta
+
+### Port di osservabilità (`Logger` / `Telemetry`)
+- **Cosa** — un port per registrare i degradi silenziosi, con adapter console in sviluppo.
+- **Perché** — rilievo del reviewer su T02: esistono già tre rami che degradano **senza lasciare traccia** — l'offerta con owner mancante omessa, la riga invalida che attraversa una lista, lo `storage-unavailable` tradotto. In tutti e tre non manca il tipo d'errore: manca il canale per accorgersene. In una demo dal vivo, un'offerta che sparisce senza spiegazione è indistinguibile da un bug del matching.
+- **Impatto** — nuovo port in `core/ports`, adapter in `adapters/`. Non rompe interfacce esistenti. Si lega alla voce "hook di guasto nella suite di contratto".
+- **Costo** — M.
+- **Stato** — proposta
+
+### CHECK constraint nel DB a specchio degli invarianti di `Trip`
+- **Cosa** — in T08, vincoli SQL che replicano gli invarianti di `makeTrip`: `has_car = false ⇒ seats_total = 0`, `seats_available BETWEEN 0 AND seats_total`.
+- **Perché** — rilievo del reviewer su T02: oggi quegli invarianti vivono solo in `makeTrip`, cioè nel client. Nel DB nulla impedisce la riga che li viola — una migrazione, uno script di seed o una query eseguita a mano la inserirebbero senza resistenza. T05 ha già un criterio su due accettazioni concorrenti che non devono portare i posti sotto zero: la difesa definitiva su quello è lato DB, non lato client.
+- **Impatto** — migrazioni SQL di T08. Reversibile. Nessun effetto sul codice TypeScript.
+- **Costo** — S, e va deciso dentro T08 che è già un checkpoint ⛔.
+- **Stato** — proposta
+
+### Hook di guasto nella suite di contratto
+- **Cosa** — aggiungere `guasta()` / `ripristina()` ad `AmbienteDiContratto` e un test di contratto che verifichi il ramo `storage-unavailable` su entrambi gli adapter.
+- **Perché** — rilievo del reviewer su T02: il percorso d'errore dei repository è **l'unico comportamento del port che nessun test tocca**. Oggi `storage-unavailable` è dichiarato nel tipo ma non prodotto né asserito da nessuna parte, quindi non sappiamo se i due adapter lo tratterebbero allo stesso modo — ed è proprio il caso che si manifesterà in demo, con il proxy aziendale di mezzo.
+- **Impatto** — `adapters/contract` e l'ambiente di ciascun adapter. Reversibile, non rompe interfacce.
+- **Costo** — S su memory, M su supabase (serve un modo di simulare il guasto).
+- **Stato** — proposta
+
 ### `Trip` come tipo opaco, per rendere il costruttore inaggirabile
 - **Cosa** — separare `TripFields` (campi grezzi, input) da `Trip` (tipo brandizzato, output di `makeTrip`), così il compilatore impedisce di costruire un `Trip` saltando la validazione.
 - **Perché** — rilievo del reviewer su T01: oggi `makeTrip(campi: Trip): Result<Trip, …>` ha input e output dello stesso tipo, quindi qualunque modulo può scrivere un letterale e aggirare gli invarianti. Il commento nel codice ora lo dichiara, ma una raccomandazione non è una garanzia. Conta soprattutto per gli adapter, che materializzano `Trip` da storage: un record invalido che arriva dal DB non è meno invalido di uno scritto a mano.

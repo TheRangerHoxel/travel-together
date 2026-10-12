@@ -1,6 +1,12 @@
-// core/ports — solo interfacce e tipi, nessuna implementazione.
-// TripRepository, MatchRequestRepository, ProfileRepository, SessionGateway, Clock.
-// E' il punto di inversione: il core dipende da qui, mai dagli adapter.
-// Popolato in T02.
+// core/ports — SOLO interfacce e tipi, nessuna implementazione.
+//
+// E' il punto di inversione delle dipendenze: il core dipende da qui, gli adapter
+// implementano. Lo storage e' il punto che cambiera' (oggi Supabase, domani un DB
+// aziendale o SAP): il core deve dipendere da TripRepository, non da Supabase.
 
-export {};
+export type { Clock } from './clock';
+export type { RepositoryError } from './repository-error';
+export type { TripRepository } from './trip-repository';
+export type { MatchRequestRepository } from './match-request-repository';
+export type { ProfileRepository } from './profile-repository';
+export type { Session, SessionError, SessionGateway } from './session-gateway';

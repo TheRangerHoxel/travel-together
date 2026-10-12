@@ -140,11 +140,11 @@ più gli stati come union type. Zero I/O.
 Interfacce in `core/ports` e implementazione in RAM in `adapters/memory`.
 
 **Criteri di accettazione**
-- [ ] Esistono `TripRepository`, `MatchRequestRepository`, `ProfileRepository`, `SessionGateway`, `Clock`
-- [ ] `core/ports` contiene **solo** interfacce e tipi, nessuna implementazione
-- [ ] L'adapter memory soddisfa una suite di test di contratto, la stessa che userà l'adapter Supabase
-- [ ] La suite di contratto gira senza rete
-- [ ] `Clock` è iniettabile e un test lo sostituisce con un orologio fisso
+- [x] Esistono `TripRepository`, `MatchRequestRepository`, `ProfileRepository`, `SessionGateway`, `Clock`
+- [x] `core/ports` contiene **solo** interfacce e tipi, nessuna implementazione
+- [x] L'adapter memory soddisfa una suite di test di contratto, la stessa che userà l'adapter Supabase
+- [x] La suite di contratto gira senza rete
+- [x] `Clock` è iniettabile e un test lo sostituisce con un orologio fisso
 
 ## T03 Motore di matching — **il cuore**
 

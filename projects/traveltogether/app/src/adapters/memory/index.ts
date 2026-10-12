@@ -1,6 +1,7 @@
-// adapters/memory — implementa i port in RAM.
-// Non e' un artificio di test: e' la prova che l'inversione delle dipendenze funziona.
-// Se il core gira interamente in memoria, allora non e' accoppiato alla rete.
-// Popolato in T02.
+// adapters/memory — implementa i port in RAM: test veloci, offline, deterministici.
 
-export {};
+export { FixedClock } from './fixed-clock';
+export { MemoryTripRepository } from './memory-trip-repository';
+export { MemoryMatchRequestRepository } from './memory-match-request-repository';
+export { MemoryProfileRepository } from './memory-profile-repository';
+export { MemorySessionGateway } from './memory-session-gateway';

@@ -712,3 +712,138 @@ derivazione di `PlantId`/`BadgeId` dai rispettivi array, classificazione dell'er
 sia auto sia capienza.
 
 **Prossimo passo:** T02 (port e adapter memory), che introduce la suite di contratto condivisa.
+
+---
+
+## 2026-10-12 — T02 · Port e adapter memory · **COMPLETO dopo due bocciature** ✅
+
+| Criterio | Risultato |
+|---|---|
+| Esistono i 5 port | ✅ `TripRepository`, `MatchRequestRepository`, `ProfileRepository`, `SessionGateway`, `Clock` |
+| `core/ports` solo interfacce e tipi | ✅ `index.ts` usa solo `export type`: non emette runtime |
+| Suite di contratto condivisa, la stessa che userà Supabase | ✅ dopo due round di correzioni, vedi sotto |
+| La suite gira senza rete | ✅ **imposto** dalla guardia in `jest.setup.unit.js`, non promesso |
+| `Clock` iniettabile, sostituito da un orologio fisso | ✅ stessa domanda, esiti opposti al variare dell'orologio |
+
+`verify` verde: 45 test unitari in 5 suite.
+
+**Il reviewer ha bocciato due volte. Entrambe aveva ragione, e il `verify` era verde entrambe le volte.**
+
+### Round 1 — sei bloccanti
+
+Il più grave era invisibile ai test: `MemoryTripRepository` **fabbricava** `ownerPlantId` con un
+ripiego sul plant di partenza, e il metodo che avrebbe dovuto popolarlo non era chiamato da nessuna
+parte. Quindi *ogni* offerta usciva con un valore inventato, e nessuna asserzione guardava quel campo.
+Avrebbe fatto danno a T03: il criterio "l'offerta con stesso plant di appartenenza precede quella con
+plant diverso" sarebbe stato scritto e verificato su un dato inventato — plausibile, quindi invisibile.
+
+Correzione: join vera attraverso il port `ProfileRepository`, semantica di **inner join** (profilo
+mancante → offerta omessa, nessun ripiego). Test con un collega che appartiene a Foggia e parte da
+Pomigliano: col vecchio codice è rosso.
+
+Gli altri cinque: `AmbienteDiContratto` che non reggeva Supabase, test che non potevano fallire, il
+gateway con i codici disattivati in una struttura separata, doc dei port che promettevano
+comportamenti inesistenti, adapter che non passava da `makeTrip` nonostante T01 lo prescrivesse.
+
+### Round 2 — due residui della stessa famiglia, più un'inadempienza di processo
+
+I due residui riguardavano l'**identità** con cui la suite opera. `comeUtente` è un no-op in RAM, e
+un no-op non esercita pressione: due blocchi di test assumevano uno stato di sessione mai richiesto
+e scrivevano candidature a nome di un collega diverso dall'autenticato. Su Postgres la policy
+sensata è `requester_id = auth.uid()`, quindi a T09 ci saremmo trovati davanti a due strade, entrambe
+cattive: modificare la suite (violando il criterio) **oppure allentare la policy per far passare i
+test**. La seconda è il modo in cui nascono le fughe di dati.
+
+Regola adottata e applicata ovunque: *ogni scrittura è eseguita dall'identità che possiederà la riga,
+ogni lettura dall'identità che il doc del port dichiara di servire; nessun test assume uno stato di
+sessione che non ha chiesto.*
+
+**L'inadempienza è mia e non ha attenuanti:** non avevo aggiornato questo file per T02, né nel primo
+round né nel secondo, mentre per T01 l'avevo fatto. L'osservabilità è terza nella gerarchia di
+`CLAUDE.md`, sopra la performance, e la regola dice "a ogni ciclo". L'ha trovata il reviewer.
+
+### Decisioni di progetto, da ritrovare senza rileggere i diff
+
+1. **`ProfileRepository` non ha `save`.** Su Supabase i profili nascono da `auth.users` via trigger, e
+   un client che inserisse una riga `profiles` con id arbitrario verrebbe respinto dalle RLS. Metterci
+   un `save` avrebbe significato scrivere un metodo che l'adapter vero non può onorare. Il
+   provisioning è amministrazione, e passa dall'ambiente di test, non dal port.
+
+2. **`Clock.now()` è ISO 8601 normalizzato UTC, con la `Z`.** Il dominio confronta gli istanti come
+   stringhe, e il confronto lessicografico coincide con quello cronologico **solo** a offset uguale:
+   `2026-11-03T07:00:00+01:00` e `2026-11-03T06:00:00Z` sono lo stesso istante ma due stringhe
+   diverse. Funzionava per caso, perché tutte le fixture usavano `+01:00`. T03 (finestra di
+   tolleranza, confine incluso) e T04 (partenza nel passato) ci si fondano.
+
+3. **La validazione avviene al confine dello storage.** `save` valida prima di scrivere e rifiuta con
+   `invalid-record` lasciando lo storage intatto; `findById` valida in lettura, perché un record
+   invalido che arriva dal DB non è meno invalido di uno scritto a mano — ed è lì che si presenterà
+   davvero. Le letture di **liste** non validano riga per riga, deliberatamente: far fallire
+   un'intera schermata per una riga incoerente è un degrado sproporzionato.
+
+4. **Gli id hanno forma uuid anche in RAM.** `'trip-1'` non è inseribile in una colonna uuid, e su
+   Postgres un id malformato non dà `not-found` ma un errore di sintassi — cioè il test "su id
+   inesistente ritorna not-found" sarebbe caduto a T09, sull'adapter, non sul codice.
+
+5. **`listOpenOffers` è una proiezione, non una ricerca.** Nessun filtro su plant, data od orario:
+   quelli sono i vincoli duri del matching e stanno in `findMatches`, funzione pura. Nessun filtro su
+   `hasCar`: per invariante di `Trip`, posti disponibili implicano l'auto, e un predicato
+   irraggiungibile non è difesa — è codice che nessun test può coprire.
+
+6. **Due vincoli scritti nel doc del port per T08**, perché non vengano riscoperti a mano: le RLS su
+   `trips` devono permettere la lettura delle offerte pubblicate di tutti i colleghi (altrimenti
+   `findMatches` non vede nulla e la suite, in RAM, non se ne accorge), e serve la foreign key
+   `trips.owner_id -> profiles.id` (senza, l'omissione dell'inner join diventa perdita silenziosa).
+
+### Quello che la suite di contratto NON prova, e va detto
+
+**Non dà, e non può dare, alcuna evidenza sulle RLS.** Prova che il port è onorabile dall'identità
+giusta. La verifica delle policy è `test:int` su staging, ed è un criterio di T08. Chi legge un verde
+di `test:unit` non deve concluderne che le policy funzionano.
+
+Due test sono **specifici dell'adapter memory**, fuori dalla suite condivisa: il ramo "profilo
+mancante" e il ramo "lo storage contiene già un record invalido". Su Postgres saranno irraggiungibili
+per foreign key e CHECK constraint, quindi un test condiviso non potrebbe nemmeno costruirli — ma in
+RAM quei rami esistono, e un ramo che nessun test tocca è un ramo di cui non sappiamo nulla.
+
+### Round 3 — approvato, con un residuo segnalato come circuit breaker
+
+Il reviewer ha **approvato** i cinque criteri, ma ha registrato un residuo della stessa famiglia delle
+due bocciature precedenti e l'ha segnalato all'umano invece di bocciare una terza volta, come
+prescrive la regola. Il circuit breaker non è scattato nel senso stretto — c'è stato progresso reale a
+ogni round, e la ragione della bocciatura è cambiata ogni volta — ma la **famiglia** del problema era
+la stessa per tre giri: *l'identità con cui la suite di contratto opera*.
+
+Il residuo: il test di upsert sulle candidature scriveva la transizione `pending → accepted`
+dall'identità del **richiedente**. T05 dice esplicitamente che accettare spetta solo a chi offre, e
+"un altro utente riceve errore". Su Supabase quella scrittura sarebbe respinta, e a T09 ci sarebbero
+state due strade, entrambe cattive: modificare la suite, o **allentare la policy RLS per far passare
+il test**.
+
+**Corretto subito invece di rimandarlo.** La transizione provata è ora `pending → cancelled`, che
+appartiene senza ambiguità al richiedente e prova l'upsert altrettanto bene. Non è stato un quarto
+round di review: la correzione era già specificata, e spedire un test che mette pressione su T08
+perché scriva una policy più larga sarebbe stato un debito pagato in sicurezza.
+
+Chiusi anche i tre rilievi minori: le scritture di setup pretendono `ok` anche nei test
+memory-specifici; documentato perché `MemoryMatchRequestRepository.findById` non valida (`MatchRequest`
+non ha invarianti in T01, quindi non è una dimenticanza); e scritto nel doc di `seminaGrezzo` che **il
+seed di T17 non deve usarlo** — è la porta sul retro che qualcuno sarà tentato di usare perché più
+diretta, scavalcando il confine di validazione appena stabilito.
+
+### Il tetto di ciò che una suite condivisa può dimostrare
+
+Due osservazioni del reviewer che non sono difetti ma vanno capite:
+
+- `toHaveLength(1)` nel test di upsert **non può fallire in RAM** (la `Map` è indicizzata per id), ma
+  può fallire su Supabase, dove una `insert` invece di una `upsert` darebbe due righe o una violazione
+  di chiave. Un'asserzione che non può fallire su un adapter ma può sull'altro è legittima in una
+  suite condivisa: è diverso da una che non può fallire da nessuna parte.
+- `listByRequester`, letto come il richiedente, su Supabase sarebbe soddisfatto **anche da un adapter
+  che ignora il parametro**, perché a filtrare sarebbero le RLS. Non si può fare meglio da qui: la
+  costruzione inversa verrebbe bloccata dalla policy. È un'altra faccia del fatto che la suite non
+  prova nulla sulle policy.
+
+**Prossimo passo:** T03, il motore di matching. È il pezzo di maggior valore del prodotto e ha tredici
+criteri su tre dimensioni (vincoli duri, punteggio, purezza): è il primo task che merita davvero il
+planner.
