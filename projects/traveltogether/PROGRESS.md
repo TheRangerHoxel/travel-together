@@ -943,6 +943,51 @@ di matching ometterà in silenzio.
 
 ---
 
+## 2026-10-12 — Fine sessione · stato e decisioni aperte
+
+Scritto per la sessione successiva. Working tree pulito, `origin/auto/build` allineato a `e6ff157`,
+nessun commit in attesa di push.
+
+**Fatto:** Fase 0 → Fase 1 completa (`verify` verde con credenziali staging reali) → T01, T02, T03.
+88 test unitari, 1 di integrazione, 1 di smoke.
+
+### Decisioni che aspettano l'umano
+
+1. **Autonomia fino a T08.** Chiesta e non ancora risposta. Il tratto T04→T07 è logica pura, senza
+   dipendenze nuove e senza ⛔: può girare senza chiedere il permesso fra un task e l'altro. Il ciclo
+   developer → `verify` → reviewer resterebbe intero per ogni task; salta solo la domanda in mezzo.
+   Da sapere prima di decidere: il reviewer ha bocciato T02 due volte e T03 una, **sempre con `verify`
+   verde**. Il loop funziona, ma è il reviewer a reggerlo, non l'harness.
+
+2. **`IDEAS.md` ha 12 proposte, nessuna approvata.** La più urgente è *"Normalizzare l'istante al
+   confine dell'adapter"*: PostgREST serializza i `timestamptz` con offset `+00:00` e microsecondi, che
+   `parseUtcInstant` rifiuta — a T09 ogni offerta da Supabase sparirebbe in silenzio e il motore
+   direbbe "nessun collega compatibile". Costa S dentro T09, M se scoperta dopo.
+
+3. **`rejected` e T05.** Una candidatura `rejected` non blocca il match (il PRD dice "pendente o
+   accettata"), quindi `findMatches` ripropone l'offerta. Ma T05 ha il criterio "doppia candidatura
+   sulla stessa offerta → rifiutata": se T05 lo leggesse come "esiste già una riga", il collega
+   vedrebbe il match, si candiderebbe e riceverebbe un errore. Decisione di prodotto, da prendere
+   entro T05.
+
+4. **Terza componente di punteggio del PRD inesprimibile.** Il PRD elenca tre componenti di punteggio
+   morbido; la seconda ("sovrapposizione della durata, rientro compatibile") non è calcolabile perché
+   `SeatOffer` espone solo `departureAt`. Fuori dai criteri di T03, annotata in `IDEAS.md`. Chi legge
+   il PRD e poi il codice troverà una componente in meno.
+
+### Attriti noti dell'ambiente, da non riscoprire
+
+- Le deny rules bloccano la scrittura di `.env.example`, che invece **deve** stare nel repo: lo crea
+  l'umano. L'hook lo gestisce correttamente, è la deny rule a essere più grossolana.
+- L'hook blocca `git add .claude/settings.json`: le modifiche ai freni le committa l'umano.
+- Il classificatore interno di Claude Code blocca `git ls-remote` come `[Git Destructive]`: falso
+  positivo, non è una nostra regola.
+- `$CLAUDE_PROJECT_DIR` non si risolve negli hook su Windows: serve il percorso assoluto con slash in
+  avanti.
+- Piping di stringhe PowerShell verso `python` perde stdin: usare un file reale.
+
+---
+
 ## 2026-10-12 — T03 · **PIANIFICAZIONE** (nessun codice scritto) ⛔ in attesa di approvazione
 
 Il planner ha scomposto T03 in sei step. Il piano completo è nella risposta in chat; qui restano le
