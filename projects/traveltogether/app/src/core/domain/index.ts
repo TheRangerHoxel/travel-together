@@ -1,6 +1,21 @@
 // core/domain — entita' e regole pure del dominio.
-// Plant, Trip, SeatOffer, MatchRequest, Profile, Badge e i loro stati.
-// Zero I/O: nessuna rete, nessun filesystem, nessun orologio.
-// Popolato in T01.
+// Zero I/O: nessuna rete, nessun filesystem, nessun orologio di sistema.
+// Nessun import da adapters/, ui/ o librerie esterne (verificato dal lint).
 
-export {};
+export type { Plant, PlantId } from './plant';
+export { PLANT_IDS } from './plant';
+
+export type { Profile, ProfileId } from './profile';
+
+export type { Trip, TripId, TripStatus, TripInvariantError } from './trip';
+export { makeTrip } from './trip';
+
+export type { SeatOffer } from './seat-offer';
+
+export type { MatchRequest, MatchRequestId, MatchRequestStatus } from './match-request';
+
+export type { Badge, BadgeId } from './badge';
+export { BADGE_IDS } from './badge';
+
+export type { Result, Ok, Err } from './result';
+export { ok, err } from './result';

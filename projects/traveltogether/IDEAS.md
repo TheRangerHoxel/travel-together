@@ -65,6 +65,27 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Costo** — M.
 - **Stato** — proposta
 
+### `Trip` come tipo opaco, per rendere il costruttore inaggirabile
+- **Cosa** — separare `TripFields` (campi grezzi, input) da `Trip` (tipo brandizzato, output di `makeTrip`), così il compilatore impedisce di costruire un `Trip` saltando la validazione.
+- **Perché** — rilievo del reviewer su T01: oggi `makeTrip(campi: Trip): Result<Trip, …>` ha input e output dello stesso tipo, quindi qualunque modulo può scrivere un letterale e aggirare gli invarianti. Il commento nel codice ora lo dichiara, ma una raccomandazione non è una garanzia. Conta soprattutto per gli adapter, che materializzano `Trip` da storage: un record invalido che arriva dal DB non è meno invalido di uno scritto a mano.
+- **Impatto** — `core/domain` e **ogni** adapter che ricostruisce entità. Reversibile, ma **rompe la firma**: farlo dopo T02 è un checkpoint ⛔.
+- **Costo** — S adesso, M dopo T02.
+- **Stato** — proposta
+
+### Derivare `PlantId` e `BadgeId` dai rispettivi array
+- **Cosa** — `const PLANT_IDS = [...] as const; type PlantId = (typeof PLANT_IDS)[number]`, invece di dichiarare union e array separatamente.
+- **Perché** — rilievo del reviewer su T01: oggi l'annotazione `readonly PlantId[]` protegge una direzione sola. Un valore sbagliato nell'array non compila, ma **aggiungere un membro alla union senza aggiungerlo all'array non produce alcun errore**: l'array diventa silenziosamente incompleto, e un futuro ciclo su `PLANT_IDS` (seed T17, KPI per stabilimento T06) salterebbe una sede senza fallire. Nota: `as const` non ricade nel divieto di `as` delle convenzioni, che riguarda l'assertion usata per zittire il compilatore — qui restringe i letterali e *aumenta* il controllo.
+- **Impatto** — `core/domain/plant.ts` e `badge.ts`. Reversibile, non rompe interfacce.
+- **Costo** — S.
+- **Stato** — proposta
+
+### Classificazione dell'errore quando mancano sia auto sia capienza
+- **Cosa** — decidere quale errore vince quando più invarianti di `Trip` sono violati insieme.
+- **Perché** — rilievo del reviewer su T01: `hasCar: false, seatsTotal: 0, seatsAvailable: 2` viene respinto correttamente, ma con `seats-available-exceeds-total`, mentre la causa leggibile per l'utente è "non hai l'auto". Non è un difetto di correttezza — nessun dato invalido passa — è il messaggio che la UI mostrerà a essere fuorviante.
+- **Impatto** — `core/domain/trip.ts` e la mappatura errori → testi italiani. Da valutare quando quella mappatura esisterà (T11–T12), non prima.
+- **Costo** — S.
+- **Stato** — proposta
+
 ### Deny rules anche sui `.claude/` annidati
 - **Cosa** — estendere le deny rules da `./.claude/**` a `**/.claude/**` e `**/AGENTS.md`, così la prima rete copre anche le cartelle di configurazione che arrivano dentro un pacchetto scaricato.
 - **Perché** — scoperto in F1.3: il template Expo crea `app/.claude/settings.json` (che abilita un plugin di Claude Code) e `app/AGENTS.md` (istruzioni all'agente). Le deny rules attuali usano percorsi relativi alla radice e **non** li coprono; li ha intercettati solo l'hook, che fa match sulla sottostringa `.claude/settings` ovunque compaia. Le reti sovrapposte hanno funzionato — ma una delle due aveva un buco, e conviene chiuderlo invece di contare sull'altra.

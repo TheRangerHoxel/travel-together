@@ -129,11 +129,11 @@ Tipi ed entità in `core/domain`: `Plant`, `Trip`, `SeatOffer`, `MatchRequest`, 
 più gli stati come union type. Zero I/O.
 
 **Criteri di accettazione**
-- [ ] `npx tsc --noEmit` esce 0
-- [ ] Nessun import da `adapters/`, `ui/` o librerie esterne in tutto `core/domain`
-- [ ] Gli stati di `MatchRequest` sono una union di letterali, non `string`
-- [ ] Un test dimostra che un `Trip` con `seatsAvailable > seatsTotal` è rifiutato dal costruttore
-- [ ] Un test dimostra che un `Trip` senza auto non può avere posti offerti
+- [x] `npx tsc --noEmit` esce 0
+- [x] Nessun import da `adapters/`, `ui/` o librerie esterne in tutto `core/domain`
+- [x] Gli stati di `MatchRequest` sono una union di letterali, non `string`
+- [x] Un test dimostra che un `Trip` con `seatsAvailable > seatsTotal` è rifiutato dal costruttore
+- [x] Un test dimostra che un `Trip` senza auto non può avere posti offerti
 
 ## T02 Port e adapter memory
 

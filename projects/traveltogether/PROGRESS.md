@@ -625,3 +625,90 @@ quindi non serve). Tutta la Fase 1 gira senza aver concesso esecuzione di codice
 **⛔ Cancello di fine Fase 1.** Azioni che restano all'umano, elencate nella risposta in chat:
 progetto Supabase staging, file `.env`, e `.env.example` (bloccato dalle deny rules, che non
 distinguono `.env.example` da `.env`).
+
+---
+
+## 2026-10-12 — ⛔ Fine Fase 1 · `verify` **VERDE**
+
+L'umano ha creato il progetto Supabase di staging, il file delle variabili d'ambiente e il template
+nel repo. `npm run verify` → tutti e cinque gli step passati, **exit code 0** verificato a parte
+(il criterio parla del codice di uscita, non del messaggio).
+
+`test:int` passa perché staging esiste davvero, non perché sia stato saltato. È la differenza fra un
+harness che misura e uno che si autocertifica, ed è la ragione per cui la Fase 1 viene prima della logica.
+
+**Correzione a una guida che stavo per dare sbagliata:** jest **non** legge i file dotenv da solo —
+li carica Expo quando avvia l'app o costruisce il bundle, ma `jest` gira fuori da quel percorso.
+Senza `jest.setup.int.js` (che usa `@expo/env`, la stessa implementazione di Expo, così la precedenza
+fra file e variabili di sistema è identica a quella a runtime) `test:int` sarebbe rimasto rosso con
+le credenziali presenti, e il messaggio d'errore avrebbe mandato a cercare nel posto sbagliato.
+Verificato in due metà prima di scrivere la guida: il loader legge un file da disco, e il test passa
+quando le variabili ci sono.
+
+**Chiavi ruotate dall'umano** dopo essere state condivise in chat: `secret key` e password del DB.
+`.env` contiene solo URL e chiave pubblicabile, quindi la rotazione non lo ha toccato.
+
+---
+
+# FASE 2 — Prodotto
+
+## 2026-10-12 — T01 · Modello di dominio · **COMPLETO** ✅
+
+| Criterio | Risultato |
+|---|---|
+| `npx tsc --noEmit` esce 0 | ✅ con `strict` + `noUncheckedIndexedAccess` |
+| Nessun import da `adapters/`, `ui/` o librerie esterne in `core/domain` | ✅ solo path relativi interni |
+| Stati di `MatchRequest` union di letterali | ✅ `pending \| accepted \| rejected \| cancelled` |
+| Test: `seatsAvailable > seatsTotal` rifiutato dal costruttore | ✅ più i confini `3/3` e `3/0` |
+| Test: trasferta senza auto non può offrire posti | ✅ più il caso ammesso `false, 0/0` |
+
+`verify` verde: 10 test unitari in 2 suite.
+
+**Il planner è stato saltato, deliberatamente.** `OFFICINA.md` dice "scompone il task, **se serve**":
+T01 aveva già in `TASKS.md` criteri di accettazione verificabili, che sono esattamente l'output del
+planner. Il reviewer invece non è opzionale ed è stato eseguito.
+
+**Decisioni di modellazione, da ritrovare senza rileggere il diff**
+
+1. **Il tempo è una stringa ISO 8601, non un `Date`.** `core/` non può usare l'orologio di sistema
+   (lo impone il lint), e un `Date` è mutabile e si porta dietro il fuso della macchina. Qui le date
+   sono dati confrontabili e deterministici; il tempo "adesso" entrerà dal port `Clock` in T02.
+
+2. **Invarianti di vita separati dalle regole di creazione.** `makeTrip` fa rispettare ciò che è vero
+   *sempre* (posti non negativi, disponibili ≤ totali, niente posti senza auto). Le regole di T04
+   (data nel passato, plant uguali, massimo 8 posti) valgono solo *alla creazione* e restano a T04.
+   Conseguenza per chi scriverà T04: `createTrip` deve **delegare** a `makeTrip` e aggiungere solo le
+   regole di prodotto, non riscrivere i controlli di segno. Due definizioni della stessa regola in due
+   punti è il modo in cui divergono.
+
+3. **`negative-seats` è dentro T01 anche se non è fra i criteri.** Senza quel controllo i due
+   invarianti richiesti avrebbero un buco dimostrabile: `seatsTotal: -2, seatsAvailable: -3,
+   hasCar: true` passerebbe entrambi e `makeTrip` restituirebbe `ok` su una trasferta priva di senso.
+   Non aggiunge una regola di prodotto: **chiude** quella richiesta dal criterio.
+
+4. **`PlantId` è una union di letterali dentro `core/domain`**, mentre `ARCHITECTURE.md` mette i plant
+   in `config/`. I due non si contraddicono se si separa **identità** da **dati**: il dominio sa
+   *quali* stabilimenti esistono, `config/` saprà come si chiamano e quanto distano. Il prezzo è che
+   aggiungere una sede richiede toccare il codice — accettabile per un pilota a tre sedi decise, e la
+   condizione che farebbe cadere la scelta è scritta nel file. Il guadagno: un plant inesistente è un
+   errore di compilazione invece che un dato sbagliato scoperto a runtime.
+
+5. **I file del dominio si importano direttamente fra loro**, non attraverso `index.ts`. È ciò che
+   evita il ciclo barrel → foglia → barrel. Da mantenere nei task successivi.
+
+**Reviewer: APPROVATO**, cinque criteri su cinque, `verify` rieseguito da lui. Due rilievi accolti
+subito perché contraddicevano un principio già applicato in Fase 1:
+
+- Il commento su `makeTrip` dichiarava di essere "l'unico modo" di ottenere un `Trip` valido: **falso**,
+  perché input e output sono lo stesso tipo e un letterale aggira la validazione. Corretto in un
+  avvertimento esplicito agli adapter, che sono i moduli che materializzano entità da storage.
+- Un test *"conserva i campi, senza mutarli"* **non poteva fallire**: `makeTrip` restituisce la stessa
+  reference, quindi confrontava un oggetto con se stesso e sarebbe passato anche mutando l'input.
+  Riscritto confrontando con una copia scattata prima della chiamata. È la stessa regola imparata col
+  test invalido della branch protection in F1.2.
+
+Tre riserve non bloccanti annotate in `IDEAS.md`, nessuna implementata: tipo opaco per `Trip`,
+derivazione di `PlantId`/`BadgeId` dai rispettivi array, classificazione dell'errore quando mancano
+sia auto sia capienza.
+
+**Prossimo passo:** T02 (port e adapter memory), che introduce la suite di contratto condivisa.
