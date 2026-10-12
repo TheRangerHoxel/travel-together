@@ -52,7 +52,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-git.py\""
+            "command": "python -I \"C:/D/Python Projects/officina-software/.claude/hooks/guard-git.py\""
           }
         ]
       }
