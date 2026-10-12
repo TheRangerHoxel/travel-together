@@ -1,0 +1,73 @@
+# IDEAS — TravelTogether
+
+Registro delle proposte. **Niente qui dentro entra nello scope da solo.**
+
+Le proposte le approva **solo l'umano**. Quando una voce viene marcata `accettata`, diventa un task in
+[TASKS.md](TASKS.md) con criteri di accettazione verificabili: **solo allora** entra nel loop.
+Finché non lo è, per il loop non esiste.
+
+Una proposta non ferma e non rallenta il task in corso: si annota e si va avanti.
+**Niente duplicati:** se l'idea è già qui, non va riscritta.
+
+## Formato di ogni voce
+
+```markdown
+### <titolo breve>
+- **Cosa** — la proposta in una riga.
+- **Perché** — problema che risolve o valore che aggiunge.
+- **Impatto** — moduli toccati, è reversibile?, rompe interfacce esistenti?
+- **Costo** — S / M / L.
+- **Stato** — proposta → accettata / rifiutata / rimandata
+```
+
+Stati: `proposta` (default, scritto dall'agente) · `accettata` / `rifiutata` / `rimandata`
+(**solo l'umano**).
+
+---
+
+## Proposte
+
+Voci nate durante la Fase 0, tutte derivate da tagli di scope decisi con te.
+Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate per non perderle.
+
+### Preferenza di matching per genere
+- **Cosa** — filtro opzionale per condividere l'auto solo con colleghi dello stesso genere.
+- **Perché** — il documento la cita come leva di adozione per gli utenti più riservati, ed è un bisogno reale su un viaggio di 2–3 ore con uno sconosciuto.
+- **Impatto** — `core/domain` (profilo), `core/usecases` (vincoli di matching), UI preferenze. Reversibile. Non rompe interfacce se aggiunta come preferenza opzionale. **Sotto GDPR il genere è dato particolarmente delicato**: su un pilota con persone vere richiede base giuridica e informativa.
+- **Costo** — S sul codice, L sulla conformità.
+- **Stato** — proposta
+
+### Matching di gruppo
+- **Cosa** — il sistema accorpa più trasferte compatibili e propone **chi** dovrebbe noleggiare, invece di attendere che qualcuno abbia già l'auto.
+- **Perché** — massimizza i noleggi evitati: nel modello asimmetrico attuale, se nessuno ha ancora noleggiato, nessun match avviene. È il caso in cui il risparmio è più grande.
+- **Impatto** — riscrive `findMatches` da funzione di ricerca a problema di assegnazione. Tocca il cuore del prodotto. Reversibile solo prima che la UI dipenda dalla forma dei risultati.
+- **Costo** — L.
+- **Stato** — proposta
+
+### Integrazione SAP Concur
+- **Cosa** — intercettare la richiesta auto dentro il workflow travel e proporre il pooling in quel momento.
+- **Perché** — è la novità vera della proposta originale: il matching come suggerimento contestuale e non invasivo, non come app da aprire di propria iniziativa. Senza questo, l'adozione dipende dalla buona volontà.
+- **Impatto** — nuovo adapter dietro `TripRepository`; il core non cambia (è esattamente ciò per cui esiste la dependency inversion). Richiede accesso API che oggi non abbiamo.
+- **Costo** — L, e bloccato da un vincolo esterno.
+- **Stato** — proposta
+
+### Distanze reali e percorsi su mappa
+- **Cosa** — sostituire la tabella statica di distanze con distanze calcolate, e mostrare il percorso.
+- **Perché** — CO₂ e saving più credibili, e abilita le deviazioni di percorso (prendere un collega lungo la strada).
+- **Impatto** — nuova dipendenza esterna con quote o costi, contro il vincolo "tutto gratuito". `config/` e `core/usecases` (KPI).
+- **Costo** — M.
+- **Stato** — proposta
+
+### Notifiche push sulle candidature
+- **Cosa** — avvisare chi offre posti quando arriva una candidatura, e il richiedente quando viene accettato.
+- **Perché** — senza notifiche il flusso richiede che l'utente riapra l'app per scoprire cosa è successo: è il punto dove un'app di coordinamento muore.
+- **Impatto** — nuovo port `Notifier` con adapter Expo Notifications. Non rompe nulla se aggiunto dietro interfaccia.
+- **Costo** — M.
+- **Stato** — proposta
+
+### Repo separati per progetto
+- **Cosa** — quando arriverà il progetto #2, spostare ogni progetto in un repo proprio.
+- **Perché** — oggi `auto/build` è condiviso tra officina e progetti: con due progetti attivi, i commit si mescolano e il revert perde precisione.
+- **Impatto** — struttura del repo, configurazione `.claude`, remote. Reversibile ma laborioso.
+- **Costo** — M.
+- **Stato** — proposta

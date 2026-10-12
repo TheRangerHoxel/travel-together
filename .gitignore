@@ -1,0 +1,59 @@
+# === Segreti e credenziali: mai nel repo ===
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.key
+*.jks
+*.keystore
+google-services.json
+GoogleService-Info.plist
+service-account*.json
+
+# === Node / Expo ===
+node_modules/
+.expo/
+.expo-shared/
+dist/
+web-build/
+*.tsbuildinfo
+
+# === Build artifact ===
+*.apk
+*.aab
+*.ipa
+android/
+ios/
+
+# === Test e cache ===
+coverage/
+.jest-cache/
+.eslintcache
+
+# === Supabase ===
+supabase/.branches/
+supabase/.temp/
+
+# === Sistema operativo ===
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# === Editor ===
+.idea/
+*.swp
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# === Documenti sorgente dell'iniziativa (possono contenere dati interni) ===
+*.docx
+*.xlsx
+*.pptx
+
+# === Archivi di installazione scaricati a mano (prerequisiti F1.1) ===
+MinGit-*.zip
+PortableGit-*.exe
+node-v*-win-x64.zip
