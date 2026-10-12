@@ -13,8 +13,7 @@
     "eslint": "^9.39.5",
     "eslint-config-expo": "^57.0.2",
     "eslint-plugin-boundaries": "^7.2.0",
-    "typescript": "~6.0.3",
-    "typescript-eslint": "^8.71.1"
+    "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start",
@@ -24,5 +23,11 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "handlebars": "4.7.10",
+    "braces": "3.0.3",
+    "micromatch": "4.0.8",
+    "node-forge": "1.4.0"
+  }
 }
