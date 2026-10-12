@@ -517,3 +517,111 @@ cambio di perimetro e lo decide l'umano.
 
 **Prossimo passo:** F1.5 (test runner). Porta `jest`, `jest-expo`, `@testing-library/react-native`:
 ⛔ nuovo perimetro da approvare.
+
+---
+
+## 2026-10-12 — Correzione dei problemi aperti di F1.4
+
+L'umano ha sospeso il cancello sulle installazioni **per questa sessione** e ha chiesto di chiudere
+i problemi aperti. Registrato perché è una deroga, non la nuova regola: dal prossimo giro i
+checkpoint sulle dipendenze tornano in vigore.
+
+**CVE `critical` chiusa con un override chirurgico, non con `audit fix --force`**
+`@boundaries/elements` pinna `handlebars` a `4.7.9`; la `4.7.10` è pubblicata e corretta.
+Aggiunto in `package.json`:
+
+```json
+"overrides": { "handlebars": "4.7.10", "braces": "3.0.3", "micromatch": "4.0.8", "node-forge": "1.4.0" }
+```
+
+Risultato: 25 → 24 vulnerabilità, **critical a zero**. `lint` e `typecheck` restano verdi.
+
+**Le 24 che restano: siamo al pavimento, non alla pigrizia**
+Gli advisory radice sono solo tre, e per nessuno esiste un rimedio sensato:
+- `braces@3.0.3` e `node-forge@1.4.0` sono **già le ultime pubblicate** e restano segnalate: non
+  esiste una versione sana da installare.
+- `uuid@7.0.3` arriva da `xcode@3.0.1`, il tool che manipola i progetti **iOS**. Compiliamo solo
+  Android: quel codice non viene mai eseguito. Forzarlo a `14.x` romperebbe `xcode` (dalla v9 è
+  sparito il default export) per zittire un avviso su un percorso che non percorriamo.
+
+**`typescript-eslint` rimosso:** `eslint-config-expo` porta già `@typescript-eslint/parser` e la
+config non lo importava mai.
+
+---
+
+## 2026-10-12 — F1.5 · Test runner · **COMPLETO** ✅
+
+| Criterio | Risultato |
+|---|---|
+| `npm run test:unit` esegue almeno un test ed esce 0 | ✅ 3 test, exit 0 |
+| Un test deliberatamente rotto fa uscire il comando ≠ 0 | ✅ exit 1, prova rimossa |
+| `test:unit` non effettua **nessuna** chiamata di rete | ✅ **imposto**, vedi sotto |
+
+**Il divieto di rete è imposto, non dichiarato**
+Il criterio diceva "verificabile: gira con rete disattivata". Staccare la rete è però una verifica
+che qualcuno deve *ricordarsi* di fare, e che quindi prima o poi non si fa. In `jest.setup.unit.js`
+`fetch`, `XMLHttpRequest` e `WebSocket` sono sostituiti con funzioni che sollevano un errore che dice
+cosa fare. Il vincolo fallisce da solo, a ogni esecuzione, e nomina la chiamata che ha tentato di uscire.
+
+`src/__tests__/harness.test.ts` verifica **la guardia stessa**. È un test dell'harness e non del
+prodotto, e vale la pena averlo perché la guardia è invisibile: nessun altro test la nomina, e una
+configurazione sbagliata la spegnerebbe in silenzio lasciando tutto verde.
+
+**`test:int` separato da `test:unit`** perché hanno prerequisiti diversi: il primo deve girare
+sempre, il secondo richiede staging. Senza credenziali `test:int` **fallisce** con un messaggio che
+elenca le variabili mancanti e dice dove metterle. Non si salta: un test saltato in silenzio si
+presenta come un verde, e un verde falso è peggio di un rosso.
+
+---
+
+## 2026-10-12 — F1.6 · Smoke test · **COMPLETO** ✅
+
+| Criterio | Risultato |
+|---|---|
+| `npm run smoke` esce 0 | ✅ |
+| Un import rotto fa fallire lo smoke | ✅ coperto da `expo export`, che non bundla |
+| Il render test asserisce su un testo realmente in schermata | ✅ `getByText(/Open up App\.tsx/i)` |
+
+Due livelli, come previsto: (a) `expo export --platform android` → 580 moduli bundlati, `dist`
+prodotta; (b) render della root con `@testing-library/react-native`.
+
+**Ostacolo risolto:** `render()` è **asincrona** da RNTL v14. Destrutturarla senza `await` restituisce
+una Promise e le query non esistono (`getByText is not a function`). Anche `screen` non risulta
+associato in questa versione: si usano le query ritornate da `await render(...)`.
+
+L'asserzione è su un testo reale e non su "nessun errore": un componente che renderizza il vuoto non
+solleva eccezioni e passerebbe un test scritto così. Cambierà con T11, ed è giusto che si muova con
+la UI invece di restare generica per non doverla toccare mai.
+
+---
+
+## 2026-10-12 — F1.7 · `verify` unificato · **COMPLETO** ✅ (rosso per progetto)
+
+| Criterio | Risultato |
+|---|---|
+| `npm run verify` è un comando unico | ✅ `node scripts/verify.js` |
+| Rompendo uno step, esce ≠ 0 e **dice quale** | ✅ provato: `step caduti: lint, test:int` |
+| Senza credenziali staging, `verify` **fallisce** | ✅ `step caduti: test:int` |
+
+**Perché uno script e non una catena di `&&`**
+Quando una catena cade, il terminale mostra l'errore dell'ultimo comando e tocca a chi legge capire
+quale anello si è rotto. `scripts/verify.js` (stdlib di Node, zero dipendenze) dà un nome allo step
+caduto, e non si ferma al primo rosso: sapere che cadono tre step è informazione diversa dal sapere
+che ne cade uno, e costa qualche secondo.
+
+**`verify` è rosso, ed è il comportamento corretto.** L'unico step che cade è `test:int`, perché il
+progetto Supabase di staging non esiste ancora. Non è un difetto da nascondere con uno skip: è
+esattamente ciò che `ARCHITECTURE.md` prescrive. Il verde di Fase 1 arriverà quando l'umano avrà
+creato staging — e sarà un verde vero.
+
+**Aggiunto `"types": ["jest"]` a `tsconfig.json`:** senza, `tsc` non vedeva `describe`/`it`/`expect`
+nei file di test e `typecheck` cadeva. Verificato con `tsc --showConfig` che `strict` e
+`noUncheckedIndexedAccess` restano attivi dopo la modifica.
+
+**Due script `postinstall` mai approvati:** `unrs-resolver` (verificato: non serve, il binding nativo
+arriva dalle dipendenze opzionali) e `@parcel/watcher` (watch mode di jest — i test girano con `--ci`,
+quindi non serve). Tutta la Fase 1 gira senza aver concesso esecuzione di codice in installazione.
+
+**⛔ Cancello di fine Fase 1.** Azioni che restano all'umano, elencate nella risposta in chat:
+progetto Supabase staging, file `.env`, e `.env.example` (bloccato dalle deny rules, che non
+distinguono `.env.example` da `.env`).

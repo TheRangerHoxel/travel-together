@@ -9,10 +9,15 @@
     "react-native": "0.86.3"
   },
   "devDependencies": {
+    "@testing-library/react-native": "^14.1.0",
+    "@types/jest": "^30.0.0",
     "@types/react": "~19.2.2",
     "eslint": "^9.39.5",
     "eslint-config-expo": "^57.0.2",
     "eslint-plugin-boundaries": "^7.2.0",
+    "jest": "^30.5.2",
+    "jest-expo": "^57.0.5",
+    "test-renderer": "^1.3.1",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -21,7 +26,11 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "jest --config jest.unit.config.js --ci",
+    "test:int": "jest --config jest.int.config.js --ci",
+    "smoke": "expo export --platform android --output-dir dist && jest --config jest.smoke.config.js --ci",
+    "verify": "node scripts/verify.js"
   },
   "private": true,
   "overrides": {
