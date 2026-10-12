@@ -151,3 +151,203 @@ tutto l'albero. F1.2 ha quindi due commit invece di uno: deliberato, preferito a
 - [ ] Branch protection su `main` — lo fa l'umano su GitHub
 - [ ] `git push -u origin auto/build` — lo fa l'agente, ed è anche la prova che il freno
       non blocca il flusso normale
+
+---
+
+## 2026-10-12 — F1.2 · verifica dei freni dopo il riavvio · **ANCORA BLOCCATO** ⛔
+
+**Esito:** il riavvio ha risolto il PATH, **non** l'hook. Deny rules attive, **hook guard inerte**.
+F1.2 resta aperto: i criteri sui freni non sono verificabili finché l'hook non scatta.
+
+**Verificato eseguendo, non leggendo**
+
+| Sonda | Rete attesa | Risultato |
+|---|---|---|
+| `git add secrets/app.keystore` | **solo hook** | ❌ **passato** fino a git (`pathspec did not match`) |
+| `git add --force probe-nonexistent.keystore` | deny rules | ✅ bloccato: `Permission to use PowerShell ... denied` |
+| `Read(.env)` | deny rules | ✅ bloccato: `denied by your permission settings` |
+| `Read(.gitignore)` (controllo) | nessuna | ✅ letto, quindi il blocco su `.env` è la deny rule e non un errore di path |
+
+Il caso discriminante è il primo: `git add secrets/app.keystore` è coperto **solo** dall'hook.
+È arrivato a git. Quindi l'hook non interviene, e non è stato nemmeno il classificatore interno a
+fermarlo (il suo messaggio è diverso, e qui non c'è stato alcun messaggio di blocco).
+
+**Causa accertata: `$CLAUDE_PROJECT_DIR` non si risolve su Windows**
+
+```
+$env:CLAUDE_PROJECT_DIR  →  stringa vuota
+python -I "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-git.py"
+  →  can't open file 'C:\.claude\hooks\guard-git.py': [Errno 2] No such file or directory  (exit 2)
+```
+
+La variabile si espande a vuoto e il percorso collassa su `C:\.claude\...`, che non esiste.
+Spiegazione più probabile: su Windows il comando dell'hook passa per `cmd.exe`, dove la sintassi
+`$VAR` non è espansione di variabile ma testo letterale.
+
+**La logica del guard è sana: il problema è solo il cablaggio.**
+Invocato col percorso assoluto e stdin reale, sullo stesso caso discriminante risponde corretto:
+
+```json
+{"permissionDecision": "deny",
+ "permissionDecisionReason": "Tentativo di mettere in staging un file di credenziali. ..."}
+```
+
+Nota su un falso allarme da evitare in futuro: passando l'evento con una pipe di stringa PowerShell
+(`'{...}' | python`), stdin arriva vuoto e il guard risponde `ask` con "evento illeggibile". È il suo
+fallback corretto — non un bug — ma non va confuso con un `deny`. I test vanno fatti con un file reale
+su stdin (`cmd /c type ev.json | python ...`).
+
+**Fix necessario, e perché non l'ho applicato io**
+In `.claude/settings.json`, `hooks.PreToolUse[0].hooks[0].command` deve diventare:
+
+```
+python -I "C:\D\Python Projects\officina-software\.claude\hooks\guard-git.py"
+```
+
+Non l'ho toccato: `Edit`/`Write` su `.claude/settings.json` sono vietati dalle deny rules, dall'hook
+stesso e da `CLAUDE.md` ("non si rimuove il freno, si chiede all'umano"). La modifica la fa l'umano.
+Che il freno protegga se stesso anche quando è rotto è il comportamento giusto, non un intralcio.
+
+**Seconda ipotesi da escludere dopo il fix**
+Se con il percorso assoluto l'hook resta inerte, la causa non è il path ma la registrazione: gli hook
+di progetto richiedono approvazione esplicita (`/hooks`), mentre le deny rules dello stesso file sono
+attive comunque. Sarebbe coerente con quanto osservato. Si distingue solo riprovando la sonda.
+
+**Decisione:** fermo qui e non procedo. Un freno non verificato va trattato come assente, e il resto
+di F1.2 include proprio i push. Prossimo passo: l'umano corregge `command`, si riavvia la sessione,
+si ripete la sonda `git add secrets/app.keystore` e si pretende il messaggio di `guard-git.py`.
+
+---
+
+## 2026-10-12 — F1.2 · **REGRESSIONE: settings.json invalido, deny rules cadute** 🔴
+
+**Esito:** il percorso assoluto è stato messo, ma senza escaping JSON. Il file non parsa più e
+Claude Code ha scartato **l'intera** configurazione. Ora non c'è **nessun** freno locale attivo.
+
+**Cosa è stato scritto**
+```json
+"command": "python -I \"C:\D\Python Projects\officina-software\.claude\hooks\guard-git.py\""
+```
+In JSON `\D`, `\P`, `\o`, `\.`, `\h`, `\g` non sono escape validi:
+```
+json.decoder.JSONDecodeError: Invalid \escape: line 55 column 39 (char 1724)
+```
+
+**Prova che le deny rules sono cadute** — stesso comando, stessa sessione, prima e dopo la modifica:
+
+| Momento | `git add --force probe-nonexistent.keystore` |
+|---|---|
+| prima (JSON valido) | ✅ `Permission to use PowerShell ... has been denied` |
+| adesso (JSON invalido) | ❌ **passato** a git (`pathspec did not match`) |
+
+**Due lezioni, entrambe non ovvie**
+1. Un `settings.json` malformato non degrada: **azzera tutto**. Le deny rules funzionavano e sono
+   sparite insieme all'errore di sintassi dell'hook. Un file di configurazione dei freni va validato
+   (`python -m json.tool`) **prima** di considerarlo attivo.
+2. Il file è **riletto a caldo**: le deny rules erano attive a inizio sessione e sono cadute senza
+   riavvio. Quindi dopo il fix conviene ritentare la sonda subito, prima di assumere che serva
+   un riavvio per gli hook.
+
+**Fix:** usare gli slash in avanti, che Windows e Python accettano e che non hanno trappole di escaping:
+```json
+"command": "python -I \"C:/D/Python Projects/officina-software/.claude/hooks/guard-git.py\""
+```
+
+Anche con i freni spenti non ho modificato `settings.json`: è esattamente la situazione in cui
+approfittare di un freno rotto sarebbe il comportamento sbagliato. Resta in mano all'umano.
+
+---
+
+## 2026-10-12 — F1.2 · **FRENI VERIFICATI** ✅
+
+**Esito:** con `command` corretto a slash in avanti, il JSON torna valido e **tutte e due** le reti
+locali sono attive. Verificato eseguendo i comandi vietati, non leggendo i file.
+
+| Criterio F1.2 | Sonda | Rete che ha fermato | Esito |
+|---|---|---|---|
+| hook cablato | `git add secrets/app.keystore` | **hook** (solo lui copre questo caso) | ✅ |
+| `git reset --hard` bloccato | idem | **hook**, messaggio specifico | ✅ |
+| `git push --force` bloccato | `git push --force origin auto/build` | **hook**, messaggio specifico | ✅ |
+| push su `main` bloccato | `git push origin main` | **hook**, messaggio specifico | ✅ |
+| deny rules attive | `Read(.env)` (l'hook non ispeziona le letture) | **deny rules** | ✅ |
+| commit iniziale su `main` | `git log --oneline --all` | — | ✅ `406d7e2 (main)` |
+| branch corrente | `git branch --show-current` | — | ✅ `auto/build` |
+| `.env` non tracciato | `git status --porcelain` | — | ✅ assente |
+
+I messaggi di blocco sono quelli di `guard-git.py` (`PreToolUse:PowerShell hook error: ...` con il
+testo del `permissionDecisionReason`), **non** il blocco generico del classificatore: è questo che
+distingue "hook attivo" da "fermato da qualcos'altro".
+
+Prima delle sonde distruttive ho copiato `PROGRESS.md` non committato nello scratchpad. Si è rivelato
+superfluo — i freni hanno tenuto — ma il costo era nullo e l'alternativa era scommettere.
+
+**`$CLAUDE_PROJECT_DIR`: conclusione**
+Non si risolve nel comando dell'hook su questa macchina. Il percorso assoluto con **slash in avanti**
+è la forma che funziona e che non ha trappole di escaping JSON. Da usare come default su Windows.
+
+**Conseguenza operativa scoperta ora: l'agente non può committare `settings.json`.**
+La regola `\.claude[\\/](?:hooks|settings)` dell'hook blocca anche `git add .claude/settings.json`.
+È coerente con il principio (il loop non tocca i propri freni) e va accettata, non aggirata: le
+modifiche a `settings.json` le committa l'umano. Da non "risolvere" con un `git commit -a`, che
+passerebbe solo perché la stringa del comando non nomina il file.
+
+**Falso positivo annotato, nessuna azione**
+Il classificatore interno ha bloccato `git ls-remote origin` come `[Git Destructive]`, pur essendo
+in sola lettura. Non è una nostra regola e non si disattiva; va solo saputo, per non confonderlo con
+un problema di rete o di credenziali.
+
+**Stato del remoto**
+`git ls-remote --heads origin` → exit 0, nessun branch elencato. Il repo GitHub esiste, è
+raggiungibile, le credenziali funzionano (GCM) ed è **vuoto**: nessun push è ancora avvenuto.
+
+**Manca solo l'umano per chiudere F1.2**
+- [x] `git push -u origin main` — lo fa l'umano, l'agente non pusha su main
+- [x] Branch protection su `main` su GitHub, poi il criterio "push diretto su main rifiutato dal server"
+- [x] Commit di `.claude/settings.json` (l'hook impedisce all'agente di metterlo in staging)
+- [x] Poi l'agente fa `git push -u origin auto/build`: ultimo criterio di F1.2, e prova che il freno
+      non blocca il flusso normale
+
+---
+
+## 2026-10-12 — F1.2 · Repo, branch e freni · **COMPLETO** ✅
+
+**Esito:** tutti i criteri di accettazione soddisfatti. Le tre reti sono in piedi e provate.
+
+**Fatto dall'umano**
+- `git push -u origin main` → `refs/heads/main` a `406d7e2` sul remoto. GCM ha gestito l'OAuth.
+- Branch protection su `main` configurata su GitHub.
+- `288946b` — F1.2: hook guard con percorso assoluto a slash in avanti.
+
+**Fatto dall'agente**
+- `git push -u origin auto/build` → `* [new branch] auto/build -> auto/build`, tracking impostato.
+
+| Criterio F1.2 | Esito |
+|---|---|
+| `git log --oneline` mostra il commit iniziale su `main` | ✅ `406d7e2 (origin/main, main)` |
+| `git branch --show-current` risponde `auto/build` | ✅ |
+| `git status` non elenca `.env` | ✅ |
+| `git push --force` bloccato dall'hook, messaggio leggibile | ✅ |
+| `git reset --hard` bloccato dall'hook | ✅ |
+| `git push origin main` bloccato dall'hook | ✅ |
+| `git push origin auto/build` **funziona** | ✅ |
+| Push diretto su `main` rifiutato dal server | ⚠️ vedi sotto |
+
+**L'unico criterio non verificato dall'agente, e perché non può esserlo**
+Le tre reti sono in serie, quindi le prime due impediscono di collaudare la terza dall'interno del
+loop: `git push origin main` viene fermato dall'hook **prima** di raggiungere GitHub. Il criterio è
+quindi verificabile solo dall'umano, con un test innocuo (`git push --force origin 406d7e2:main`,
+no-op se passasse perché `main` è già lì). Dato per fatto sulla parola dell'umano, **non** per
+osservazione diretta dell'agente: la distinzione va mantenuta nel registro.
+
+**Nota sul piano GitHub:** la branch protection su repo **privati** richiede storicamente un piano a
+pagamento. Qui è stata configurata senza problemi, quindi il piano la consente. Se in futuro il repo
+venisse ricreato su un account Free, la terza rete cadrebbe silenziosamente: da ricontrollare, non
+da assumere.
+
+**Perché questo commit non passa da `verify`**
+`npm run verify` non esiste ancora: viene costruito in F1.7. Per i task di Fase 1 che precedono
+l'harness il DoD sono i criteri di accettazione eseguiti a mano, come sopra. È l'unica finestra in cui
+questo è legittimo, e si chiude con F1.7.
+
+**Prossimo passo:** ⛔ cancello di F1.2. F1.3 (scaffold Expo + TypeScript strict) **non** è aperto:
+porta dipendenze nuove, che sono un checkpoint umano.
