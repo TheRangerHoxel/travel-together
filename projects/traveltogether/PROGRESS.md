@@ -441,3 +441,79 @@ potrebbero non supportarla. Se F1.4 fallisce lì, la causa è questa e non la co
 
 **Prossimo passo:** F1.4 (lint con regole di confine). Porta `eslint` + `eslint-plugin-boundaries`:
 ⛔ nuovo perimetro di dipendenze da approvare.
+
+---
+
+## 2026-10-12 — F1.4 · Lint con regole di confine · **COMPLETO** ✅
+
+| Criterio | Risultato |
+|---|---|
+| `npm run lint` esce 0 sul codice pulito | ✅ exit 0 |
+| File di prova in `core/` che importa `adapters/` → lint rosso | ✅ fermato da **due** regole |
+| File di prova in `core/` che chiama `Date.now()` → lint rosso | ✅ `no-restricted-syntax`, su `Date.now()` **e** `new Date()` |
+| File di prova in `ui/` che importa `adapters/` → lint rosso | ✅ fermato da **due** regole |
+| I file di prova rimossi prima del commit | ✅ 4 prove rimosse, lint e typecheck tornano verdi |
+
+Coperto anche il quarto vincolo di `ARCHITECTURE.md`: `core/` che importa `@supabase/supabase-js`
+→ lint rosso.
+
+**Perimetro approvato dall'umano:** `eslint`, `typescript-eslint`, `eslint-plugin-boundaries`,
+`eslint-config-expo`. Dry-run prima dell'installazione: 89 pacchetti con i soli tre, **259** con
+`eslint-config-expo`. Il delta di 170 è stato mostrato prima di decidere, non dopo.
+
+**`eslint@10` è incompatibile con `eslint-config-expo` — diagnosticato, non indovinato**
+Primo `npm run lint`: `TypeError: contextOrFilename.getFilename is not a function`.
+Causa: `eslint-plugin-react@7.37.5`, annidato dentro `eslint-config-expo`, dichiara
+`peer eslint: ... || ^9.7` — non supporta la 10. npm l'ha installata lo stesso perché il peer di
+`eslint-config-expo` è troppo largo (`>=8.10`) e il conflitto è stato risolto annidando.
+
+Correzione in avanti, non rollback: **eslint pinnato a `9.39.5`**, che soddisfa tutti e quattro i
+pacchetti approvati. È un cambio di versione dentro il perimetro, non una dipendenza nuova.
+Lezione: un `peerDependencies` largo non è una garanzia di compatibilità, è solo una dichiarazione
+di chi pubblica. La compatibilità si verifica eseguendo.
+
+**Lo script `postinstall` non è stato approvato, e non serviva**
+`unrs-resolver@1.12.2` (via `eslint-config-expo` → `eslint-import-resolver-typescript`) chiede di
+eseguire `node postinstall.js` all'installazione: è il vettore classico della supply chain, e npm 11
+lo blocca per default. Installato **senza** concederlo, poi verificato: `require('unrs-resolver')`
+carica il binding nativo correttamente (arriva dalle dipendenze opzionali precompilate).
+Principio applicato: non si concede un permesso finché non è dimostrato necessario.
+
+**`import/no-unresolved` disattivata, con motivo scritto nella config**
+Il resolver TypeScript di `eslint-config-expo` espone un'interfaccia che la sua stessa versione di
+`eslint-plugin-import` non sa caricare (`invalid interface loaded as resolver`). Non è un problema
+nostro: è un'incoerenza interna a quel pacchetto. Disattivata perché `tsc --noEmit` (step `typecheck`
+di `verify`) verifica la risolvibilità degli import con l'informazione di tipo completa, cioè meglio.
+Una regola che grida al lupo su ogni file viene ignorata, ed è peggio di una regola assente.
+
+**Due reti sui confini, non una**
+`boundaries/dependencies` costruisce il grafo dei moduli; `no-restricted-imports` e
+`no-restricted-syntax` (core di eslint, zero dipendenze) lavorano sulla **stringa** di import e non
+richiedono risoluzione dei moduli. Se la configurazione del plugin avesse un buco, le seconde
+reggono lo stesso. Nelle prove entrambe hanno segnalato, indipendentemente.
+Sintassi migrata a quella v7 (`policies` con selettori a oggetto): la forma legacy funzionava ma
+emetteva warning di deprecazione a ogni esecuzione, e il rumore costante erode il segnale.
+
+**`default: 'disallow'`** è deliberato: un modulo nuovo nasce **isolato** invece che libero. Va
+dichiarato cosa può importare, non cosa non può.
+
+**25 vulnerabilità (1 critical) — valutate con prova, non con una stima**
+La `critical` è `handlebars`, e **non** arriva da `eslint-config-expo`: arriva da
+`eslint-plugin-boundaries` → `@boundaries/elements`. Verificato nel pacchetto come viene usato:
+serve ai template nei selettori (`{{ variableName }}`), risolti su **la nostra stessa config** e sui
+path dei file. Nessun input esterno lo raggiunge, e gira solo a lint-time, mai nell'APK.
+`fixAvailable` è breaking per tutte. Non eseguito `npm audit fix --force`.
+
+L'alternativa — rinunciare al plugin e tenere solo `no-restricted-imports` — è stata considerata e
+scartata: scambierebbe una CVE dev-time contenuta con regole fragili sul vincolo architetturale più
+importante del progetto. Una regola di confine che non intercetta `../../../adapters` fa più danno
+di una CVE in un tool di sviluppo.
+
+**Debito segnalato: `typescript-eslint` risulta inutilizzato.**
+`eslint-config-expo` porta già `@typescript-eslint/parser` nelle proprie dipendenze, e
+`eslint.config.js` non lo importa mai. Era sensato quando il perimetro erano tre pacchetti; è
+diventato ridondante aggiungendo `eslint-config-expo`. **Non rimosso**: togliere una dipendenza è un
+cambio di perimetro e lo decide l'umano.
+
+**Prossimo passo:** F1.5 (test runner). Porta `jest`, `jest-expo`, `@testing-library/react-native`:
+⛔ nuovo perimetro da approvare.
