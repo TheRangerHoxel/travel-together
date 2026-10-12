@@ -65,6 +65,13 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Costo** — M.
 - **Stato** — proposta
 
+### Deny rules anche sui `.claude/` annidati
+- **Cosa** — estendere le deny rules da `./.claude/**` a `**/.claude/**` e `**/AGENTS.md`, così la prima rete copre anche le cartelle di configurazione che arrivano dentro un pacchetto scaricato.
+- **Perché** — scoperto in F1.3: il template Expo crea `app/.claude/settings.json` (che abilita un plugin di Claude Code) e `app/AGENTS.md` (istruzioni all'agente). Le deny rules attuali usano percorsi relativi alla radice e **non** li coprono; li ha intercettati solo l'hook, che fa match sulla sottostringa `.claude/settings` ovunque compaia. Le reti sovrapposte hanno funzionato — ma una delle due aveva un buco, e conviene chiuderlo invece di contare sull'altra.
+- **Impatto** — solo `.claude/settings.json` dell'officina. Reversibile. Nessun effetto sul codice applicativo. Da valutare se il rumore sui falsi positivi (ogni pacchetto che spedisce un `AGENTS.md`) valga la copertura.
+- **Costo** — S.
+- **Stato** — proposta
+
 ### Repo separati per progetto
 - **Cosa** — quando arriverà il progetto #2, spostare ogni progetto in un repo proprio.
 - **Perché** — oggi `auto/build` è condiviso tra officina e progetti: con due progetti attivi, i commit si mescolano e il revert perde precisione.

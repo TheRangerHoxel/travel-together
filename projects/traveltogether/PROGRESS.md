@@ -377,3 +377,67 @@ questo è legittimo, e si chiude con F1.7.
 
 **Prossimo passo:** ⛔ cancello di F1.2. F1.3 (scaffold Expo + TypeScript strict) **non** è aperto:
 porta dipendenze nuove, che sono un checkpoint umano.
+
+---
+
+## 2026-10-12 — F1.3 · Scaffold Expo + TypeScript strict · **COMPLETO** ✅
+
+| Criterio | Risultato |
+|---|---|
+| `npx tsc --noEmit` esce 0 | ✅ exit 0 |
+| Le cartelle esistono, ognuna con un file indice | ✅ 7 cartelle, 7 `index.ts` |
+| `strict` e `noUncheckedIndexedAccess` attivi | ✅ verificati sulla **config risolta** |
+| Nessuna dipendenza oltre a Expo + TypeScript | ✅ 6 dirette, esattamente quelle approvate |
+
+**L'installazione in tre passi, per far approvare un numero e non un'intenzione**
+Il problema di approvare "Expo" è che le 6 dipendenze dirette ne trascinano centinaia, e nessuno le
+conosce prima di risolvere l'albero. Quindi: (1) `create-expo-app --no-install` scrive solo i file del
+template, (2) `npm install --dry-run` stampa il totale senza toccare il disco → **467 pacchetti**,
+(3) `npm install` vero, solo dopo l'ok. L'installazione reale ha aggiunto esattamente 467: il dry-run
+non ha mentito. Da riusare come procedura per ogni dipendenza futura.
+
+**Il template porta configurazione dell'agente — l'ha fermata l'hook**
+`create-expo-app` ha creato anche `app/.claude/settings.json`, che abilita il plugin
+`expo@claude-plugins-official`, e `app/AGENTS.md`, istruzioni rivolte all'agente. Nessuno dei due era
+nel perimetro approvato: sono dipendenze **dell'ambiente dell'agente**, scaricate dalla rete e attive
+da sole. Entrambi rimossi dall'umano.
+
+Le deny rules **non** li coprivano (usano percorsi relativi alla radice); li ha intercettati l'hook,
+che fa match sulla sottostringa `.claude/settings` ovunque compaia nel percorso. Verificato con una
+sonda in lettura: bloccato. Le reti sovrapposte hanno fatto il loro mestiere, ma il buco nella prima
+è reale → proposta in `IDEAS.md`, non implementata (tocca i freni, quindi è dell'umano).
+
+Nota di attrito, risolta cancellando: `AGENTS.md` prescriveva Expo Router con le route in `src/app/`,
+in conflitto con la struttura `app/src/{core,adapters,ui,config}` di `ARCHITECTURE.md` — ed è guida
+generica, visto che `expo-router` non è nemmeno fra le dipendenze del template `blank-typescript`.
+
+**`noUncheckedIndexedAccess` dimostrato violandolo, non leggendolo**
+Un flag scritto nel `tsconfig.json` non prova nulla: il file eredita da `expo/tsconfig.base` e
+l'ereditarietà può sovrascrivere. Due verifiche invece di una:
+1. `tsc --showConfig` → `strict = True`, `noUncheckedIndexedAccess = True` nella config **risolta**
+2. un file di prova con `const first: number = xs[0]` → `error TS2322: Type 'number | undefined' is
+   not assignable to type 'number'`, exit 2. Rimosso subito, `tsc` torna a 0.
+
+È la stessa regola imparata col test invalido della branch protection: **una verifica che non può
+fallire non è una verifica.**
+
+**22 vulnerabilità npm: registrate, non "risolte"**
+`npm audit` → 15 high, 7 moderate. Le radici sono poche: `braces`/`micromatch` (ReDoS) via metro,
+`node-forge` via `@expo/code-signing-certificates`, più `uuid` e `xcode`. **Tutte in tooling di
+build** — bundler e CLI — non nel codice che finisce nell'APK, che contiene il bundle JS e non metro.
+
+**Nessun fix è non-breaking:** per ognuna `fixAvailable` è un cambio di major. `npm audit fix --force`
+declasserebbe `expo` e `react-native`, cioè uscirebbe dal perimetro approvato e romperebbe lo stack
+per sanare un rischio che non raggiunge l'utente. **Non eseguito, deliberatamente.** Siamo già
+sull'SDK più recente (Expo 57): non esiste una versione più sana da scegliere oggi.
+Da rivalutare a T18, quando la build dell'APK renderà concreto cosa viene davvero spedito.
+
+**Rischio noto per F1.4:** il template porta TypeScript `~6.0.3`, una major recente. Gli eslint plugin
+potrebbero non supportarla. Se F1.4 fallisce lì, la causa è questa e non la configurazione del lint.
+
+**Igiene verificata, non assunta:** `node_modules/` è ignorato (da `app/.gitignore`), e il
+`.gitignore` di radice copre i segreti anche dentro `app/` — confermato con `git check-ignore` su
+`app/.env`, `app/release.keystore`, `app/service-account.json`. In staging vanno 21 file, tutti attesi.
+
+**Prossimo passo:** F1.4 (lint con regole di confine). Porta `eslint` + `eslint-plugin-boundaries`:
+⛔ nuovo perimetro di dipendenze da approvare.
