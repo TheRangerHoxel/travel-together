@@ -1422,3 +1422,118 @@ correttamente contro il requisito di allora, ed è il requisito a essere cambiat
 nascosto che una decisione è stata ribaltata; lasciarli senza nota avrebbe prodotto un documento che
 contraddice il codice senza dire perché. Gli altri sette vincoli duri di T03 sono intatti e restano
 sotto test di non-regressione in T04b.
+
+---
+
+## 2026-10-13 — T04b · **PIANIFICAZIONE**. Un criterio mio non era soddisfacibile
+
+Nessun codice scritto. Il planner ha scomposto T04b in sette step e ha trovato un blocco che avevo
+mancato **scrivendo i criteri io stesso**.
+
+### Il criterio che non si poteva soddisfare
+
+Avevo scritto: *"I posti sono per tratta: un test decrementa i posti dell'andata e dimostra che quelli
+del ritorno sono invariati"*, e nello stesso task avevo dichiarato che `Trip` non cambia. I due sono
+incompatibili: esiste **un** solo `Trip.seatsAvailable`, e `listOpenOffers` proietta da lì
+(`memory-trip-repository.ts:81-82`, verificato eseguendo il grep e non sulla parola del planner). Due
+offerte dalla stessa trasferta leggerebbero lo stesso numero, quindi il test chiesto dal criterio non
+è scrivibile — e l'unico modo di farlo "passare" sarebbe costruire due `SeatOffer` in RAM e constatare
+che sono oggetti distinti, cioè **un test che non può fallire.**
+
+È la stessa famiglia del difetto per cui il reviewer ha bocciato T04: un documento che smentisce se
+stesso. Stavolta era nel task e non nel codice, l'ho scritto io, e l'ha preso il planner prima che
+costasse una riga. È il motivo per cui il planner esiste e perché su T03 era già servito allo stesso
+modo.
+
+### Le quattro decisioni dell'umano
+
+| Domanda | Risposta |
+|---|---|
+| Dove vivono i posti di una tratta | **Riga di stato di tratta** (`TripLeg`) — come raccomandato |
+| Ricandidatura dopo annullamento | **Riusa la stessa riga**, `cancelled` → `pending` |
+| Nota di soli spazi | **Rifiutata con errore tipizzato**, non normalizzata |
+| Il ⛔ allargato | **Approvato**, task corretto e via |
+
+Scartate con motivo, non per preferenza: il **contatore-override** introduce un default implicito (a
+T08 un `LEFT JOIN` con `COALESCE`) in un progetto che tratta l'implicito come difetto; i **posti
+derivati dalle candidature `accepted`** metterebbero il conteggio dentro `listOpenOffers`, cioè logica
+di business in un adapter — vietata dal criterio di T09 e già rifiutata dal doc del port per i vincoli
+duri — e renderebbero **indifendibile lato DB** il criterio di T05 sulle due accettazioni concorrenti,
+perché un conteggio non si vincola con un `CHECK`.
+
+### Le decisioni di modello argomentate dal planner, accolte
+
+- **L'identità della tratta è la coppia `tripId` + `direction`, non un `legId` sintetico.** Così
+  l'unicità è una *conseguenza* del modello e non un'asserzione. L'argomento decisivo: una tratta è una
+  **proiezione**, quindi `listOpenOffers` la ricostruisce a ogni lettura — un id generato cambierebbe
+  fra due aperture della stessa schermata, e un id memorizzato richiederebbe comunque un vincolo di
+  unicità sulla coppia, cioè la coppia con una colonna in più. A T08: chiave primaria composta
+  `trip_legs(trip_id, direction)`, bersaglio della foreign key composta di `match_requests`, che rende
+  **impossibile per costruzione** una candidatura sul rientro di una trasferta senza rientro.
+- **`listByTrip` diventa `listByLeg`, e non servono entrambe.** Argomentato dai criteri di T14, non
+  dalla simmetria: "i posti disponibili mostrati diminuiscono" e "esauriti i posti, lo dichiara in
+  schermata" sono per tratta, e una lista per trasferta non ha un numero da accompagnare. Il
+  consumatore non scritto in T14 ma reale è T05: la cascata deve leggere le `pending` di *quella*
+  tratta, e senza `listByLeg` quel filtro finirebbe nel chiamante — il sintomo che `CLAUDE.md` chiama
+  "manca un port".
+- **La direzione non entra né nei vincoli duri né nel punteggio.** Nei vincoli sarebbe un predicato
+  irraggiungibile (plant e data discriminano già la direzione), ed è lo stesso argomento con cui il
+  doc di `listOpenOffers` rifiuta il filtro su `hasCar`. **La dimostrazione di dominanza del punteggio
+  di T03 regge parola per parola**: il passaggio alle tratte cambia *quali* offerte entrano nel ciclo
+  e *quale* chiave rompe i pareggi, non la funzione che assegna il numero. Il test che pinna il valore
+  numerico non si tocca, ed è la prova che l'algoritmo non è cambiato.
+
+### Due cose trovate dal planner leggendo il codice, entrambe entrate nei criteri
+
+1. **La trasferta degenere è raggiungibile.** `makeTrip` **non** vieta `fromPlantId == toPlantId`: è
+   una regola di creazione di T04 (`same-plant`), non un invariante. Quindi una trasferta con partenza
+   uguale a destinazione è costruibile da `seminaGrezzo`, da una migrazione, dal seed di T17 — e per
+   quella trasferta andata e ritorno hanno **gli stessi plant**, quindi entrambe le tratte matchano la
+   stessa richiesta con lo stesso punteggio e lo stesso `tripId`. È esattamente la classe di input su
+   cui il comparatore attuale ritorna `0`. Non è un'ipotesi: è un test.
+2. **Il limite della nota va misurato in code point.** `'👍'.length === 2`, quindi contare le unità di
+   stringa farebbe consumare quattro caratteri a due emoji e il conteggio applicato non sarebbe quello
+   mostrato all'utente.
+
+### ⛔ corretto, perché l'avevo sottostimato
+
+Il task diceva "quattro interfacce". Sono **cinque**: si aggiunge `TripRepository`, che guadagna un
+metodo per il contatore di tratta e vede `listOpenOffers` cambiare semantica. Più un'entità di dominio
+nuova e la forma di una tabella di T08 pre-impegnata. `TASKS.md` emendato.
+
+### Variazione rispetto a un pattern che il task stesso cita
+
+Il limite della nota segue il pattern di `MatchConfig` nella sostanza — tipo nel core, valori in
+`config/`, un solo arco in un test di conformità — ma **non nella collocazione**: `GRAFO.domain` in
+`eslint.config.js` è `['domain']`, quindi se la validazione della nota vive nel costruttore di dominio
+(dove sta, per coerenza con `makeTrip`) il tipo del limite deve stare in `core/domain` e non in
+`core/usecases`. Il test di conformità, che deve importare `config/`, va in `core/usecases`. Non è una
+violazione dei confini: è il lint che impone la collocazione, e va scritto per non farlo scoprire in
+review.
+
+### Cosa `verify` verde non potrà dimostrare, elencato dal planner
+
+Nulla sulle RLS e nulla sul percorso Supabase (l'adapter non esiste: T09), quindi il criterio sulla
+suite condivisa è **metà verificabile** — si prova che passa su `memory` e che non contiene nulla di
+specifico della RAM; che passi su Supabase senza modifiche resta una promessa. Nessun comportamento
+(cascata, reintegro, annullamento) è esercitato: il modello li rende **esprimibili**, e che *solo* i
+rifiuti `system` si reintegrino — il motivo per cui `resolvedBy` è portante — non è provato prima di
+T05. Nessuna presentazione: che lo stato arrivi nel risultato non dimostra che una riga sia disegnata
+grigia o rossa.
+
+**Il limite più serio, e va detto perché deriva dalla forma scelta:** la nota obbligatoria **non è
+difendibile dal modello**. "Chi rifiuta deve scrivere una nota" dipende dallo *stato precedente* della
+riga, che i campi fissi non conservano: una riga `cancelled` non dice se veniva da `pending` (nota non
+richiesta) o da `accepted` (nota obbligatoria). Non è esprimibile come invariante di riga, quindi
+`makeMatchRequest` non può imporla — la impone l'usecase di T05, e T04b **non** prova che un rifiuto
+muto sia impossibile. È il prezzo dei campi fissi contro il registro di transizioni.
+
+**E un rischio di T09 che raddoppia restando invisibile:** la tratta di ritorno è l'unico consumatore
+di `Trip.returnAt`, e per `returnAt` vale tutto ciò che è già scritto su `departureAt` — PostgREST
+serializza con offset e microsecondi, `parseUtcInstant` rifiuta entrambe le forme, `findMatches` omette
+in silenzio. Da T04b in avanti un `returnAt` non canonico fa sparire **metà** delle offerte senza un
+errore, e in RAM la suite non può accorgersene perché le fixture sono canoniche per costruzione.
+
+Tre voci scritte dal planner in `IDEAS.md`, tutte `proposta`: il contatore dei posti su `Trip` che
+resta un doppione, le candidature ricevute lette per owner invece di una tratta alla volta, e una nota
+datata sulla voce dell'unicità dei `tripId`, la cui precondizione si sposta sull'identità di tratta.

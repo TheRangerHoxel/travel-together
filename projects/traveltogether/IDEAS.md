@@ -41,6 +41,7 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Cosa** — o `findMatches` ritorna un `MatchError` `duplicate-offer-id`, o il port dichiara l'unicità e la suite di contratto la verifica.
 - **Perché** — rilievo del reviewer su T03: l'ordine totale usa `tripId` come ultima chiave, quindi se due offerte lo condividessero il comparatore tornerebbe `0` e il criterio "nessuna dipendenza dall'ordine di input" cadrebbe per quella classe di input — oltre a mostrare la stessa trasferta due volte. Oggi la precondizione è dichiarata nel doc, garantita a monte da uno storage indicizzato per id, e **non verificata da nessun test**: è un presupposto non protetto in una funzione il cui output pilota una schermata.
 - **Impatto** — `core/usecases/find-matches.ts` oppure `adapters/contract`. Reversibile.
+- **Nota (13 ottobre 2026, dalla pianificazione di T04b) — la precondizione si sposta e se ne aggiunge una seconda.** Con le tratte il `tripId` **non è più unico fra le offerte** (due tratte della stessa trasferta lo condividono), quindi l'ultima chiave dell'ordine totale diventa l'identità di tratta e la garanzia da verificare è su quella, non su `tripId`. Inoltre, caduta l'esclusione per candidatura esistente, `findMatches` non cerca più *se esiste* una candidatura bloccante ma *quale* stato attaccare al risultato: se per la stessa coppia (tratta, richiedente) arrivassero due righe con stati diversi, lo stato mostrato dipenderebbe dall'ordine dell'array in ingresso — lo stesso difetto di questa voce, su un altro input. L'unicità è garantita dall'upsert documentato in `MatchRequestRepository.save`, e come sopra **non è verificata da nessun test**.
 - **Costo** — S.
 - **Stato** — `accettata`
 
@@ -229,6 +230,20 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Perché** — rilievo del reviewer su T04. T12 ha il criterio *"ogni errore di validazione di T04 produce un messaggio visibile in schermata"*: con il primo-che-scatta l'utente corregge un campo, ripreme invia, scopre il secondo errore, e così via. È la **continuazione** della voce "Classificazione dell'errore quando mancano sia auto sia capienza", non un doppione: quella decide *quale* errore vince quando più regole cadono insieme, questa elimina la domanda restituendoli tutti.
 - **Impatto** — firma di `createTrip` e di ogni suo chiamante. **Rompe l'interfaccia**: dopo T12 è un checkpoint ⛔. Da decidere prima che T12 scriva la mappatura errori → testi italiani.
 - **Costo** — M.
+- **Stato** — proposta
+
+### Il contatore dei posti su `Trip` resta un doppione dopo il passaggio alle tratte
+- **Cosa** — togliere `seatsAvailable` da `Trip` (o ridurlo a una capienza per tratta, non decrementabile) una volta che i posti vivono sulla tratta, e spostare l'invariante `seatsAvailable <= seatsTotal` sul contatore di tratta.
+- **Perché** — continuazione della voce *"Andata e ritorno sono due offerte indipendenti"*, che spiega perché un contatore solo non basta ma non dice cosa fare di **quello che resta**. Con i posti per tratta nessuno decrementa più `Trip.seatsAvailable`: resta un campo che esiste, è leggibile, e dopo la prima accettazione dice il falso. È la classe di difetto peggiore per questo progetto — un campo che mente è peggio di un campo assente — e i consumatori naturali sono le schermate T13–T14, che mostrerebbero "3 posti liberi" su una tratta che ne ha 2. Fuori da T04b per un motivo preciso: rimuoverlo rompe un criterio di accettazione di T04, già committato e spuntato.
+- **Impatto** — `core/domain/trip.ts` e `makeTrip`, `createTrip` (T04), i due adapter, la suite di contratto, lo schema di T08. **Rompe l'interfaccia `Trip`**: è un ⛔. Reversibile.
+- **Costo** — M.
+- **Stato** — proposta
+
+### Le candidature ricevute lette per owner, non una tratta alla volta
+- **Cosa** — un metodo in più su `MatchRequestRepository` che elenchi le candidature su **tutte** le trasferte di un collega, accanto alla lettura per tratta.
+- **Perché** — scoperto pianificando T04b. Con le candidature chiavate sulla tratta, `listByTrip` diventa per-tratta, e la schermata di T14 ("chi offre posti vede le candidature ricevute") deve fare **due** letture per ogni trasferta con rientro: N trasferte diventano 2N chiamate più la lettura delle trasferte. In RAM è gratis, su Supabase è il classico N+1 e sul free tier l'egress è contato. Nessuno dei quattro criteri di T14 lo richiede oggi, quindi non entra in T04b: va deciso prima che T14 scriva la schermata.
+- **Impatto** — `core/ports/match-request-repository.ts` (metodo **additivo**, non rompe firme), i due adapter, la suite di contratto, e a T08 una policy RLS che permetta all'owner di leggere le candidature sulle proprie trasferte senza elencarne gli id a una a una.
+- **Costo** — S.
 - **Stato** — proposta
 
 ### RLS di scrittura su `trips` vincolate all'owner

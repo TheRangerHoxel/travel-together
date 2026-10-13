@@ -208,19 +208,60 @@ reintegro, annullamento) sono di T05.
 `findMatches` **non** cambia: cambia la sua firma di ritorno. `TripRequest` **non** cambia: descrive
 già una tratta sola (`fromPlantId`, `toPlantId`, `departureAt`).
 
+### Decisioni fissate dall'umano — da applicare, non da rinegoziare
+
+1. **L'identità della tratta è la coppia `tripId` + `direction`**, non un `legId` sintetico. L'unicità
+   diventa così una conseguenza del modello invece di un'asserzione: `trips.id` è unico e `direction`
+   ha due valori. Una tratta è una **proiezione** della trasferta, quindi un id generato cambierebbe
+   fra due letture, e un id memorizzato richiederebbe comunque un vincolo di unicità sulla coppia.
+   A T08: `trip_legs(trip_id, direction)` come chiave primaria composta, bersaglio della foreign key
+   composta di `match_requests`, che rende impossibile per costruzione una candidatura sul rientro di
+   una trasferta che non ha rientro.
+2. **I posti per tratta vivono in una riga di stato di tratta** (`TripLeg`), scritta dall'adapter
+   quando `TripRepository.save` scrive una trasferta con auto: una riga se `returnAt` è null, due
+   altrimenti. Scartate le alternative: il contatore-override introduce un default implicito, e i
+   posti derivati dalle candidature `accepted` metterebbero logica di business nell'adapter (vietata
+   dal criterio di T09) e renderebbero indifendibile lato DB il criterio di T05 sulle accettazioni
+   concorrenti, perché un conteggio non si vincola con un `CHECK`.
+3. **Ricandidarsi dopo un annullamento riusa la stessa riga**, da `cancelled` a `pending`: è l'unica
+   forma compatibile con `findByLegAndRequester`, che ritorna una riga sola, e con l'upsert di `save`.
+4. **Una nota di soli spazi è rifiutata con errore tipizzato**, non normalizzata a `null`: accettarla
+   permetterebbe di adempiere all'obbligo di nota al rifiuto scrivendo uno spazio, cioè di svuotarlo.
+5. **La direzione non entra né nei vincoli duri né nel punteggio.** Nei vincoli sarebbe un predicato
+   irraggiungibile, perché i plant e la data discriminano già la direzione; nel punteggio non c'è una
+   preferenza di prodotto per una direzione. La preferenza dichiarata ("partire e tornare con la
+   stessa persona") è un bonus su **coppie** di tratte, non esprimibile in `findMatches` così com'è:
+   resta in `IDEAS.md`.
+
 **Criteri di accettazione** (modello a tratte)
+- [ ] `LegDirection` è `'outbound' | 'return'`, union di letterali, con un **rango esplicito**
+      (`outbound` prima di `return`) sotto test: l'ordine lessicografico delle due stringhe è un
+      incidente dell'ortografia, e rinominare `return` in `inbound` lo invertirebbe con i test verdi
 - [ ] Una trasferta con auto e `returnAt` non null produce da `listOpenOffers` **due** offerte: andata
       (`fromPlantId → toPlantId` all'orario di `departureAt`) e ritorno (**plant invertiti**, orario di
       `returnAt`)
-- [ ] Una trasferta con auto e `returnAt` null produce **una** sola offerta
-- [ ] I posti sono **per tratta**: un test decrementa i posti dell'andata e dimostra che quelli del
-      ritorno sono invariati
+- [ ] Una trasferta con auto e `returnAt` null produce **una** sola offerta; senza auto, nessuna
+- [ ] Salvata una trasferta con auto e 3 posti e rientro, **entrambe** le tratte hanno 3 posti: i 3
+      posti dell'auto sono 3 su ciascuna tratta, non 3 in tutto
+- [ ] Scritto a 2 il contatore dell'andata, una rilettura dà **andata 2 e ritorno 3**
+- [ ] Il contatore di tratta non scende sotto zero né supera `seatsTotal`: errore tipizzato, come
+      `makeTrip`
+- [ ] Il filtro "almeno un posto libero" è **per tratta**: andata esaurita e ritorno libero producono
+      una sola offerta, quella del ritorno
 - [ ] Due candidature dello stesso collega sulle **due tratte della stessa trasferta** sono ammesse e
       distinte, non una doppia candidatura
-- [ ] `findByTripAndRequester` è chiavata sulla **tratta**: interrogata sul ritorno non restituisce la
-      candidatura dell'andata
-- [ ] L'identità di tratta è unica fra le offerte, e un test lo dimostra permutando l'input e
-      ottenendo lo stesso ordine (il `tripId` non è più unico fra le offerte: due tratte lo condividono)
+- [ ] `findByLegAndRequester(tripId, direction, requesterId)` sostituisce `findByTripAndRequester`:
+      interrogata sul ritorno non restituisce la candidatura dell'andata
+- [ ] `listByLeg(tripId, direction)` sostituisce `listByTrip`: i criteri di T14 parlano di posti e di
+      esaurimento, che sono per tratta, e la cascata di T05 deve leggere le `pending` di **quella**
+      tratta
+- [ ] L'ultima chiave dell'ordine totale di `findMatches` è l'**identità di tratta**, non `tripId`: un
+      test permuta l'input e ottiene lo stesso ordine su due offerte a punteggio identico **che
+      condividono il `tripId`**
+- [ ] Un test costruisce la trasferta degenere con `fromPlantId == toPlantId` (raggiungibile: non è un
+      invariante di `makeTrip` ma una regola di creazione di T04) e dimostra che le sue **due** tratte,
+      che matchano la stessa richiesta con lo stesso punteggio e lo stesso `tripId`, restano in ordine
+      totale
 
 **Criteri di accettazione** (stato della candidatura in lista)
 - [ ] `findMatches` **restituisce** le offerte su cui il richiedente ha una candidatura `pending`,
@@ -233,14 +274,28 @@ già una tratta sola (`fromPlantId`, `toPlantId`, `departureAt`).
 - [ ] `requestNote` è facoltativa: una candidatura senza nota è valida
 - [ ] `resolutionNote` e `resolvedBy` (`'owner' | 'requester' | 'system'`, union di letterali) esistono
       sulla riga e sono nulli finché la candidatura è aperta
+- [ ] I due si impostano **insieme**: uno non null e l'altro null è rifiutato con errore tipizzato
 - [ ] Il limite di lunghezza delle note sta in `config/`, non nel codice: un test con una config a
       limite ridotto dimostra che il rifiuto segue il parametro
+- [ ] Confini provati, non solo il centro: limite−1 accettato, limite esatto accettato, limite+1
+      rifiutato
+- [ ] Il limite si misura in **code point** e non in unità di stringa: un test con un carattere fuori
+      dal piano base (`'👍'.length === 2`) dimostra che due emoji non consumano quattro caratteri,
+      altrimenti il conteggio applicato non è quello che l'utente vede
 - [ ] Una nota oltre il limite è rifiutata con **errore tipizzato**, non troncata in silenzio
+- [ ] Una nota di **soli spazi** è rifiutata con errore tipizzato, non normalizzata a `null`
+- [ ] Una riga `cancelled` può tornare a `pending` **riusando lo stesso id**, e un test lo dimostra
+      attraverso la suite di contratto (semantica di upsert già dichiarata nel port)
 - [ ] La suite di contratto condivisa verifica che note e `resolvedBy` sopravvivano a scrittura e
       rilettura, senza modifiche alla suite fra `memory` e `supabase`
 
-⛔ Checkpoint obbligatorio: modifica `SeatOffer`, `MatchRequest`, il ritorno di `findMatches` e
-`MatchRequestRepository`, cioè quattro interfacce pubbliche dopo T02.
+⛔ Checkpoint obbligatorio, **più grande di come era stato scritto la prima volta**: modifica
+**cinque** interfacce pubbliche dopo T02 — `SeatOffer`, `MatchRequest`, il ritorno di `findMatches`,
+`MatchRequestRepository` (due metodi rinominati e per-tratta) e `TripRepository` (un metodo nuovo per
+il contatore di tratta, più `listOpenOffers` che cambia semantica: da una offerta per trasferta a due).
+Aggiunge inoltre un'**entità di dominio nuova** (`TripLeg`) e **pre-impegna la forma di una tabella di
+T08** (`trip_legs`, chiave primaria composta). Approvato dall'umano il 13 ottobre 2026 dopo che il
+planner ha mostrato che il criterio sui posti per tratta non era soddisfacibile senza di esso.
 
 ## T05 Candidatura, accettazione, rifiuto
 
