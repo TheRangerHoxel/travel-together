@@ -1335,3 +1335,29 @@ raggiungibile: senza l'incremento chi offriva perde un passeggero e tiene il pos
 Da decidere entro T05, insieme al fatto che una `cancelled` dopo `accepted` è l'unico caso in cui la
 cascata del punto precedente potrebbe dover girare **al contrario** (un posto si libera, ma le
 candidature già auto-rifiutate restano rifiutate).
+
+### Risposta dell'umano, subito dopo: il buco è chiuso
+
+Annullare una candidatura **già `accepted`** richiede **nota obbligatoria**, **notifica a chi ha
+l'auto** e **restituisce il posto** (`seatsAvailable` +1). Due criteri nuovi per T05 oltre
+all'incremento.
+
+**Conseguenza di modello, con una scelta da fare.** Le note obbligatorie sono ora due, su azioni
+diverse e di attori diversi — il rifiuto (owner) e l'annullamento dopo accettazione (requester) —
+più quella facoltativa di chi si candida. Due forme: **(A)** campi fissi su `MatchRequest`
+(`requestNote` facoltativa, `resolutionNote` obbligatoria alla chiusura, `resolvedBy:
+'owner' | 'requester' | 'system'`), una riga sola e compatibile con l'upsert già documentato;
+**(B)** un registro di transizioni, entità nuova con storia, tabella in più a T08. Per un MVP da pitch
+basta la (A), e `resolvedBy` chiude **anche** la domanda aperta su chi ha rifiutato. Raccomandata (A).
+
+**Buco nuovo, conseguenza diretta.** Un collega auto-rifiutato perché "la macchina è stata riempita"
+non può ricandidarsi, perché `rejected` blocca. Ma se poi qualcuno annulla e un posto si libera, quel
+collega resta fuori per un **incidente di tempismo** e non per una decisione di qualcuno. Con
+`resolvedBy` la distinzione diventa esprimibile: un rifiuto `system` potrebbe non bloccare la
+ricandidatura, un rifiuto `owner` sì. Decisione di prodotto, da prendere entro T05.
+
+**Sulla notifica, aggiornamento al giudizio dato un'ora prima.** Ora serve in due flussi. Resta
+separabile per la demo, ma il secondo è quello in cui la sua assenza **costa davvero**: chi offre
+l'auto sta pianificando un viaggio e perde un passeggero senza avere motivo di ricontrollare la lista.
+Separabile per il pitch, necessaria per un pilota vero. La raccomandazione non cambia (fuori da T05),
+la motivazione sì: non è più "non serve", è "non serve *ancora*".
