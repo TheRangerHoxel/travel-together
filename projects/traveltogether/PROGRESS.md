@@ -1237,3 +1237,48 @@ quindi accettare un passeggero per la sola andata consumerebbe anche un posto de
 Serve la decisione dell'umano su **dove** collocare quel lavoro: task nuovo prima di T05, oppure T05
 riscritto per tratte. L'autonomia concessa copre T04→T07 ma non autorizza a riscrivere i criteri di un
 task, che è lavoro di pianificazione.
+
+---
+
+## 2026-10-13 — Tre decisioni di prodotto dell'umano, e una conseguenza su T03
+
+Nessun codice scritto. Registrate qui perché cambiano la forma del lavoro che aspetta T05, e due di
+esse toccano criteri di accettazione di task **già chiusi**.
+
+**Le decisioni, come le ha date l'umano**
+1. Una candidatura già inviata non fa sparire l'offerta: resta in lista, **grigia e spuntata**, non
+   cliccabile. Un rifiuto la lascia in lista **rossa**, non cliccabile, "se ancora compatibile con la
+   ricerca".
+2. Chi rifiuta una candidatura **deve** scrivere una nota.
+3. Chi si candida **può** scrivere una nota, facoltativa.
+
+**La conseguenza che l'umano non aveva in mente, e che vale la pena non perdere:** la prima decisione
+**inverte due criteri di accettazione di T03**, committato, approvato e spuntato — "richiedente con
+richiesta già `pending`/`accepted` su quell'offerta → nessun match". Un'offerta che sparisce non può
+essere disegnata grigia: per mostrarne lo stato deve arrivare alla schermata. Non è un difetto di T03,
+era la lettura corretta del `PRD.md` di allora; è un cambio di requisito, e va emendato in `TASKS.md`
+con una nota, non applicato in silenzio. Cambia anche la forma del ritorno di `findMatches` (ogni
+`ScoredMatch` porta lo stato della candidatura), quindi è un ⛔ sul contratto.
+Cade **solo** l'esclusione per candidatura esistente: plant, data e finestra oraria continuano a
+filtrare, come dice l'umano stesso con "se ancora compatibile con la ricerca".
+
+**La domanda su `rejected`, aperta da T03, è risolta — in una direzione che non era fra le opzioni in
+discussione.** Siccome sia il grigio sia il rosso sono **non cliccabili**, una candidatura non si
+rinvia mai, nemmeno dopo un rifiuto. Il criterio #5 di T05 diventa scrivibile in una riga: *doppia
+candidatura = esiste già una riga per quella tratta e quel richiedente, **qualunque** stato abbia.*
+Più larga di "pendente o accettata", e il buco temuto (il collega vede il match, si candida, riceve un
+errore) non è nemmeno raggiungibile dalla UI, perché la riga non è cliccabile. Il controllo
+nell'usecase resta come seconda rete, non come messaggio che l'utente leggerà.
+
+**Tre buchi segnalati all'umano, non colmati da me** (sono prodotto): cosa accade a `cancelled` — se
+annullare rende l'offerta di nuovo cliccabile, o se annullare è una trappola; che un'offerta che si
+riempie sparisce portandosi via la candidatura `pending` del richiedente, perché il vincolo
+`seatsAvailable == 0` resta; e chi è autorizzato a leggere la nota di rifiuto.
+
+**Effetto sullo scheduling, ed è l'informazione utile.** Sono ora **tre** cambi approvati che cadono
+sulle **stesse due interfacce** (`SeatOffer` e `MatchRequest`) e tutti e tre sono ⛔ di contratto:
+passaggio alle tratte, stato della candidatura nel ritorno di `findMatches`, campi nota. Farli come
+tre task separati significa tre checkpoint e tre giri di adapter e suite di contratto sugli stessi
+file. Questo rafforza l'opzione "un task di modello prima di T05" rispetto a quando era stata
+proposta: non è più infrastruttura costruita prima del suo consumatore, è il raggruppamento di tre
+requisiti approvati che toccano lo stesso punto.
