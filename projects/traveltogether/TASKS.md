@@ -176,13 +176,13 @@ Interfacce in `core/ports` e implementazione in RAM in `adapters/memory`.
 Usecase `createTrip`: con auto (offre posti) o senza (cerca passaggio).
 
 **Criteri di accettazione**
-- [ ] Trasferta con auto e 3 posti → salvata con `seatsAvailable == 3`
-- [ ] Trasferta senza auto → salvata con `hasCar == false` e nessun posto offerto
-- [ ] Plant di partenza uguale a quello di destinazione → rifiutata con errore esplicito
-- [ ] Data di partenza nel passato (secondo `Clock` iniettato) → rifiutata
-- [ ] Data di rientro precedente alla partenza → rifiutata
-- [ ] Posti offerti ≤ 0 oppure > 8 con auto dichiarata → rifiutata
-- [ ] Ogni caso di rifiuto ritorna un errore tipizzato, non un'eccezione generica
+- [x] Trasferta con auto e 3 posti → salvata con `seatsAvailable == 3`
+- [x] Trasferta senza auto → salvata con `hasCar == false` e nessun posto offerto
+- [x] Plant di partenza uguale a quello di destinazione → rifiutata con errore esplicito
+- [x] Data di partenza nel passato (secondo `Clock` iniettato) → rifiutata
+- [x] Data di rientro precedente alla partenza → rifiutata
+- [x] Posti offerti ≤ 0 oppure > 8 con auto dichiarata → rifiutata
+- [x] Ogni caso di rifiuto ritorna un errore tipizzato, non un'eccezione generica
 
 ## T05 Candidatura, accettazione, rifiuto
 

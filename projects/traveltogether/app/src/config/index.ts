@@ -5,3 +5,4 @@
 // Un KPI che cambia modificando questi valori e' la prova che non e' hardcoded.
 
 export { MATCH_CONFIG } from './matching';
+export { CREATE_TRIP_CONFIG } from './trips';

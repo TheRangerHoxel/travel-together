@@ -1039,3 +1039,201 @@ brandizzato, esclusione delle offerte già partite.
 match (il PRD parla di "pendente o accettata"), quindi `findMatches` ripropone l'offerta — ma T05 ha
 il criterio "doppia candidatura sulla stessa offerta → rifiutata". Se T05 lo legge come "esiste già una
 riga", il collega vede un match, si candida e riceve un errore. Da decidere entro T05.
+
+---
+
+## 2026-10-13 — T04 · Creazione trasferta · `verify` verde, in attesa del reviewer
+
+`verify` **verde, exit code 0, rieseguito da me** e non solo dal developer: 128 test unitari in 10 suite
+(erano 88), 1 di integrazione, 1 di smoke.
+
+**Autonomia concessa dall'umano** sul tratto T04→T07: non si chiede il permesso *fra* un task e
+l'altro, ma il ciclo developer → `verify` → reviewer → commit resta intero per ciascuno. Il reviewer
+non salta: ha bocciato T02 due volte e T03 una, **sempre con `verify` verde**.
+
+**Il planner è stato saltato, come per T01:** i sette criteri in `TASKS.md` erano già verificabili,
+cioè erano già l'output del planner.
+
+| Criterio T04 | Come è coperto |
+|---|---|
+| Auto e 3 posti → `seatsAvailable == 3` | ✅ più `seatsTotal` 3 e `status: 'published'` |
+| Senza auto → `hasCar false`, nessun posto | ✅ `seatsTotal` e `seatsAvailable` a 0 |
+| Plant partenza = destinazione → rifiutata | ✅ `same-plant`, con il `plantId` nel payload |
+| Partenza nel passato secondo `Clock` → rifiutata | ✅ −1 ms rifiutato, **uguale accettato**, +1 ms accettato; un test cambia *solo* l'orologio |
+| Rientro precedente alla partenza → rifiutata | ✅ −1 ms rifiutato, **uguale accettato**, `null` accettato |
+| Posti ≤ 0 o > 8 con auto → rifiutata | ✅ confini 0/1/8/9; un test usa una config con massimo 4 |
+| Ogni rifiuto è un errore tipizzato | ✅ ogni test pretende il `kind` esatto, e che lo storage sia rimasto vuoto |
+
+### Decisioni, da ritrovare senza rileggere i diff
+
+1. **Istanti: validare e rifiutare, non convertire** — opzione (a), decisa dall'umano. `createTrip`
+   passa `departureAt`, `returnAt` **e** `clock.now()` a `parseUtcInstant` e rifiuta con errore
+   tipizzato ciò che non è canonico. Nessun convertitore, nessuna aritmetica di calendario, nessun
+   `Date` nel core. La conversione dal fuso locale è **onere del form di T12**: scritto qui perché
+   chi scriverà quel form non lo deve riscoprire leggendo il codice.
+   Perché anche `clock.now()`: un confronto silenziosamente sbagliato è esattamente il guasto che la
+   guardia previene, e un port con un adapter difettoso non è meno pericoloso di un input sporco.
+
+2. **L'id arriva da chi chiama, e questo evita un ⛔.** `TripRepository.save` prende un `Trip`
+   completo e fra i cinque port non c'è un generatore di id. Aggiungerne uno sarebbe stato un cambio
+   di contratto, cioè un checkpoint umano. `CreateTripInput` include quindi l'`id`: T04 si è chiuso
+   senza toccare nessuna interfaccia.
+
+3. **`maxSeatsOffered` sta in `config/`, non nel codice.** Il massimo di 8 è una soglia, e
+   `CLAUDE.md` vieta i valori magici. Stesso pattern di `MatchConfig`/`MATCH_CONFIG` di T03: il tipo
+   in `core/usecases`, i valori in `config/`, il codice di produzione del core **non** importa
+   `config/` e l'unico arco vive nel test di conformità. Il minimo di 1 posto resta una costante:
+   zero posti non è un'offerta, non è una soglia da tarare.
+
+4. **`status: 'published'` alla creazione.** `TripStatus` non ha una bozza, e gli altri due stati
+   (`cancelled`, `completed`) descrivono la fine della vita. Una trasferta creata deve poter comparire
+   subito fra le offerte del matching.
+
+5. **Posti > 0 senza auto: rifiutati, non azzerati.** Ignorare un input è il modo in cui l'utente
+   scopre dopo che i suoi dati sono stati cambiati. `makeTrip` resta la seconda rete, e un valore
+   *negativo* senza auto non è una regola di T04: ci arriva e lo rifiuta `makeTrip` con
+   `negative-seats`, come prescrive la delega.
+
+### Il rilievo che conta più del task: **la forma canonica non è unica**
+
+`parseUtcInstant` accetta i millisecondi come **opzionali**, quindi `...T06:00:00Z` e
+`...T06:00:00.000Z` sono entrambi canonici e sono lo stesso istante. Ma come stringhe non sono
+uguali, e l'ordine è pure **invertito**: `Z` è `0x5A`, `.` è `0x2E`, quindi `"06:00:00.000Z"` risulta
+**minore** di `"06:00:00Z"`.
+
+Conseguenza: l'enunciato su cui si fonda tutto dall'inizio — "fra istanti canonici il confronto
+lessicografico coincide con quello cronologico" — **è vero solo a forma dei millisecondi uguale**,
+e il dominio non la garantisce. L'ha trovato il developer sul confine "partenza uguale ad adesso",
+dove il confronto fra stringhe dà il verdetto sbagliato. `createTrip` lo evita confrontando gli
+`Instant` (data, poi `millisOfDay`) e non le stringhe; c'è un test che fallirebbe col confronto naive.
+
+Correzione a una cosa che avevo detto in chat all'umano: **no**, un tab "prossimi viaggi" non è
+gratuito oggi. Ordinare per `departureAt` come stringhe e filtrare con `departureAt >= clock.now()`
+sbagliano proprio sui pareggi, perché `clock.now()` ha sempre i millisecondi e un `Trip` salvato può
+non averli. Nessun bug **attuale**: `findMatches` passa da `parseUtcInstant` e confronta `date` per
+uguaglianza e `millisOfDay` per distanza, quindi T03 è salvo, e nessun altro punto del core confronta
+quelle stringhe. È una trappola per T13, non un difetto in produzione.
+
+Delimitato per non propagare un allarme sbagliato: su Postgres la colonna è `timestamptz`, quindi
+`ORDER BY` e i confronti SQL sono semantici e **non** soffrono di questo. Il rischio è solo lato JS.
+
+Annotato come nota alla voce `IDEAS.md` *"Istante normalizzato UTC come tipo brandizzato"* invece che
+come voce nuova: il rimedio è quello, e `CLAUDE.md` vieta i duplicati. La decisione da prendere lì è
+se **stringere il parser** (millisecondi obbligatori) o **normalizzare** in un punto solo.
+
+### Deviazione del developer dal brief, accettata
+
+Gli avevo detto di usare `FixedClock` e l'adapter memory nei test. Non si può: il lint vieta a
+`core/**` di importare `adapters/`, **test compresi**, con due regole indipendenti. Ha scritto due
+fake locali che implementano i port, e il fake del repository registra i salvataggi — il che ha reso
+possibile asserire, su ogni rifiuto, che **nulla è stato scritto**. Ha rispettato il freno invece di
+chiedere di allentarlo: è il comportamento giusto. Il prezzo è un po' di codice duplicato nei test:
+il developer l'ha segnalato a me, e **io** l'ho scritto in `IDEAS.md` come voce *"Fake condivisi dei
+port per i test di `core/`"*, insieme al rilievo del reviewer che il fake di `TripRepository` è più
+debole del port che implementa (`save` scrive senza validare). Non risolto qui.
+
+### Cosa `verify` verde NON dimostra
+
+Nulla sulle RLS e nulla sul percorso Supabase: `createTrip` è stato esercitato su fake in RAM. Il
+`test:int` verde è quello di F1.7, non copre T04. E non è stato esercitato nessun chiamante reale:
+chi produce l'`id` e chi converte l'istante dal fuso locale non esistono ancora — arrivano a T12.
+
+### Round 1 di review — **BOCCIATO**, `verify` verde. Di nuovo.
+
+Quarta volta in Fase 2 che il reviewer boccia o segnala **con `verify` verde** (due volte T02, una T03,
+una qui). È il dato che conta sull'affidabilità dell'harness: misura ciò che sa misurare, e i difetti
+che restano sono quelli che nessun test può vedere perché riguardano *la coerenza fra ciò che il
+codice dichiara e ciò che fa*. Il reviewer ha rieseguito `verify` per conto proprio ed è verde anche
+per lui: 128 test, exit 0.
+
+Ha confermato per lettura, non per lint verde, le cose che il lint non copre: `grep -w Date` su tutto
+`core/` dà 5 occorrenze, **tutte in commenti** — zero `Date.parse`, zero `Date.UTC`, cioè la
+scorciatoia che il selettore non intercetta non è stata usata. E ha verificato che il divieto
+`core/ → adapters/` vale davvero anche nei test, con due reti indipendenti in `eslint.config.js`.
+
+**B1 — regola duplicata, accolto.** `create-trip.ts` rifiutava `!hasCar && seatsOffered > 0`, che è
+**lo stesso predicato** dell'invariante di `makeTrip` (`seatsTotal = seatsOffered`), mentre il commento
+d'intestazione del file dichiarava di delegarlo. Il file smentiva se stesso, ed era il vincolo numero
+uno che avevo dato al developer. Non è estetica: il `kind` `'seats-offered-without-car'` viveva in
+**due** union con payload diversi, e la seconda arriva annidata in `trip-invariant-violated.violation`
+— la mappatura errori → testi di T12 avrebbe visto lo stesso nome in due forme a due livelli. Peggio:
+input fratelli finivano in strati diversi (`seatsOffered: 2` senza auto = regola di T04,
+`seatsOffered: -1` senza auto = invariante delegato).
+Scelta la **delega piena**: il controllo sparisce, l'input arriva a `makeTrip` e viene rifiutato lì.
+La motivazione originale ("rifiutati, non azzerati") resta soddisfatta — la delega non azzera niente,
+cambia solo la forma dell'errore. Regola che ne esce, spiegabile in una riga: **ogni invariante di
+`Trip` esce come `trip-invariant-violated`, ogni regola di creazione esce col proprio `kind`.**
+
+**B2 — errore mio, non del developer.** Avevo scritto qui sopra che la duplicazione dei fake era
+"segnalata in `IDEAS.md` dal developer". Il developer l'aveva segnalata **a me**; in `IDEAS.md` non
+c'era niente. Il registro dichiarava un'azione non eseguita — lo stesso difetto che pretendiamo di non
+avere nel codice, applicato al diario. La voce ora esiste e la frase è stata corretta dicendo chi ha
+fatto cosa. Vale la pena notare *come* è stato trovato: il brief al reviewer gli chiedeva di
+controllare che il codice facesse ciò che `PROGRESS.md` dichiara. Ha trovato il contrario — una
+dichiarazione senza codice.
+
+**B3 — governance, risolto in parte da me.** Il reviewer ha segnalato che la ri-triage di `IDEAS.md`
+(17 cambi di stato) viaggiava dentro l'albero di lavoro di T04, e che non poteva stabilirne l'autore:
+se fosse stata di un agente sarebbe la violazione più grave del diff, perché nessun agente può
+marcare `accettata` una propria proposta. **È dell'umano**, dichiarato da lui in chat. Il reviewer non
+poteva saperlo, e aver chiesto invece di assumere è il comportamento corretto.
+Resta valido il resto del rilievo: *un commit = un task*, quindi la triage e la voce nuova sulle
+tratte **non** entrano nel commit di T04, che contiene solo codice. E resta aperta la cosa seria:
+15 voci `accettata` e **zero** task corrispondenti in `TASKS.md`, mentre `CLAUDE.md` dice che finché
+non sono task "per il loop non esistono". Il caso imminente non è teorico: la voce *"Andata e ritorno
+sono due offerte indipendenti"* dichiara di dover stare **prima di T05**, e T05 è il prossimo task.
+
+**Non bloccanti annotati in `IDEAS.md`**, nessuno implementato: fake condivisi dei port,
+accumulo degli errori di validazione invece del primo, validità di calendario nel parser, RLS di
+scrittura su `trips` vincolate all'owner. L'ultima è la più sostanziosa: `save` è un **upsert** e l'id
+arriva da chi chiama, quindi chi passa il `tripId` di un collega ne sovrascrive la trasferta. Nel core
+non c'è nulla che lo impedisca, né deve esserci — è il DB il posto giusto, e i sette criteri attuali
+di T08 non lo coprono.
+
+Accolto anche un non bloccante dentro lo stesso giro (N1): il test che uccide il confronto
+lessicografico usava un `clock.now()` **senza** millisecondi, che il contratto di `Clock` vieta. Il
+test era quindi corretto ma non interamente legale. Aggiunto un caso con entrambi i lati conformi.
+
+### Round 2 di review — **APPROVATO** ✅
+
+`verify` verde, 129 test (128 + quello di N1), exit 0, rieseguito indipendentemente dal developer, da
+me e dal reviewer. Il conteggio **non doveva scendere**: la correzione di B1 ha cambiato
+l'*aspettativa* di un test esistente, non l'ha rimosso. Un test sparito dopo una correzione è il
+primo posto dove guardare, e qui non è avvenuto.
+
+Il reviewer non ha verificato leggendo il file corretto: ha fatto `grep` su **tutto** `app/src` per
+escludere che la regola fosse stata riscritta altrove invece che eliminata. `seats-offered-without-car`
+vive ora in una sola union, prodotto in un solo punto (`trip.ts:73`). E ha confermato che il commento
+d'intestazione di `create-trip.ts` è vero parola per parola: le tre regole che dichiara delegate sono
+in `makeTrip` e in nessun altro posto, le quattro che dichiara proprie sono in `createTrip` e in
+nessun altro posto.
+
+**La sonda su N1 è stata rifatta dal reviewer con `node -e`**, invece di fidarsi del developer:
+`'...07:00:00Z' < '...07:00:00.001Z'` è `false` (quindi il naive **accetterebbe** una partenza che va
+rifiutata) e `'...06:00:00.000Z' < '...06:00:00Z'` è `true` (quindi rifiuterebbe un confine che va
+accettato). Codici carattere confermati: `.` = 46, `Z` = 90. Poi ha ripercorso tutti gli altri
+confronti del file per verificare che sotto il mutante non ne cadano né più né meno di due, ed ha
+eseguito il solo file per controllare il denominatore: 38 test. "2 su 38" era esatto in entrambi i
+numeri.
+
+**Composizione dei commit, decisa con il reviewer:** `PROGRESS.md` va nel commit di T04 — è il diario
+del task, e `CLAUDE.md` chiede che sia aggiornato a ogni ciclo, quindi appartiene al suo record.
+`IDEAS.md` va in un commit **separato**, perché contiene la triage dell'umano (17 cambi di stato, non
+mia) più le quattro voci nate da questa review: non sono separabili senza staging parziale, e nessuna
+delle due appartiene a T04.
+
+**Riserve non bloccanti lasciate dove sono, senza azione:** la tautologia `x toBe x` in
+`create-trip-config.test.ts` (il legame vero è l'annotazione di tipo verificata da `tsc`, come nel
+`match-config.test.ts` già approvato in T03), la condizione ridondante per il narrowing a
+`create-trip.ts:145`, l'ordine primo-errore-che-scatta (ora affrontato alla radice da una voce di
+`IDEAS.md`), e `MIN_SEATS_WITH_CAR` costante.
+
+**Prossimo passo: ⛔ fermo prima di T05, e non per una regola generica.** La richiesta dell'umano del
+13 ottobre (andata e ritorno come offerte indipendenti) rende **sbagliati due degli otto criteri di
+T05** così come sono scritti: "doppia candidatura sulla stessa offerta → rifiutata" classificherebbe
+come doppione il collega che prende entrambe le tratte dalla stessa persona — il caso che l'umano ha
+indicato come il migliore diventerebbe l'unico vietato — e `seatsAvailable` è un contatore solo,
+quindi accettare un passeggero per la sola andata consumerebbe anche un posto del rientro.
+Serve la decisione dell'umano su **dove** collocare quel lavoro: task nuovo prima di T05, oppure T05
+riscritto per tratte. L'autonomia concessa copre T04→T07 ma non autorizza a riscrivere i criteri di un
+task, che è lavoro di pianificazione.
