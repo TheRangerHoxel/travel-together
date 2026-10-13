@@ -64,6 +64,25 @@ Fermati e chiedi **prima** di:
 - installazioni di software
 - qualsiasi azione irreversibile
 
+## Domande all'umano
+
+Ogni dubbio, perplessità o decisione aperta si pone **come domanda a risposta multipla**
+(`AskUserQuestion`), non come prosa. L'umano non deve rileggere un testo lungo per capire cosa gli
+viene chiesto di specificare.
+
+- La **raccomandazione** è la prima opzione, marcata `(Raccomandato)`.
+- Il contesto che serve a decidere sta **dentro l'opzione** (descrizione, o `preview` per confronti
+  concreti), non in un paragrafo da leggere prima.
+- **Non** si scrive un'opzione "Altro": il campo a risposta libera lo aggiunge lo strumento da sé, ed
+  è sempre disponibile all'umano.
+- Massimo 4 domande per giro. Se i dubbi sono più di quattro si pongono i più **bloccanti** e si dice
+  quali restano fuori.
+- Ciò che l'agente può decidere da sé **non** diventa una domanda: si decide, si dichiara in una riga
+  e si va avanti. Le domande sono per ciò che cambia il lavoro e che solo l'umano può sciogliere.
+
+Vale per i dubbi, non per i resoconti: l'esito di un task si riporta normalmente, e le decisioni
+prese restano in `PROGRESS.md`.
+
 ## Sicurezza
 
 - `.env` in `.gitignore`. Segreti e config fuori dal codice, iniettati a runtime.
