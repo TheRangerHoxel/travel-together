@@ -299,17 +299,68 @@ planner ha mostrato che il criterio sui posti per tratta non era soddisfacibile 
 
 ## T05 Candidatura, accettazione, rifiuto
 
-Usecase `requestSeat`, `acceptRequest`, `rejectRequest`.
+Usecase `requestSeat`, `acceptRequest`, `rejectRequest`, `cancelRequest`.
 
-**Criteri di accettazione**
-- [ ] Candidatura valida → richiesta creata in stato `pending`
-- [ ] Accettazione → richiesta `accepted` **e** `seatsAvailable` decrementato di 1
-- [ ] Rifiuto → richiesta `rejected` e `seatsAvailable` **invariato**
-- [ ] Accettazione quando `seatsAvailable == 0` → rifiutata con errore esplicito
-- [ ] Doppia candidatura dello stesso utente sulla stessa offerta → rifiutata
-- [ ] Solo il proprietario dell'offerta può accettare o rifiutare: un altro utente riceve errore
+**Criteri riscritti il 13 ottobre 2026.** Gli otto originali erano scritti quando l'unità di offerta
+era la **trasferta**: cinque su otto nominavano un `seatsAvailable` che ora esiste **per tratta**, e
+uno — "doppia candidatura sulla stessa offerta" — avrebbe classificato come doppione il collega che
+prende andata **e** ritorno dalla stessa persona, cioè il caso che l'umano ha indicato come il
+migliore. Sostituiti dall'elenco sotto, che incorpora anche le quattro decisioni di prodotto del
+13 ottobre. Vedi `PROGRESS.md`.
+
+**Criteri di accettazione** (candidatura)
+- [ ] Candidatura valida su una **tratta** → `pending`, con `requestNote` facoltativa
+- [ ] Doppia candidatura sulla stessa tratta → rifiutata se esiste già una riga `pending`, `accepted`
+      oppure `rejected`
+- [ ] Una riga `cancelled` **non** blocca: la ricandidatura è ammessa e **riusa lo stesso id**
+- [ ] Candidature dello stesso collega sulle **due tratte** della stessa trasferta: entrambe ammesse
+
+**Criteri di accettazione** (accettazione e rifiuto)
+- [ ] Accettazione → `accepted` **e** i posti di **quella** tratta decrementati di 1; i posti
+      dell'altra tratta **invariati**
+- [ ] Rifiuto → `rejected`, `resolvedBy: 'owner'`, posti **invariati**
+- [ ] Rifiuto **senza nota** → errore tipizzato: la nota è obbligatoria e il modello non può imporla
+      (dipende dallo stato precedente della riga), quindi la impone questo usecase
+- [ ] Accettazione quando i posti di quella tratta sono a 0 → rifiutata con errore esplicito
+- [ ] Solo il proprietario della trasferta può accettare o rifiutare: un altro utente riceve errore
 - [ ] Una richiesta già `accepted` non può essere accettata di nuovo (nessun doppio decremento)
-- [ ] Un test dimostra che due accettazioni concorrenti sull'ultimo posto non portano `seatsAvailable` sotto zero
+- [ ] Un test dimostra che due accettazioni concorrenti sull'ultimo posto non portano i posti della
+      tratta sotto zero
+
+**Criteri di accettazione** (annullamento)
+- [ ] Annullamento di una `pending` → `cancelled`, **nessuna** nota richiesta, posti invariati
+- [ ] Annullamento di una `accepted` → `cancelled`, `resolvedBy: 'requester'`, nota **obbligatoria**
+      (senza nota → errore tipizzato) e posti della tratta **+1**
+- [ ] Solo il richiedente può annullare la propria candidatura: un altro utente riceve errore
+
+**Criteri di accettazione** (le due transizioni pilotate dal sistema)
+- [ ] Quando un'accettazione consuma l'**ultimo** posto, tutte le altre `pending` di **quella** tratta
+      passano a `rejected` con `resolvedBy: 'system'` e nota automatica; quelle dell'altra tratta
+      restano `pending`
+- [ ] Quando i posti di una tratta tornano **> 0**, le righe `rejected` con `resolvedBy: 'system'` di
+      quella tratta tornano a `pending`, con `resolutionNote` e `resolvedBy` **azzerati**
+- [ ] Un rifiuto con `resolvedBy: 'owner'` **non** viene reintegrato: un test lo distingue da uno
+      `system` sulla stessa tratta
+- [ ] Il reintegro non tocca le righe `cancelled`
+- [ ] Il reintegro porta a `pending` e **non** ad `accepted`: tornano candidati tutti, e sceglie chi
+      offre l'auto. Nessun criterio di precedenza fra loro, quindi nessun ordine da inventare
+
+**Criteri di accettazione** (correzioni portate da T04b)
+- [ ] La lunghezza delle note è validata **solo in scrittura**: una riga scritta quando il limite era
+      più alto si rilegge senza `invalid-record`. Un test abbassa il limite **dopo** la scrittura e
+      pretende che la rilettura funzioni. Gli invarianti strutturali restano validati sempre
+- [ ] `TripRepository.save` rifiuta con errore tipizzato se la nuova forma della trasferta eliminerebbe
+      una tratta con candidature **aperte**, invece di eliminarle in silenzio. È la rete che rende
+      impossibile dimenticare l'annullamento a cascata, ed è anche l'unico comportamento su cui i due
+      adapter concordano: su Postgres la foreign key composta rifiuterebbe comunque
+
+**Fuori da T05, e senza un innesco oggi.** L'umano ha deciso che una tratta che scompare deve
+**annullare a cascata** le candidature aperte, con `resolvedBy: 'system'` e nota automatica. Non entra
+qui perché richiede un usecase di **modifica trasferta** che nessun task del backlog prevede: oggi
+`save` è chiamato solo da `createTrip`, dove non esistono né tratte né candidature preesistenti.
+Il criterio su `save` qui sopra chiude nel frattempo la perdita silenziosa. Quando la modifica
+trasferta diventerà un task, l'annullamento a cascata è un suo criterio — e **non** va messo
+nell'adapter, dove sarebbe logica di business vietata dal criterio di T09.
 
 ## T06 KPI aziendali
 

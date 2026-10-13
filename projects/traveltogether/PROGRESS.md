@@ -1696,3 +1696,62 @@ che non discriminava, e ha **disobbedito a due istruzioni del mio brief nel vers
 collisione di `legKey`, che non esiste e che un agente meno attento avrebbe fabbricato per compiacere
 il brief; e `seminaGrezzo` per la trasferta degenere, che avrebbe reso il test verde per il motivo
 sbagliato perché non materializza le tratte.
+
+---
+
+## 2026-10-13 — Nuova regola di comunicazione, e i criteri di T05 riscritti
+
+### I dubbi si pongono come domande a risposta multipla
+
+Richiesta esplicita dell'umano: *"non voglio leggere tutto il testo per capire cosa devo
+specificare"*. Scritta in `CLAUDE.md` dell'officina, § "Domande all'umano", perché valga per ogni
+progetto e sia visibile ai subagent. In sintesi: `AskUserQuestion` invece di prosa, raccomandazione
+come prima opzione, il contesto **dentro** l'opzione e non in un paragrafo prima, nessuna opzione
+"Altro" scritta a mano (il campo libero lo aggiunge lo strumento), massimo quattro domande per giro.
+
+Due limiti messi nella regola per non trasformarla nel suo opposto: ciò che l'agente può decidere da
+sé **non** diventa una domanda — si decide, si dichiara in una riga e si va avanti — e la regola vale
+per i dubbi, non per i resoconti.
+
+### Tre decisioni, due come raccomandate e una diversa
+
+1. **Annullare una `accepted` fa scattare il reintegro.** Confermato: è lo stesso evento già deciso
+   (posti della tratta da 0 a > 0), quindi non è una regola nuova ma la conferma dell'innesco.
+2. **Tratta che scompare: annullamento a cascata con nota automatica** — **non** la mia
+   raccomandazione, che era `save` che rifiuta. Vedi sotto: la scelta è migliore per l'utente ma non
+   ha un innesco oggi.
+3. **La lunghezza delle note sarà validata solo in scrittura.** Entra in T05 come correzione.
+
+### La seconda risposta non è implementabile adesso, e il perché conta
+
+L'annullamento a cascata richiede un usecase di **modifica trasferta** che **nessun task del backlog
+prevede**: oggi `save` è chiamato solo da `createTrip`, dove non esistono né tratte né candidature
+preesistenti. Quindi una tratta non può sparire in nessun flusso di prodotto attuale, e il
+comportamento scelto non ha un trigger da cui partire.
+
+E non può stare nell'adapter: un `save` che annulla candidature sarebbe logica di business dentro un
+repository, vietata dal criterio di T09 e già rifiutata dal doc del port per i vincoli duri.
+
+**Decisione mia, dichiarata invece di richiesta come quarta domanda:** metto in T05 il criterio che
+`save` **rifiuti** con errore tipizzato se la nuova forma eliminerebbe una tratta con candidature
+aperte. Non è la risposta alla domanda dell'umano — è la rete che rende impossibile **dimenticare**
+l'annullamento a cascata, ed è l'unico comportamento su cui i due adapter concordano, perché su
+Postgres la foreign key composta rifiuterebbe comunque. L'annullamento a cascata diventerà un criterio
+del task di modifica trasferta, quando esisterà: cancella prima, salva dopo. Il guard non lo
+contraddice, lo precede.
+
+### I criteri di T05 riscritti
+
+Gli otto originali erano scritti quando l'unità di offerta era la **trasferta**: cinque nominavano un
+`seatsAvailable` che ora esiste per tratta, e uno avrebbe classificato come doppione il collega che
+prende andata **e** ritorno dalla stessa persona — il caso che l'umano ha indicato come il migliore.
+Sostituiti da un elenco su cinque dimensioni: candidatura, accettazione e rifiuto, annullamento, le
+due transizioni pilotate dal sistema, e le correzioni portate da T04b.
+
+Il reintegro porta a `pending` e **non** ad `accepted`, quindi non serve nessun criterio di precedenza
+fra le righe reintegrate: tornano candidate tutte e sceglie chi offre l'auto. È la ragione per cui la
+scelta dell'umano sul reintegro automatico non ha introdotto la domanda di ordinamento che temevo.
+
+**Resta aperta e non bloccante:** la schedulazione del task di modifica trasferta, e delle altre voci
+`accettata` di `IDEAS.md`. Da porre come domanda quando T05 sarà chiuso, per non consumare un giro di
+domande su qualcosa che non blocca.
