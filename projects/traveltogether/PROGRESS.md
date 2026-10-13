@@ -1282,3 +1282,56 @@ tre task separati significa tre checkpoint e tre giri di adapter e suite di cont
 file. Questo rafforza l'opzione "un task di modello prima di T05" rispetto a quando era stata
 proposta: non è più infrastruttura costruita prima del suo consumatore, è il raggruppamento di tre
 requisiti approvati che toccano lo stesso punto.
+
+---
+
+## 2026-10-13 — I tre buchi sciolti, e una **correzione** a quanto scritto un'ora prima
+
+Nessun codice scritto. L'umano ha risposto ai tre buchi di prodotto segnalati sopra.
+
+1. **`cancelled`** non fa sparire l'offerta e la rende **di nuovo cliccabile**: la richiesta "torna
+   indietro" e chi offre l'auto non la vede più fra quelle ricevute.
+2. **Quando l'auto si riempie**, le candidature `pending` su quella tratta passano a `rejected` con una
+   **nota automatica** ("la macchina è stata riempita") e una notifica.
+3. **La nota di rifiuto** la legge **solo** chi aveva mandato la richiesta, non gli altri passeggeri.
+
+### Correzione a un'annotazione precedente (commit `6b9cee7`)
+
+Nella voce qui sopra avevo scritto che il criterio #5 di T05 diventava *"esiste già una riga per quella
+tratta e quel richiedente, **qualunque** stato abbia"*, perché credevo che né il grigio né il rosso
+fossero ricliccabili. **È sbagliato:** la risposta (1) rende `cancelled` ricliccabile. Gli stati che
+bloccano una nuova candidatura sono **tre** — `pending`, `accepted`, `rejected` — e `cancelled` non è
+fra loro. Resta comunque più larga di "pendente o accettata", che era la lettura originariamente in
+discussione. Corretto anche in `IDEAS.md`, nel punto dove la formulazione sbagliata avrebbe guidato chi
+scrive T05.
+
+### La risposta (2) è migliore della soluzione che avevo proposto io
+
+Avevo proposto un'eccezione al vincolo `seatsAvailable == 0 → nessun match`, per tenere visibile
+l'offerta su cui il richiedente ha una riga pendente. **Non serve più, e l'eccezione è stata
+rimossa dalle proposte.** Rifiutare la candidatura con una nota che dice perché produce uno stato che
+si spiega da sé, invece di una riga che resta appesa a un'offerta esaurita, e lascia intatto un
+vincolo duro di T03. Meno codice e meno casi speciali nel motore.
+
+### Tre conseguenze della (2) che vanno sapute prima di scrivere T05
+
+- **È la prima transizione di stato non causata da un utente.** Oggi ogni transizione è un'azione
+  (`requestSeat`, `acceptRequest`, `rejectRequest`); questa è un effetto collaterale
+  dell'accettazione **di un altro collega**: `acceptRequest`, quando consuma l'ultimo posto, deve
+  rifiutare a cascata tutte le altre `pending` di quella tratta. Aggiunge un criterio a T05.
+- **Le note hanno due autori possibili**, l'owner e il sistema. "Nota obbligatoria di chi rifiuta"
+  non si applica a un rifiuto senza autore umano, quindi va deciso se la riga registra *chi* ha
+  rifiutato.
+- **La notifica ha un costo che le altre due risposte non hanno:** richiede il port `Notifier` e
+  l'adapter Expo Notifications, cioè una dipendenza nuova (⛔) e una voce di `IDEAS.md` di costo M.
+  Senza notifica il comportamento resta corretto e osservabile — il richiedente vede il rosso con la
+  nota quando riapre l'app. Raccomandato: **non farne un prerequisito di T05**, tenerla separabile.
+
+### Buco nuovo, scoperto rispondendo
+
+**Annullare una candidatura già `accepted` deve restituire il posto** (`seatsAvailable` +1). T05 ha il
+decremento in accettazione e nessun incremento in annullamento, e la risposta (1) rende quel percorso
+raggiungibile: senza l'incremento chi offriva perde un passeggero e tiene il posto occupato da nessuno.
+Da decidere entro T05, insieme al fatto che una `cancelled` dopo `accepted` è l'unico caso in cui la
+cascata del punto precedente potrebbe dover girare **al contrario** (un posto si libera, ma le
+candidature già auto-rifiutate restano rifiutate).
