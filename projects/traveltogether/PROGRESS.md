@@ -1755,3 +1755,88 @@ scelta dell'umano sul reintegro automatico non ha introdotto la domanda di ordin
 **Resta aperta e non bloccante:** la schedulazione del task di modifica trasferta, e delle altre voci
 `accettata` di `IDEAS.md`. Da porre come domanda quando T05 sarà chiuso, per non consumare un giro di
 domande su qualcosa che non blocca.
+
+---
+
+## 2026-10-13 — T05 · **PIANIFICAZIONE** in sette step. Un altro criterio mio scritto male
+
+Nessun codice. Il planner ha scomposto T05 e ha formulato le proprie decisioni aperte **come opzioni
+selezionabili**, come prescrive la sezione nuova di `CLAUDE.md`: la regola ha funzionato al primo giro.
+
+### Ordine degli step, e il perché
+
+Prima le **quattro azioni dell'utente** (`requestSeat`, `rejectRequest`, `acceptRequest`,
+`cancelRequest`), poi le **due transizioni di sistema** (cascata e reintegro), poi le correzioni di
+T04b. Motivo non ovvio: il reintegro è osservabile **solo** se esistono insieme una riga
+`rejected`/`system` — che la produce la cascata — e un evento che riporta i posti sopra zero, che lo
+produce l'annullamento di una `accepted`. Metterli adiacenti e per ultimi dà un solo punto in cui
+nasce la scrittura con `resolvedBy: 'system'`, e permette al test del **ciclo completo** (accetta →
+riempi → cascata → annulla → reintegro → riaccetta) di esistere nello step che lo chiude.
+
+### Un altro criterio che avevo scritto male, e stavolta sul lato Postgres
+
+Avevo messo in T05: *"`save` rifiuta se la nuova forma eliminerebbe una tratta con candidature
+**aperte**"*. **Sbagliato.** Su Postgres la foreign key composta blocca la cancellazione di una tratta
+finché esiste **qualsiasi** riga che la referenzia, comprese le `rejected` e le `cancelled`. Un guard
+limitato alle aperte non avrebbe chiuso la divergenza fra i due adapter: l'avrebbe spostata sulle righe
+chiuse, dove `memory` elimina la tratta e Postgres no — e `verify` verde non lo mostrerebbe fino a T09.
+
+**Decisione dell'umano: il criterio esce da T05 e va a T08**, dove lo schema si scrive e dove la
+semantica della foreign key è una scelta e non un'ipotesi. Nel frattempo il percorso è
+**irraggiungibile**: `save` è chiamato solo da `createTrip`, dove non esistono né tratte né candidature
+preesistenti. Aggiunti a T08 sette criteri che il modello a tratte ha prodotto: chiave primaria e
+foreign key composte, i `CHECK`, la forma dell'`UPDATE` atomico, la decisione sulla tratta eliminata,
+e le RLS di **scrittura** su `trips` e `match_requests`.
+
+### La seconda domanda l'ho chiusa io, e il motivo è che la risposta esisteva già
+
+Il planner chiedeva dove vive il test di interleaving, perché **nessun file dentro il grafo dei confini
+può vedere insieme un usecase e l'adapter vero**: verificato su `eslint.config.js`,
+`adapters: ['domain','ports','adapters','config']` (senza `usecases`) e `usecases` senza `adapters`,
+con due reti indipendenti. Le opzioni erano un fake dentro `core/`, oppure `src/__tests__/` che è fuori
+dal grafo, oppure il fake più un criterio su T08.
+
+**Non l'ho girata all'umano** perché T08 ha **già** il criterio *"il decremento di `seats_available` è
+atomico lato DB: un test di concorrenza non va sotto zero"* — verificato leggendolo. Quindi la terza
+opzione non aggiungeva niente e la prima è la scelta: fake fedele dentro `core/usecases`, e la
+copertura dichiarata come **composta** — la suite di contratto prova che l'adapter vero rispetta i
+limiti del delta, questo test prova che l'usecase si fida dell'esito del delta e non di una lettura
+propria. Niente zona di test senza confini.
+
+### Le decisioni di progetto del piano, accolte
+
+- **Posti prima, stato dopo, in `acceptRequest`.** È l'unico ordine che rende vero il criterio sulla
+  concorrenza: il decremento è la sola operazione con ammissione atomica, quindi deve stare sulla
+  porta. Se la transizione venisse prima, due accettazioni diventerebbero entrambe `accepted` e il
+  criterio "i posti non vanno sotto zero" sarebbe vero per il contatore e **falso per il prodotto** —
+  due passeggeri su un posto. E il danno residuo è conservativo: resta un posto consumato da nessuno
+  (capacità persa, visibile, recuperabile) invece di una candidatura accettata senza posto
+  (sovravendita, non recuperabile perché la riga `accepted` blocca il ritentativo, e si manifesta il
+  giorno della trasferta davanti a una persona).
+- **Cascata e reintegro in un modulo condiviso**, due funzioni nominate con un chiamante ciascuna, non
+  un dispatcher. Il dispatcher unico avrebbe avuto, dentro `acceptRequest`, un ramo "posti > 0 →
+  reintegra" **irraggiungibile**: perché una riga `system` esista i posti devono essere stati a 0, e
+  perché un'accettazione lasci posti > 0 devono essere stati ≥ 2. È lo stesso argomento con cui il doc
+  di `listOpenOffers` rifiuta il filtro su `hasCar`. Quello che si evita duplicando non è il ciclo —
+  dieci righe — è la **politica di fallimento parziale**, che deve esistere una volta sola.
+- **L'identità entra come campo dell'input** (`actorId`), non dal `SessionGateway`: è il pattern di
+  `createTrip`, e il gateway resta ciò che la UI usa per *ottenere* l'identità prima di chiamare.
+- **Il testo della nota automatica sta in `config/`**, con un test di conformità che verifica che stia
+  entro `maxLength` **in code point**: senza, il giorno in cui il limite scende la cascata fallirebbe
+  con `note-too-long` su un testo che nessun utente ha scritto.
+- **`acceptRequest` ritorna anche l'elenco delle righe auto-rifiutate**, per rendere la cascata
+  asseribile dall'esterno invece di dedotta rileggendo le altre righe.
+
+### Cosa il piano dichiara che `verify` verde non potrà dimostrare
+
+Oltre al solito su RLS e Supabase: **nulla sulla concorrenza reale** — un event loop, un processo, uno
+store sincrono e un'intercalatura scelta dal test, quindi il nome del test deve dire *interleaving* e
+non *concorrenza*, perché un test che desse l'impressione di provare la difesa lato DB sarebbe peggio
+di nessun test. **Nulla sull'atomicità della coppia stato+posti:** l'ordine scelto limita il danno, la
+compensazione lo riduce, nessuno dei due lo elimina. E due accettazioni concorrenti della **stessa**
+riga restano capaci di decrementare due volte, perché `save` è un upsert incondizionato e non esiste
+un compare-and-set: è la voce I3 di `IDEAS.md`, lasciata `proposta`.
+
+Tre voci nuove scritte dal planner in `IDEAS.md`, tutte `proposta`: RLS di scrittura su
+`match_requests`, la cascata che scrive N righe una alla volta senza transazione, e `src/__tests__/`
+che è fuori dal grafo dei confini.

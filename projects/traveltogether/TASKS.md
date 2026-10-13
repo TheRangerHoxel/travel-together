@@ -349,10 +349,13 @@ migliore. Sostituiti dall'elenco sotto, che incorpora anche le quattro decisioni
 - [ ] La lunghezza delle note è validata **solo in scrittura**: una riga scritta quando il limite era
       più alto si rilegge senza `invalid-record`. Un test abbassa il limite **dopo** la scrittura e
       pretende che la rilettura funzioni. Gli invarianti strutturali restano validati sempre
-- [ ] `TripRepository.save` rifiuta con errore tipizzato se la nuova forma della trasferta eliminerebbe
-      una tratta con candidature **aperte**, invece di eliminarle in silenzio. È la rete che rende
-      impossibile dimenticare l'annullamento a cascata, ed è anche l'unico comportamento su cui i due
-      adapter concordano: su Postgres la foreign key composta rifiuterebbe comunque
+> **Il criterio sul guard di `save` è stato spostato a T08 il 13 ottobre 2026, perché era scritto
+> male.** Diceva "candidature **aperte**", ma su Postgres la foreign key composta blocca la
+> cancellazione di una tratta finché esiste **qualsiasi** riga che la referenzia, comprese le
+> `rejected` e le `cancelled`: un guard limitato alle aperte non avrebbe chiuso la divergenza fra i due
+> adapter, l'avrebbe solo spostata. La semantica esatta è una decisione di schema e vive dove lo schema
+> si scrive. Nel frattempo il percorso è **irraggiungibile**: `save` è chiamato solo da `createTrip`,
+> dove non esistono né tratte né candidature preesistenti.
 
 **Fuori da T05, e senza un innesco oggi.** L'umano ha deciso che una tratta che scompare deve
 **annullare a cascata** le candidature aperte, con `resolvedBy: 'system'` e nota automatica. Non entra
@@ -399,6 +402,31 @@ Tabelle da `ARCHITECTURE.md`, come SQL versionato nel repo.
 - [ ] Un test dimostra che un utente non può accettare richieste su offerte non sue
 - [ ] Il decremento di `seats_available` è atomico lato DB: un test di concorrenza non va sotto zero
 - [ ] I tipi TypeScript sono **generati** dallo schema, non scritti a mano
+
+**Criteri aggiunti il 13 ottobre 2026, dal modello a tratte di T04b**
+- [ ] Esiste `trip_legs` con chiave primaria **composta** `(trip_id, direction)`, e `match_requests`
+      la referenzia con una **foreign key composta** `(trip_id, direction)`: una candidatura su una
+      tratta inesistente — per esempio sul rientro di una trasferta che non ha rientro — diventa
+      impossibile **per costruzione**, non per un controllo lato client
+- [ ] I `CHECK` replicano gli invarianti di `makeTripLeg`: `seats_available BETWEEN 0 AND seats_total`
+- [ ] Il decremento atomico è `UPDATE … SET seats_available = seats_available + :delta WHERE … AND
+      seats_available + :delta BETWEEN 0 AND seats_total`, e **zero righe toccate è l'errore**: è la
+      forma per cui `adjustLegSeats` è stata definita **relativa** e non assoluta
+- [ ] **Deciso cosa accade quando una tratta viene eliminata e la referenzia una candidatura**, in
+      qualunque stato. L'umano ha scelto l'**annullamento a cascata** con `resolvedBy: 'system'` e
+      nota automatica, che è logica di prodotto e quindi di un usecase, non dell'adapter: qui va
+      deciso se la foreign key è `RESTRICT` (e l'usecase annulla prima di salvare) o altro. **Non**
+      `ON DELETE CASCADE`, scartato dall'umano perché è perdita silenziosa
+- [ ] Le RLS di **scrittura** su `trips` impongono `owner_id = auth.uid()`: `save` è un upsert con id
+      fornito dal chiamante, quindi senza questo vincolo chi passa il `tripId` di un collega ne
+      sovrascrive la trasferta. I criteri esistenti parlano di "non modificare le trasferte altrui",
+      che una policy scritta solo su UPDATE lascia aggirabile da un upsert
+- [ ] Le RLS di scrittura su `match_requests` vincolano i **due attori**: il richiedente per la
+      creazione e l'annullamento, l'owner della trasferta per accettazione e rifiuto. In RAM
+      l'`actorId` lo passa il chiamante, quindi i controlli degli usecase di T05 proteggono da una UI
+      sbagliata e **non** da un client ostile
+- [ ] Un test di concorrenza **reale** su Postgres ripete l'interleaving di T05 su due connessioni: in
+      RAM l'intercalatura è deterministica e scelta dal test, qui no
 
 ⛔ Checkpoint obbligatorio: cambio di schema DB.
 
