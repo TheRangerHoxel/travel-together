@@ -218,6 +218,34 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Stato** — `accettata`
 - **Nota operativa** — il testo libero di una demo dal vivo finisce su un proiettore: il seed di T17 deve avere note sintetiche e innocue, e il limite di lunghezza va deciso in `config/` invece che scoperto quando qualcuno incolla tre paragrafi in una riga di lista.
 
+### Validare la lunghezza delle note solo in scrittura, non in lettura
+- **Cosa** — separare gli invarianti **strutturali** di `MatchRequest` (validati sempre, in lettura e in scrittura) dal **limite di lunghezza** della nota (validato solo in scrittura); oppure far validare in lettura con un `NoteConfig` permissivo.
+- **Perché** — rilievo del reviewer su T04b. `findById` valida la riga riletta contro la config **corrente** e traduce il fallimento in `invalid-record`. Per gli invarianti strutturali è giusto e simmetrico a `MemoryTripRepository`. Per la lunghezza no: `maxLength` è una **soglia tarabile**, e `PROGRESS.md` dichiara che il valore (280) verrà deciso davvero a T13, su un telefono. Il giorno in cui qualcuno lo porta a 140, ogni candidatura con una nota più lunga **già scritta** — seed di T17 compreso — diventa illeggibile: `findById` ritorna `invalid-record` e le schermate di T13/T14 mostrano un errore su un dato che **era valido quando è stato scritto**. Un parametro di prodotto non deve poter rendere illeggibili dati già scritti: è la differenza fra un invariante e una soglia.
+- **Impatto** — `core/domain/match-request.ts` e i due adapter. Nessun cambio di firma dei port.
+- **Costo** — S.
+- **Stato** — proposta
+
+### Decidere cosa accade alle candidature quando una tratta scompare
+- **Cosa** — fissare, **prima** della migrazione di T08, il comportamento della coppia (tratta eliminata, candidature esistenti su di essa): `ON DELETE CASCADE`, oppure `save` che rifiuta la nuova forma se esistono candidature aperte, oppure annullamento a cascata con `resolvedBy: 'system'` (che sarebbe comportamento di T05).
+- **Perché** — rilievo del reviewer su T04b, ed è un **buco di copertura della suite condivisa**, non un difetto del codice. Oggi `MemoryTripRepository.save` elimina in silenzio le tratte che la nuova forma non prevede (auto tolta, rientro tolto), e la suite di contratto lo verifica. Ma T04b pre-impegna per T08 una **foreign key composta** `match_requests(trip_id, direction) → trip_legs(trip_id, direction)`: su Postgres, eliminare una tratta che ha candidature solleva una violazione di vincolo, quindi `save` ritornerebbe un errore **dove in RAM ritorna `ok`**. La suite non lo intercetta perché nessun test combina "tratta eliminata" con "candidatura esistente su quella tratta": i due blocchi sono separati. A T09 l'unica via d'uscita sarebbe **adattare la suite**, che per `ARCHITECTURE.md` è il segnale che il port è sbagliato.
+- **Impatto** — migrazioni di T08 (già ⛔), `adapters/*`, un caso in più nella suite di contratto, e **un criterio in più su T08**.
+- **Costo** — S per decidere ora, M se scoperta a T09.
+- **Stato** — proposta
+
+### Atomicità e idempotenza dell'accettazione, non solo del contatore
+- **Cosa** — a T05/T08, far avvenire in **una sola** operazione (funzione lato DB o transazione) la transizione di stato della candidatura **e** il delta sui posti; e far verificare da un test la protezione dal doppio decremento, invece di affidarla all'ordine delle chiamate.
+- **Perché** — rilievo del reviewer su T04b. `adjustLegSeats(…, delta)` difende il **contatore** dalla concorrenza — a T08 diventa un `UPDATE … seats_available + :delta BETWEEN 0 AND seats_total` dove "zero righe toccate" è l'errore — ma **non lega** il decremento al cambio di stato. Due conseguenze: un'accettazione interrotta fra le due scritture lascia un posto consumato senza candidatura accettata; e il delta è idempotente a zero ma **non a ripetizione**, quindi due chiamate decrementano due volte. Ciò che oggi impedisce il doppio decremento è il controllo sullo stato `accepted` nel chiamante, non la firma. Il criterio di T05 "nessun doppio decremento" poggia quindi sul chiamante, ed è esattamente il genere di garanzia che qui si preferisce spostare nella macchina.
+- **Impatto** — `core/usecases` di T05, migrazioni di T08.
+- **Costo** — M.
+- **Stato** — proposta
+
+### Vietare agli script degli agenti gli identificatori di una lettera su PowerShell
+- **Cosa** — una regola operativa (in `CLAUDE.md` o in una skill): negli script PowerShell non si usano nomi di variabile o di comando di **una sola lettera**.
+- **Perché** — incidente reale durante T04b: uno script del developer ha usato `R`, che su Windows PowerShell è **alias di `Invoke-History`**. Ha riesesguito comandi precedenti, svuotando `trip-repository.ts` e cancellando altri cinque file, fra cui `create-trip.test.ts` del commit di T04 già approvato. Nessun danno permanente **solo perché T04 era committato**: `git restore` ha recuperato tutto. Se il lavoro fosse stato ancora nel working tree sarebbe stato irrecuperabile. Altri alias di una lettera con lo stesso potenziale: `r`, `h` (`Get-History`), `sl` (`Set-Location`), `ri` (`Remove-Item`).
+- **Impatto** — una riga di regola operativa, più eventualmente una deny rule o un controllo nell'hook sui comandi che contengono identificatori di una lettera. Nessun effetto sul codice applicativo.
+- **Costo** — S.
+- **Stato** — proposta
+
 ### Fake condivisi dei port per i test di `core/`
 - **Cosa** — un modulo di fake dei port riusabile dai test di `core/**` (orologio fisso, repository-spia che registra le scritture), collocato **dentro** `core/` per non violare il divieto `core/ → adapters/`.
 - **Perché** — scoperto in T04. Il lint vieta a `core/**` di importare `adapters/` **anche nei test**, con due reti indipendenti (verificato dal reviewer su `eslint.config.js`, non assunto): quindi `FixedClock` e l'adapter memory sono inutilizzabili dai test degli usecase, e ogni test si riscrive i propri fake. Con T05 (tre usecase, due repository) la duplicazione passa da "un po'" a sistematica, e fake divergenti fra test significano lo stesso contratto verificato in modi diversi dentro lo stesso core. Rilievo collegato: il fake di `TripRepository` scritto in T04 è **più debole del port** — `save` scrive senza validare, mentre il doc del port dichiara validazione prima della scrittura con `invalid-record`. Oggi è innocuo perché `makeTrip` precede sempre `save`, ma la suite non si accorgerebbe se un usecase passasse a `save` un `Trip` non validato.

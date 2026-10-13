@@ -25,6 +25,7 @@
 //    i residui di tutti i casi precedenti.
 
 import type {
+  LegDirection,
   MatchRequest,
   MatchRequestId,
   PlantId,
@@ -278,7 +279,7 @@ export function eseguiSuiteDiContratto(
 
         expect(esito.ok).toBe(true);
         if (esito.ok) {
-          const offerta = esito.value.find((o) => o.tripId === id);
+          const offerta = esito.value.find((o) => o.tripId === id && o.direction === 'outbound');
           expect(offerta?.ownerPlantId).toBe('foggia');
           expect(offerta?.fromPlantId).toBe('pomigliano');
         }
@@ -308,7 +309,7 @@ export function eseguiSuiteDiContratto(
 
         expect(esito.ok).toBe(true);
         if (esito.ok) {
-          const offerta = esito.value.find((o) => o.tripId === id);
+          const offerta = esito.value.find((o) => o.tripId === id && o.direction === 'outbound');
           expect(offerta?.seatsAvailable).toBe(1);
         }
       });
@@ -325,6 +326,266 @@ export function eseguiSuiteDiContratto(
         if (esito.ok) {
           expect(esito.value.map((o) => o.tripId)).not.toContain(id);
         }
+      });
+
+      describe('listOpenOffers a tratte', () => {
+        /** Le offerte di UNA trasferta, per direzione. */
+        async function offerteDi(id: TripId) {
+          const esito = await amb.trips.listOpenOffers();
+          expect(esito.ok).toBe(true);
+          return esito.ok ? esito.value.filter((o) => o.tripId === id) : [];
+        }
+
+        it('con auto e rientro produce DUE offerte: andata e ritorno con plant invertiti', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id));
+
+          const offerte = await offerteDi(id);
+          const andata = offerte.find((o) => o.direction === 'outbound');
+          const ritorno = offerte.find((o) => o.direction === 'return');
+
+          expect(offerte).toHaveLength(2);
+          expect(andata?.fromPlantId).toBe('pomigliano');
+          expect(andata?.toPlantId).toBe('foggia');
+          expect(andata?.departureAt).toBe('2026-11-03T06:30:00.000Z');
+          expect(ritorno?.fromPlantId).toBe('foggia');
+          expect(ritorno?.toPlantId).toBe('pomigliano');
+          expect(ritorno?.departureAt).toBe('2026-11-05T16:00:00.000Z');
+        });
+
+        it('con auto e senza rientro produce UNA sola offerta', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id, { returnAt: null }));
+
+          const offerte = await offerteDi(id);
+
+          expect(offerte.map((o) => o.direction)).toEqual(['outbound']);
+        });
+
+        it('senza auto non produce nessuna offerta', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(
+            unaTrasferta(id, { hasCar: false, seatsTotal: 0, seatsAvailable: 0 })
+          );
+
+          expect(await offerteDi(id)).toEqual([]);
+        });
+
+        it('il filtro dei posti e PER TRATTA: andata esaurita, ritorno libero, una sola offerta', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id));
+          await amb.trips.adjustLegSeats(id, 'outbound', -3);
+
+          const offerte = await offerteDi(id);
+
+          expect(offerte.map((o) => o.direction)).toEqual(['return']);
+        });
+
+        it('i posti dell offerta vengono dalla tratta, non da Trip.seatsAvailable', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id));
+          await amb.trips.adjustLegSeats(id, 'outbound', -1);
+
+          const offerte = await offerteDi(id);
+
+          expect(offerte.find((o) => o.direction === 'outbound')?.seatsAvailable).toBe(2);
+          expect(offerte.find((o) => o.direction === 'return')?.seatsAvailable).toBe(3);
+        });
+
+        it('la trasferta degenere (from == to) produce comunque due offerte distinte', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id, { fromPlantId: 'foggia', toPlantId: 'foggia' }));
+
+          const offerte = await offerteDi(id);
+
+          expect(offerte.map((o) => o.direction).sort()).toEqual(['outbound', 'return']);
+        });
+      });
+
+      describe('tratte (TripLeg)', () => {
+        it('con auto, 3 posti e rientro: ENTRAMBE le tratte hanno 3 posti', async () => {
+          // 3 su ciascuna tratta, non 3 in tutto.
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id, { seatsTotal: 3, seatsAvailable: 3 }));
+
+          const andata = await amb.trips.findLeg(id, 'outbound');
+          const ritorno = await amb.trips.findLeg(id, 'return');
+
+          expect(andata.ok && ritorno.ok).toBe(true);
+          if (andata.ok && ritorno.ok) {
+            expect(andata.value.seatsAvailable).toBe(3);
+            expect(ritorno.value.seatsAvailable).toBe(3);
+            expect(andata.value.seatsTotal).toBe(3);
+            expect(ritorno.value.seatsTotal).toBe(3);
+          }
+        });
+
+        it('senza rientro esiste la sola andata', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id, { returnAt: null }));
+
+          const andata = await amb.trips.findLeg(id, 'outbound');
+          const ritorno = await amb.trips.findLeg(id, 'return');
+
+          expect(andata.ok).toBe(true);
+          expect(ritorno.ok).toBe(false);
+          if (!ritorno.ok) {
+            expect(ritorno.error.kind).toBe('not-found');
+          }
+        });
+
+        it('senza auto non esiste nessuna tratta', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(
+            unaTrasferta(id, { hasCar: false, seatsTotal: 0, seatsAvailable: 0 })
+          );
+
+          const andata = await amb.trips.findLeg(id, 'outbound');
+          const ritorno = await amb.trips.findLeg(id, 'return');
+
+          expect(andata.ok).toBe(false);
+          expect(ritorno.ok).toBe(false);
+        });
+
+        it('scritto l andata a 2, la rilettura da andata 2 e ritorno 3', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id));
+
+          const scritta = await amb.trips.adjustLegSeats(id, 'outbound', -1);
+          expect(scritta.ok).toBe(true);
+
+          const andata = await amb.trips.findLeg(id, 'outbound');
+          const ritorno = await amb.trips.findLeg(id, 'return');
+          expect(andata.ok && ritorno.ok).toBe(true);
+          if (andata.ok && ritorno.ok) {
+            expect(andata.value.seatsAvailable).toBe(2);
+            expect(ritorno.value.seatsAvailable).toBe(3);
+          }
+        });
+
+        it('il contatore non scende sotto zero: il confine 0 e valido, -1 e rifiutato', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id, { seatsTotal: 3, seatsAvailable: 3 }));
+
+          const azzerata = await amb.trips.adjustLegSeats(id, 'outbound', -3);
+          expect(azzerata.ok).toBe(true);
+
+          const sotto = await amb.trips.adjustLegSeats(id, 'outbound', -1);
+          expect(sotto.ok).toBe(false);
+          if (!sotto.ok) {
+            expect(sotto.error.kind).toBe('invalid-record');
+          }
+
+          const riletta = await amb.trips.findLeg(id, 'outbound');
+          expect(riletta.ok && riletta.value.seatsAvailable).toBe(0);
+        });
+
+        it('il contatore non supera i totali: il confine e valido, +1 e rifiutato', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id, { seatsTotal: 3, seatsAvailable: 3 }));
+
+          const sopra = await amb.trips.adjustLegSeats(id, 'outbound', 1);
+          expect(sopra.ok).toBe(false);
+          if (!sopra.ok) {
+            expect(sopra.error.kind).toBe('invalid-record');
+          }
+
+          await amb.trips.adjustLegSeats(id, 'outbound', -1);
+          const alTetto = await amb.trips.adjustLegSeats(id, 'outbound', 1);
+          expect(alTetto.ok && alTetto.value.seatsAvailable).toBe(3);
+        });
+
+        it('adjustLegSeats su una tratta inesistente ritorna not-found', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id, { returnAt: null }));
+
+          const esito = await amb.trips.adjustLegSeats(id, 'return', -1);
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('not-found');
+          }
+        });
+
+        it('un save rifiutato non scrive nemmeno le tratte', async () => {
+          const id = amb.nuovoTripId();
+          await amb.trips.save(unaTrasferta(id, { seatsTotal: 2, seatsAvailable: 5 }));
+
+          const andata = await amb.trips.findLeg(id, 'outbound');
+
+          expect(andata.ok).toBe(false);
+        });
+
+        it('risalvare la trasferta PRESERVA il contatore di tratta gia scritto', async () => {
+          // Il test che fallisce se save azzera i posti in silenzio: l'andata e'
+          // a 2 dopo un'accettazione, e risalvare la stessa trasferta (che porta
+          // ancora seatsAvailable = 3) non deve riportarla a 3.
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id));
+          await amb.trips.adjustLegSeats(id, 'outbound', -1);
+
+          await salvaTrasferta(unaTrasferta(id));
+
+          const andata = await amb.trips.findLeg(id, 'outbound');
+          const ritorno = await amb.trips.findLeg(id, 'return');
+          expect(andata.ok && ritorno.ok).toBe(true);
+          if (andata.ok && ritorno.ok) {
+            expect(andata.value.seatsAvailable).toBe(2);
+            expect(ritorno.value.seatsAvailable).toBe(3);
+          }
+        });
+
+        it('risalvare senza rientro elimina il ritorno e preserva l andata', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id));
+          await amb.trips.adjustLegSeats(id, 'outbound', -1);
+
+          await salvaTrasferta(unaTrasferta(id, { returnAt: null }));
+
+          const andata = await amb.trips.findLeg(id, 'outbound');
+          const ritorno = await amb.trips.findLeg(id, 'return');
+          expect(andata.ok && andata.value.seatsAvailable).toBe(2);
+          expect(ritorno.ok).toBe(false);
+        });
+
+        it('risalvare senza auto elimina tutte le tratte', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id));
+
+          await salvaTrasferta(unaTrasferta(id, { hasCar: false, seatsTotal: 0, seatsAvailable: 0 }));
+
+          expect((await amb.trips.findLeg(id, 'outbound')).ok).toBe(false);
+          expect((await amb.trips.findLeg(id, 'return')).ok).toBe(false);
+        });
+
+        it('aggiungere il rientro crea il ritorno ai posti della trasferta, senza toccare l andata', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id, { returnAt: null }));
+          await amb.trips.adjustLegSeats(id, 'outbound', -1);
+
+          await salvaTrasferta(unaTrasferta(id));
+
+          const andata = await amb.trips.findLeg(id, 'outbound');
+          const ritorno = await amb.trips.findLeg(id, 'return');
+          expect(andata.ok && andata.value.seatsAvailable).toBe(2);
+          expect(ritorno.ok && ritorno.value.seatsAvailable).toBe(3);
+        });
+
+        it('un save che renderebbe il contatore preservato incoerente col totale e rifiutato', async () => {
+          // Andata a 3 posti liberi, poi si risalva con un'auto da 2: il contatore
+          // preservato (3) supera il nuovo totale. Rifiuto, e nulla cambia.
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id, { seatsTotal: 3, seatsAvailable: 3 }));
+
+          const esito = await amb.trips.save(unaTrasferta(id, { seatsTotal: 2, seatsAvailable: 2 }));
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('invalid-record');
+          }
+          const andata = await amb.trips.findLeg(id, 'outbound');
+          expect(andata.ok && andata.value.seatsTotal).toBe(3);
+        });
       });
     });
 
@@ -351,10 +612,32 @@ export function eseguiSuiteDiContratto(
       async function candidaturaDi(
         requesterId: ProfileId,
         id: MatchRequestId,
-        tripId: TripId = offerta
+        tripId: TripId = offerta,
+        direction: LegDirection = 'outbound'
       ): Promise<void> {
         await amb.comeUtente(requesterId);
-        await salvaCandidatura({ id, tripId, requesterId, status: 'pending' });
+        await salvaCandidatura(unaCandidatura(requesterId, id, tripId, direction));
+      }
+
+      /** Candidatura aperta di default: nota assente, nessuna risoluzione. */
+      function unaCandidatura(
+        requesterId: ProfileId,
+        id: MatchRequestId,
+        tripId: TripId,
+        direction: LegDirection,
+        modifiche: Partial<MatchRequest> = {}
+      ): MatchRequest {
+        return {
+          id,
+          tripId,
+          direction,
+          requesterId,
+          status: 'pending',
+          requestNote: null,
+          resolutionNote: null,
+          resolvedBy: null,
+          ...modifiche,
+        };
       }
 
       it('rilegge una candidatura salvata', async () => {
@@ -384,12 +667,9 @@ export function eseguiSuiteDiContratto(
         const id = amb.nuovoMatchRequestId();
         await candidaturaDi(richiedente, id);
 
-        await salvaCandidatura({
-          id,
-          tripId: offerta,
-          requesterId: richiedente,
-          status: 'cancelled',
-        });
+        await salvaCandidatura(
+          unaCandidatura(richiedente, id, offerta, 'outbound', { status: 'cancelled' })
+        );
 
         const esito = await amb.matchRequests.findById(id);
         expect(esito.ok).toBe(true);
@@ -397,19 +677,19 @@ export function eseguiSuiteDiContratto(
           expect(esito.value.status).toBe('cancelled');
         }
 
-        // listByTrip e' la vista di chi offre: si legge come owner.
+        // listByLeg e' la vista di chi offre: si legge come owner.
         // Una sola riga, non due: e' l'asserzione che distingue un upsert da una
         // insert. In RAM non puo' fallire (la Map e' indicizzata per id), ma su
         // Supabase una insert darebbe due righe o una violazione di chiave.
         await amb.comeUtente(owner);
-        const tutte = await amb.matchRequests.listByTrip(offerta);
+        const tutte = await amb.matchRequests.listByLeg(offerta, 'outbound');
         expect(tutte.ok).toBe(true);
         if (tutte.ok) {
           expect(tutte.value).toHaveLength(1);
         }
       });
 
-      it('listByTrip ritorna solo le candidature di quell offerta', async () => {
+      it('listByLeg ritorna solo le candidature di quella tratta', async () => {
         const altraOfferta = amb.nuovoTripId();
         await amb.comeUtente(owner);
         await salvaTrasferta(unaTrasferta(altraOfferta));
@@ -419,9 +699,9 @@ export function eseguiSuiteDiContratto(
         await candidaturaDi(richiedente, mia, offerta);
         await candidaturaDi(richiedente, altra, altraOfferta);
 
-        // listByTrip e' la vista di CHI OFFRE (T14): si legge come owner.
+        // listByLeg e' la vista di CHI OFFRE (T14): si legge come owner.
         await amb.comeUtente(owner);
-        const esito = await amb.matchRequests.listByTrip(offerta);
+        const esito = await amb.matchRequests.listByLeg(offerta, 'outbound');
 
         expect(esito.ok).toBe(true);
         if (esito.ok) {
@@ -450,13 +730,17 @@ export function eseguiSuiteDiContratto(
         }
       });
 
-      it('findByTripAndRequester trova la candidatura esistente', async () => {
+      it('findByLegAndRequester trova la candidatura esistente', async () => {
         const id = amb.nuovoMatchRequestId();
         await candidaturaDi(richiedente, id);
 
         // Serve a requestSeat (T05), quindi si interroga come il richiedente.
         await amb.comeUtente(richiedente);
-        const esito = await amb.matchRequests.findByTripAndRequester(offerta, richiedente);
+        const esito = await amb.matchRequests.findByLegAndRequester(
+          offerta,
+          'outbound',
+          richiedente
+        );
 
         expect(esito.ok).toBe(true);
         if (esito.ok) {
@@ -464,16 +748,157 @@ export function eseguiSuiteDiContratto(
         }
       });
 
-      it('findByTripAndRequester ritorna null, non not-found, se non c e', async () => {
+      it('findByLegAndRequester ritorna null, non not-found, se non c e', async () => {
         // La distinzione conta: "non si e' ancora candidato" e' un caso normale di
         // T05, non un errore. Trattarlo come errore costringerebbe chi chiama a
         // distinguere fra un fallimento e una risposta legittima.
         await amb.comeUtente(richiedente);
-        const esito = await amb.matchRequests.findByTripAndRequester(offerta, richiedente);
+        const esito = await amb.matchRequests.findByLegAndRequester(
+          offerta,
+          'outbound',
+          richiedente
+        );
 
         expect(esito.ok).toBe(true);
         if (esito.ok) {
           expect(esito.value).toBeNull();
+        }
+      });
+
+      it('due candidature dello stesso collega sulle due tratte convivono come righe distinte', async () => {
+        const idAndata = amb.nuovoMatchRequestId();
+        const idRitorno = amb.nuovoMatchRequestId();
+        await candidaturaDi(richiedente, idAndata, offerta, 'outbound');
+        await candidaturaDi(richiedente, idRitorno, offerta, 'return');
+
+        await amb.comeUtente(richiedente);
+        const andata = await amb.matchRequests.findByLegAndRequester(offerta, 'outbound', richiedente);
+        const ritorno = await amb.matchRequests.findByLegAndRequester(offerta, 'return', richiedente);
+        const sue = await amb.matchRequests.listByRequester(richiedente);
+
+        expect(andata.ok && ritorno.ok && sue.ok).toBe(true);
+        if (andata.ok && ritorno.ok && sue.ok) {
+          expect(andata.value?.id).toBe(idAndata);
+          expect(ritorno.value?.id).toBe(idRitorno);
+          expect(sue.value).toHaveLength(2);
+        }
+      });
+
+      it('findByLegAndRequester sul ritorno NON restituisce la candidatura dell andata', async () => {
+        await candidaturaDi(richiedente, amb.nuovoMatchRequestId(), offerta, 'outbound');
+
+        await amb.comeUtente(richiedente);
+        const esito = await amb.matchRequests.findByLegAndRequester(offerta, 'return', richiedente);
+
+        expect(esito.ok).toBe(true);
+        if (esito.ok) {
+          expect(esito.value).toBeNull();
+        }
+      });
+
+      it('listByLeg non mescola le tratte della stessa trasferta', async () => {
+        const idAndata = amb.nuovoMatchRequestId();
+        const idRitorno = amb.nuovoMatchRequestId();
+        await candidaturaDi(richiedente, idAndata, offerta, 'outbound');
+        await candidaturaDi(richiedente, idRitorno, offerta, 'return');
+
+        await amb.comeUtente(owner);
+        const ritorno = await amb.matchRequests.listByLeg(offerta, 'return');
+
+        expect(ritorno.ok).toBe(true);
+        if (ritorno.ok) {
+          expect(ritorno.value.map((r) => r.id)).toEqual([idRitorno]);
+        }
+      });
+
+      it('note e resolvedBy sopravvivono a scrittura e rilettura', async () => {
+        const id = amb.nuovoMatchRequestId();
+        await amb.comeUtente(richiedente);
+        await salvaCandidatura(
+          unaCandidatura(richiedente, id, offerta, 'outbound', {
+            requestNote: 'Parto da Napoli, posso aspettare 10 minuti',
+          })
+        );
+
+        // Chiudere una candidatura altrui spetta a chi offre (T05).
+        await amb.comeUtente(owner);
+        await salvaCandidatura(
+          unaCandidatura(richiedente, id, offerta, 'outbound', {
+            status: 'rejected',
+            requestNote: 'Parto da Napoli, posso aspettare 10 minuti',
+            resolutionNote: 'Ho dato il posto a un collega del mio reparto',
+            resolvedBy: 'owner',
+          })
+        );
+
+        const esito = await amb.matchRequests.findById(id);
+
+        expect(esito.ok).toBe(true);
+        if (esito.ok) {
+          expect(esito.value.status).toBe('rejected');
+          expect(esito.value.requestNote).toBe('Parto da Napoli, posso aspettare 10 minuti');
+          expect(esito.value.resolutionNote).toBe('Ho dato il posto a un collega del mio reparto');
+          expect(esito.value.resolvedBy).toBe('owner');
+        }
+      });
+
+      it('una riga cancelled torna a pending riusando lo stesso id', async () => {
+        const id = amb.nuovoMatchRequestId();
+        await candidaturaDi(richiedente, id);
+        await salvaCandidatura(
+          unaCandidatura(richiedente, id, offerta, 'outbound', {
+            status: 'cancelled',
+            resolutionNote: 'Ho cambiato programma',
+            resolvedBy: 'requester',
+          })
+        );
+
+        // Ricandidatura: stessa riga, di nuovo aperta, risoluzione azzerata.
+        await salvaCandidatura(
+          unaCandidatura(richiedente, id, offerta, 'outbound', {
+            requestNote: 'Ci ho ripensato',
+          })
+        );
+
+        const esito = await amb.matchRequests.findById(id);
+        expect(esito.ok).toBe(true);
+        if (esito.ok) {
+          expect(esito.value.status).toBe('pending');
+          expect(esito.value.requestNote).toBe('Ci ho ripensato');
+          expect(esito.value.resolutionNote).toBeNull();
+          expect(esito.value.resolvedBy).toBeNull();
+        }
+
+        // Una riga sola per quella tratta: la ricandidatura non ne ha creata un'altra.
+        await amb.comeUtente(owner);
+        const tutte = await amb.matchRequests.listByLeg(offerta, 'outbound');
+        expect(tutte.ok).toBe(true);
+        if (tutte.ok) {
+          expect(tutte.value.map((r) => r.id)).toEqual([id]);
+        }
+      });
+
+      it('save rifiuta una risoluzione incompleta e NON scrive', async () => {
+        const id = amb.nuovoMatchRequestId();
+        await amb.comeUtente(richiedente);
+
+        const esito = await amb.matchRequests.save(
+          unaCandidatura(richiedente, id, offerta, 'outbound', {
+            status: 'cancelled',
+            resolutionNote: 'Nota senza chi',
+            resolvedBy: null,
+          })
+        );
+
+        expect(esito.ok).toBe(false);
+        if (!esito.ok) {
+          expect(esito.error.kind).toBe('invalid-record');
+        }
+
+        const riletta = await amb.matchRequests.findById(id);
+        expect(riletta.ok).toBe(false);
+        if (!riletta.ok) {
+          expect(riletta.error.kind).toBe('not-found');
         }
       });
     });

@@ -55,7 +55,10 @@ describe('listOpenOffers quando il profilo di chi offre non esiste', () => {
 
     expect(esito.ok).toBe(true);
     if (esito.ok) {
-      expect(esito.value.map((o) => o.tripId)).toEqual(['trip-sana']);
+      // Cambiata in T04b: la fixture ha il rientro, quindi la trasferta sana
+      // produce DUE offerte (andata e ritorno) con lo stesso tripId. L'intento
+      // del test resta: l'orfana non compare e la sana si.
+      expect(esito.value.map((o) => o.tripId)).toEqual(['trip-sana', 'trip-sana']);
       expect(esito.value[0]?.ownerPlantId).toBe('grottaglie');
     }
   });
@@ -90,5 +93,38 @@ describe('findById quando lo storage contiene gia un record invalido', () => {
     const esito = await trips.findById('trip-sana');
 
     expect(esito.ok).toBe(true);
+  });
+});
+
+describe('findLeg quando lo storage contiene gia una tratta invalida', () => {
+  it('ritorna invalid-record invece di far circolare una tratta malformata', async () => {
+    const trips = new MemoryTripRepository(new MemoryProfileRepository());
+
+    trips.seminaTrattaGrezza({
+      tripId: 'trip-rotta',
+      direction: 'outbound',
+      seatsTotal: 3,
+      seatsAvailable: 7,
+    });
+
+    const esito = await trips.findLeg('trip-rotta', 'outbound');
+
+    expect(esito.ok).toBe(false);
+    if (!esito.ok) {
+      expect(esito.error.kind).toBe('invalid-record');
+    }
+  });
+
+  it('una tratta sana seminata allo stesso modo si rilegge senza errori', async () => {
+    const trips = new MemoryTripRepository(new MemoryProfileRepository());
+
+    trips.seminaTrattaGrezza({
+      tripId: 'trip-sana',
+      direction: 'outbound',
+      seatsTotal: 3,
+      seatsAvailable: 3,
+    });
+
+    expect((await trips.findLeg('trip-sana', 'outbound')).ok).toBe(true);
   });
 });

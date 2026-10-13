@@ -7,6 +7,7 @@
 // Gira senza rete: la guardia in jest.setup.unit.js fa esplodere fetch,
 // XMLHttpRequest e WebSocket, quindi "senza rete" e' imposto, non promesso.
 
+import { NOTE_CONFIG } from '../../config';
 import type { ProfileId } from '../../core/domain';
 import { type AmbienteDiContratto, eseguiSuiteDiContratto } from '../contract/repository-contract';
 import { MemoryMatchRequestRepository } from './memory-match-request-repository';
@@ -34,7 +35,7 @@ function creaGeneratoreDiId(): () => string {
 eseguiSuiteDiContratto('memory', async (): Promise<AmbienteDiContratto> => {
   const profiles = new MemoryProfileRepository();
   const trips = new MemoryTripRepository(profiles);
-  const matchRequests = new MemoryMatchRequestRepository();
+  const matchRequests = new MemoryMatchRequestRepository(NOTE_CONFIG);
   const sessions = new MemorySessionGateway();
 
   const prossimoId = creaGeneratoreDiId();

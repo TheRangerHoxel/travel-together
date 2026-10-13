@@ -1,6 +1,14 @@
 // TripRepository — persistenza delle trasferte.
 
-import type { ProfileId, Result, SeatOffer, Trip, TripId } from '../domain';
+import type {
+  LegDirection,
+  ProfileId,
+  Result,
+  SeatOffer,
+  Trip,
+  TripId,
+  TripLeg,
+} from '../domain';
 import type { RepositoryError } from './repository-error';
 
 export interface TripRepository {
@@ -11,6 +19,20 @@ export interface TripRepository {
    * Valida gli invarianti di dominio **prima** di scrivere e ritorna
    * `invalid-record` se non reggono, lasciando lo storage intatto. E' il confine
    * in cui la validazione avviene, e vale per entrambi gli adapter.
+   *
+   * **Materializza le tratte** (`TripLeg`) quando la trasferta ha l'auto: una riga
+   * per l'andata e, se `returnAt` non e' null, una per il ritorno; senza auto
+   * nessuna. Una tratta nuova parte con `seatsAvailable` uguale a quello della
+   * trasferta: i posti sono PER TRATTA, non in tutto.
+   *
+   * **Preserva i contatori esistenti.** Se una tratta c'e' gia', il suo
+   * `seatsAvailable` NON viene toccato: risalvare la trasferta non puo' azzerare
+   * in silenzio i posti gia' accettati. Si creano solo le tratte mancanti e si
+   * eliminano quelle che la nuova forma non prevede (auto tolta: tutte; `returnAt`
+   * tolto: il ritorno). I posti di una tratta esistente si cambiano solo con
+   * `adjustLegSeats`. Se `seatsTotal` cambia, il contatore preservato deve
+   * comunque stare in [0, nuovo totale]: altrimenti il salvataggio e' rifiutato
+   * con `invalid-record` e non scrive nulla.
    */
   save(trip: Trip): Promise<Result<Trip, RepositoryError>>;
 
@@ -24,11 +46,19 @@ export interface TripRepository {
   listByOwner(ownerId: ProfileId): Promise<Result<readonly Trip[], RepositoryError>>;
 
   /**
-   * Le trasferte pubblicate con almeno un posto libero, proiettate in SeatOffer.
+   * Le TRATTE delle trasferte pubblicate con almeno un posto libero, proiettate in
+   * SeatOffer. Una trasferta con auto e `returnAt` non null produce DUE offerte:
+   * l'andata (`from -> to` all'orario di `departureAt`) e il ritorno (plant
+   * INVERTITI, orario di `returnAt`); con `returnAt` null ne produce una; senza
+   * auto nessuna.
    *
-   * Non serve filtrare su `hasCar`: per invariante di `Trip`, posti disponibili
-   * maggiori di zero implicano l'auto. Aggiungere quel filtro darebbe un predicato
-   * irraggiungibile, cioe' non verificabile da nessun test.
+   * I posti si leggono dal contatore di TRATTA, non da `Trip.seatsAvailable`, e il
+   * filtro "almeno un posto libero" e' per tratta: andata esaurita e ritorno libero
+   * danno una sola offerta, quella del ritorno.
+   *
+   * Non serve filtrare su `hasCar`: le tratte esistono solo per le trasferte con
+   * auto. Aggiungere quel filtro darebbe un predicato irraggiungibile, cioe' non
+   * verificabile da nessun test.
    *
    * E' una **proiezione**, non una ricerca: definisce cosa *e'* un'offerta, non
    * *quali* offerte servano a un dato collega. Nessun filtro su plant, data od
@@ -53,4 +83,36 @@ export interface TripRepository {
    *   diventerebbe una perdita silenziosa invece di un caso impossibile.
    */
   listOpenOffers(): Promise<Result<readonly SeatOffer[], RepositoryError>>;
+
+  /**
+   * Lo stato dei posti di una tratta. `not-found` se la tratta non esiste: la
+   * trasferta non c'e', non ha l'auto, o e' senza rientro e si chiede il ritorno.
+   * Valida gli invarianti come `findById`.
+   */
+  findLeg(tripId: TripId, direction: LegDirection): Promise<Result<TripLeg, RepositoryError>>;
+
+  /**
+   * Aggiunge `delta` (intero, positivo o negativo) ai posti liberi di una tratta e
+   * ritorna la tratta aggiornata.
+   *
+   * La firma e' RELATIVA di proposito. Un `setLegSeats(.., n)` obbligherebbe chi
+   * chiama a leggere, calcolare e riscrivere: fra la lettura e la scrittura una
+   * seconda accettazione concorrente vedrebbe lo stesso valore, e l'ultimo posto
+   * verrebbe venduto due volte (criterio di T05). Con un delta l'adapter lo fa in
+   * un'unica operazione atomica; a T08 e'
+   * `UPDATE trip_legs SET seats_available = seats_available + :delta
+   *  WHERE trip_id = :t AND direction = :d
+   *  AND seats_available + :delta BETWEEN 0 AND seats_total`,
+   * e zero righe toccate si traduce nell'errore sotto.
+   *
+   * Se il risultato uscirebbe da [0, seatsTotal] ritorna `invalid-record` (il
+   * `detail` e' il `kind` di `TripLegError`) e lo storage resta intatto: il
+   * contatore non scende sotto zero ne' supera i totali. `not-found` se la tratta
+   * non esiste.
+   */
+  adjustLegSeats(
+    tripId: TripId,
+    direction: LegDirection,
+    delta: number
+  ): Promise<Result<TripLeg, RepositoryError>>;
 }

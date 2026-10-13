@@ -42,6 +42,8 @@ function unRepoSpia(esito: 'ok' | RepositoryError = 'ok'): RepoSpia {
     findById: nonUsato,
     listByOwner: nonUsato,
     listOpenOffers: nonUsato,
+    findLeg: nonUsato,
+    adjustLegSeats: nonUsato,
   };
 }
 

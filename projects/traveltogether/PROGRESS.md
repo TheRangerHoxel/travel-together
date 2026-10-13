@@ -1537,3 +1537,162 @@ errore, e in RAM la suite non può accorgersene perché le fixture sono canonich
 Tre voci scritte dal planner in `IDEAS.md`, tutte `proposta`: il contatore dei posti su `Trip` che
 resta un doppione, le candidature ricevute lette per owner invece di una tratta alla volta, e una nota
 datata sulla voce dell'unicità dei `tripId`, la cui precondizione si sposta sull'identità di tratta.
+
+---
+
+## 2026-10-13 — T04b · implementazione dei sette step, `verify` verde, in attesa del reviewer
+
+`verify` verde, exit 0: **192 test unitari** in 13 suite (erano 129 a fine T04), 1 int, 1 smoke.
+Rieseguito da me dopo ogni giro, non solo dal developer.
+
+### Incidente di perdita dati, risolto — e perché va scritto qui
+
+Uno script PowerShell del developer ha usato `R`, che su Windows PowerShell è **alias di
+`Invoke-History`**. Ha svuotato `trip-repository.ts` e cancellato `repository-contract.ts`,
+`memory-trip-repository.ts`, `memory.contract.test.ts`, `ports/index.ts` e `create-trip.test.ts` —
+cioè anche un file del commit di T04, già revisionato e approvato.
+
+Il developer ha ripristinato i sei file da HEAD con `git restore` e rifatto a mano le proprie
+modifiche. **Non ho preso per buona la dichiarazione**: HEAD contiene T04 approvato, quindi il diff
+contro HEAD è la prova. Verificato eseguendo:
+
+| Controllo | Esito |
+|---|---|
+| File mancanti (`git status`, voci `D`) | ✅ nessuna |
+| `create-trip.test.ts` vs HEAD | ✅ **esattamente 2 inserzioni**, i due metodi nel fake `RepoSpia` |
+| `trip.ts`, `create-trip.ts`, `eslint.config.js` vs HEAD | ✅ diff **vuoto** |
+| `verify` | ✅ verde, 192 test, exit 0 |
+
+**L'incidente non ha lasciato danni, e la ragione è strutturale, non fortuna:** il lavoro di T04 era
+**committato**. Se fosse stato ancora nel working tree, `R` avrebbe cancellato lavoro irrecuperabile.
+È il valore della regola "un task = un commit a `verify` verde" nel momento in cui serve, non quando
+si scrive. Da ricordare per la gerarchia di `CLAUDE.md`: la reversibilità è seconda **sopra**
+l'osservabilità e la performance, e qui ha pagato da sola.
+
+Per il futuro: gli script degli agenti su Windows PowerShell non devono usare identificatori di una
+lettera. `R` è `Invoke-History`, e il nome di variabile più innocuo del mondo riesegue comandi
+precedenti. Annotato in `IDEAS.md`.
+
+### Le due deviazioni del developer, risolte in direzioni opposte
+
+1. **Il port separato è rientrato.** Aveva messo `findLeg`/`adjustLegSeats` su un `TripLegRepository`
+   nuovo, e il motivo era un **vincolo del mio brief** (avevo vietato di toccare `create-trip.test.ts`,
+   il cui fake `RepoSpia` non implementava i metodi nuovi) e non un ragionamento di design. Decisione
+   dell'umano: su `TripRepository`, come il checkpoint approvato. Il ciclo di vita di una tratta non
+   deve stare a cavallo di due port quando è `save` a crearla, e nell'adapter memory la separazione era
+   nominale — una classe implementava entrambi sullo stesso storage. Autorizzate le due righe nel fake.
+2. **Su `legKey` aveva ragione lui e il mio brief era sbagliato.** Gli avevo chiesto un test che
+   dimostrasse una collisione con un `tripId` contenente il separatore. **Quella collisione non
+   esiste**, verificato: se le direzioni coincidono coincidono i `tripId`; se differiscono, le stringhe
+   finiscono una in `outbound` e l'altra in `return`, e nessuna è suffisso dell'altra. Ha asserito la
+   proprietà vera invece di fabbricare un test su una premessa falsa. Terza volta in questa sessione
+   che il documento sbagliato è mio.
+
+### Decisioni del developer dove il brief lasciava margine, tenute
+
+- **`adjustLegSeats(tripId, direction, delta)` è relativa, non assoluta.** Un `setLegSeats(n)`
+  imporrebbe "leggi, calcola, riscrivi", e due accettazioni concorrenti venderebbero due volte
+  l'ultimo posto. Col delta, a T08 diventa un solo
+  `UPDATE trip_legs SET seats_available = seats_available + :delta WHERE ... AND seats_available +
+  :delta BETWEEN 0 AND seats_total`, e "zero righe toccate" **è** l'errore. È il criterio di T05 sulla
+  concorrenza difeso dalla **forma della firma** invece che da un commento.
+- **Un caso che il brief non prevedeva**, trovato implementando la preservazione dei contatori: se la
+  trasferta viene risalvata con **meno** posti totali di quelli già consumati sulla tratta, `save`
+  ritorna `invalid-record` e non scrive nulla, invece di produrre una tratta incoerente. Documentato
+  nel doc di `save`.
+- **`maxLength: 280`** scelto dal developer perché il brief non lo indicava. Sta in `config/`, quindi
+  si cambia lì; il valore giusto lo dirà T13 su un telefono vero.
+
+### Due cose che il developer ha corretto da sé, e valgono più dei test che hanno prodotto
+
+- **Una sonda che non discriminava.** La prima prova sul conteggio in code point usava cinque emoji e
+  **restava verde** sostituendo `Array.from(testo).length` con `testo.length`: il test non misurava
+  niente. L'ha rifatta con sei emoji e ha ottenuto il rosso. Ha trovato da solo un test incapace di
+  fallire, che è la regola che questo progetto applica più di ogni altra.
+- **Non ha usato `seminaGrezzo` per la trasferta degenere**, come gli avevo detto, perché
+  `seminaGrezzo` **non materializza le tratte** e quindi la trasferta non produrrebbe offerte: il test
+  sarebbe passato per il motivo sbagliato. Nel contratto il caso passa da `save` (che accetta
+  `from == to`, perché non è un invariante di `makeTrip`); in `find-matches.test.ts` sono due offerte
+  letterali, perché `core/` non può importare un adapter.
+
+Circa trenta sonde eseguite in totale, ognuna con mutazione, rosso verificato e ripristino.
+
+### Correzione mia prima di chiamare il reviewer
+
+Il banner di non-regressione diceva *"I sette vincoli che continuano a OMETTERE"* elencandone **sei**,
+con il settimo criterio di T03 — l'orario esattamente al limite — nascosto in una parentesi. Ma quel
+criterio è di **segno opposto**: al limite l'offerta **deve** essere un match. Tenerlo fra gli omessi
+conflaterebbe una regola che esclude con una che include. Riscritto contando i due gruppi a parte e
+citando l'emendamento del 13 ottobre, così chi legge il blocco sa perché sono sette e non nove.
+L'imprecisione l'ha segnalata il developer nel proprio report, invece di lasciarla passare.
+
+### Cosa `verify` verde **non** dimostra
+
+Oltre a quanto già elencato in pianificazione: nessun comportamento di T05 è esercitato (cascata,
+reintegro, annullamento), quindi che *solo* i rifiuti `system` si reintegrino — il motivo per cui
+`resolvedBy` è portante — resta non provato. La nota obbligatoria al rifiuto **non** è difendibile dal
+modello, perché dipende dallo stato precedente della riga: la impone T05. E `Trip.seatsAvailable` è
+ora un valore iniziale che nessuno aggiorna più: `listOpenOffers` legge dalle tratte, quindi il campo
+non mente a nessuno oggi, ma a T08 va deciso se la colonna esiste ancora su `trips`.
+
+### Round 1 di review — **APPROVATO**, nessun bloccante
+
+`verify` rieseguito dal reviewer: verde, 192 test, exit 0. **Prima volta in Fase 2 che un task passa
+senza bocciature**, e vale la pena notare che è anche il più grande (cinque interfacce pubbliche, una
+entità di dominio nuova, 63 test aggiunti).
+
+**Il controllo sull'incidente è il più accurato della sessione, e ha escluso una cosa che io non
+potevo escludere col diff.** Il reviewer non si è fidato del numero 192:
+
+1. **Conteggi di `it(` per file, HEAD contro working tree:** nessuno è **scceso**.
+   `create-trip.test.ts` è a 35 come a HEAD, con il diff delle sole 2 inserzioni nel fake.
+2. **Le 19 righe cancellate** in `repository-contract.ts` — il file ricostruito da zero — isolate una
+   per una: sono **soltanto** le tre firme rinominate e la riscrittura di un fixture. Nessun blocco
+   `it(` preesistente rimosso; i tre che compaiono fra le cancellazioni ricompaiono col nome nuovo.
+3. **Il vettore che il conteggio totale non rivelerebbe**, e che non avevo pensato io: un file di test
+   nuovo non intercettato da `testMatch` resterebbe **fuori dal runner senza far rumore**. Ha eseguito
+   i file uno per uno e la somma fa **192 esatti**, quindi non c'è né una suite nascosta né una
+   contata due volte. La contabilità chiude all'unità.
+4. **I file ripristinati e non modificati** (`ports/index.ts`, `eslint.config.js`) sono assenti da
+   `git status`, quindi `git restore` li ha riportati bit per bit — che è anche la prova che il
+   divieto `core/ → adapters/` non è stato allentato per far passare i test nuovi.
+
+**Un test aggiunto dopo l'approvazione, ed è giusto dichiararlo.** Il reviewer ha segnalato come non
+bloccante (N3) che la **precedenza** fra due criteri di T04b non era né commentata né pinnata:
+`seatsAvailable <= 0 → continue` precede il calcolo dello stato, quindi chi ha una candidatura
+`accepted` sull'ultimo posto **non vede più** quell'offerta in lista. La scelta è giusta — il criterio
+emendato dice di non omettere *a causa della candidatura*, e qui si omette per i posti — ma non era
+protetta da niente. Ho aggiunto il commento e l'`it` nella forma che il reviewer stesso ha specificato.
+
+**La sonda su quel test è stata eseguita, e la mutazione scelta è quella che discrimina.** Togliere il
+controllo sui posti avrebbe fatto cadere anche il test di T03, quindi non avrebbe provato che il test
+nuovo serve. Ho usato invece la mutazione realistica — una candidatura che **scavalca** il filtro sui
+posti (`seatsAvailable <= 0 && !giàCandidato`) — e il risultato è **un solo test rosso, il mio**, con
+gli altri 39 verdi compreso quello di T03. Cioè il test nuovo intercetta una mutazione che nessun
+altro test vede: è la differenza fra un test che aggiunge copertura e uno che ne duplica.
+
+**Quattro non bloccanti, tre diventati voci di `IDEAS.md`** (nessuna implementata):
+
+- **La lunghezza della nota è validata anche in lettura.** `findById` valida la riga riletta contro la
+  config **corrente**: il giorno in cui `maxLength` scende da 280 a 140, ogni nota già scritta più
+  lunga — seed di T17 compreso — diventa `invalid-record`, e le schermate mostrano un errore su un
+  dato che **era valido quando è stato scritto**. È la differenza fra un invariante e una soglia, e
+  `PROGRESS.md` dichiara già che quel numero verrà ritarato dopo T13: l'innesco è previsto.
+- **Cancellare una tratta con candidature aperte: i due adapter divergeranno.** In RAM `save` elimina
+  le tratte in silenzio e la suite lo verifica; con la foreign key composta che questo task
+  pre-impegna, Postgres solleverebbe una violazione **nello stesso punto**. Nessun test combina
+  "tratta eliminata" con "candidatura su quella tratta", quindi la suite condivisa non lo vede — e a
+  T09 l'unica uscita sarebbe *adattare la suite*, che per `ARCHITECTURE.md` è il segnale che il port
+  è sbagliato. Va deciso prima della migrazione, e merita un criterio in più su T08.
+- **`adjustLegSeats` difende il contatore, non l'accettazione.** L'atomicità copre il delta, non la
+  coppia "transizione di stato + decremento": un'accettazione interrotta fra le due scritture lascia
+  un posto consumato senza candidatura accettata. E il delta è idempotente a zero ma **non a
+  ripetizione**: ciò che impedisce il doppio decremento è il controllo di stato nel chiamante, non la
+  firma. Il criterio di T05 poggia quindi sul chiamante.
+- Nit non sanato: `memory-trip-repository.test.ts` ha perso il newline finale.
+
+**Nota di merito registrata dal reviewer**, e la sottoscrivo: il developer ha trovato da sé una sonda
+che non discriminava, e ha **disobbedito a due istruzioni del mio brief nel verso giusto** — la
+collisione di `legKey`, che non esiste e che un agente meno attento avrebbe fabbricato per compiacere
+il brief; e `seminaGrezzo` per la trasferta degenere, che avrebbe reso il test verde per il motivo
+sbagliato perché non materializza le tratte.

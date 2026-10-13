@@ -96,7 +96,7 @@ I due progetti free sono: **staging** (test di integrazione) e **prod** (la demo
 ```
 app/src/
   core/
-    domain/      # Plant, Trip, SeatOffer, MatchRequest, Profile, Badge
+    domain/      # Plant, Trip, TripLeg, SeatOffer, MatchRequest, Profile, Badge
                  # entità e regole pure — zero I/O, zero dipendenze esterne
     ports/       # interfacce: TripRepository, MatchRequestRepository,
                  # ProfileRepository, SessionGateway, Clock
@@ -167,18 +167,41 @@ findMatches(
 ): Result<readonly ScoredMatch[], MatchError>
 ```
 
+```typescript
+interface ScoredMatch {
+  readonly offer: SeatOffer;            // una TRATTA: tripId + direction
+  readonly score: number;               // intero, più alto = meglio; guida l'ordine
+  readonly millisApart: number;         // distanza assoluta fra gli orari, in ms
+  readonly sameOwnerPlant: boolean;
+  readonly requestStatus: MatchRequestStatus | null;  // candidatura del richiedente su questa tratta
+}
+
+type MatchError =
+  | { kind: 'invalid-request-departure-at'; value: string }
+  | { kind: 'invalid-tolerance'; toleranceMinutes: number };
+```
+
+**L'offerta è una tratta, non una trasferta (T04b).** Una trasferta con auto e rientro produce due
+`SeatOffer` (andata e ritorno, plant invertiti, orario di `returnAt`); l'identità è la coppia
+`tripId` + `direction`, ed è l'ultima chiave dell'ordine totale (prima `tripId`, poi il rango della
+direzione). I posti sono per tratta.
+
+**Lo stato della candidatura marca, non filtra (T04b).** `pending`, `accepted` e `rejected` restituiscono
+l'offerta con `requestStatus` attaccato; `cancelled` non marca (`null`, come se la riga non ci fosse). La
+corrispondenza è per tratta e per richiedente. Gli altri vincoli duri (plant, data, finestra oraria,
+posti esauriti, offerta propria) continuano a omettere.
+
 **Funzione pura.** Nessun I/O, nessuna rete, nessun orologio. Date e orari arrivano come dati, la
 configurazione come parametro. Determinismo totale: stessi input, stesso output, sempre.
 
 **Modifica alla firma, decisa in T03 e approvata dall'umano.** La versione di Fase 0 aveva tre
 parametri e ritorno diretto. Due cambi:
 
-- **`candidature`** — due criteri di accettazione di T03 escludono un'offerta se il richiedente ha già
-  una candidatura `pending` o `accepted` su di essa. La firma a tre parametri non riceveva quel dato,
-  quindi non poteva soddisfare due dei suoi stessi criteri. Le candidature entrano come dato, non da
-  un port: la purezza resta intatta e `[]` è il caso di default. **Il filtro su quali stati bloccano
-  resta dentro il core**: passare un insieme di id già pre-filtrato sposterebbe una regola di dominio
-  nel chiamante, cioè in UI o in un adapter.
+- **`candidature`** — i criteri di T03 dipendono dalle candidature del richiedente (in T03 una
+  `pending` o `accepted` escludeva l'offerta; da T04b la marca, vedi sotto). La firma a tre parametri non
+  riceveva quel dato. Le candidature entrano come dato, non da un port: la purezza resta intatta e `[]`
+  è il caso di default. **La regola su quali stati marcano resta dentro il core**: passare un insieme di
+  id già pre-filtrato sposterebbe una regola di dominio nel chiamante, cioè in UI o in un adapter.
 - **`Result`** — un `departureAt` malformato o una tolleranza incoerente devono essere distinguibili
   da "nessun collega compatibile". Senza canale d'errore si presenterebbero come lista vuota, e in
   demo sarebbero indistinguibili da un risultato legittimo.
@@ -203,8 +226,20 @@ Vincoli duri e punteggio morbido sono elencati in [PRD.md](PRD.md).
 - `profiles` — id, nome visualizzato, plant di appartenenza
 - `trips` — owner, plant partenza, plant destinazione, data/ora partenza, data rientro, `has_car`,
   `seats_total`, `seats_available`, stato
-- `match_requests` — trip offerta, richiedente, stato (`pending` / `accepted` / `rejected` / `cancelled`)
+- `trip_legs` — **la tratta** (T04b): chiave primaria composta `(trip_id, direction)` con `direction` in
+  (`outbound` / `return`), `seats_total`, `seats_available`. Una riga per l'andata e, se `return_at`
+  non è nullo, una per il ritorno; nessuna senza auto. I posti dell'auto valgono per ciascuna tratta.
+  Il decremento è un `UPDATE ... SET seats_available = seats_available + :delta WHERE ... AND
+  seats_available + :delta BETWEEN 0 AND seats_total`, atomico
+- `match_requests` — trip offerta, **`direction`**, richiedente, stato (`pending` / `accepted` /
+  `rejected` / `cancelled`), **`request_note`** (facoltativa), **`resolution_note`**, **`resolved_by`**
+  (`owner` / `requester` / `system`; nota e `resolved_by` insieme o nessuno dei due). Foreign key
+  composta `(trip_id, direction) → trip_legs`, che rende impossibile una candidatura sul rientro di una
+  trasferta senza rientro. Il limite di lunghezza delle note è in `config/`, misurato in code point
 - `invite_codes` — codice, attivo
+
+**Questo modello resta una bozza in attesa di T08**: `trip_legs` e le colonne di nota sono la forma
+decisa dal modello di dominio di T04b, non uno schema approvato né una migrazione scritta.
 
 **RLS obbligatorie su ogni tabella.** Anche nell'MVP: un'app con RLS permissive insegna l'abitudine
 sbagliata, e la stessa struttura verrebbe portata in un pilota con dati veri.

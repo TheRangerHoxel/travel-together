@@ -4,12 +4,15 @@
 // degli input. Stessi input, stesso output, sempre. E' questa proprieta' che
 // rende il pezzo di maggior valore anche quello verificabile al 100%.
 
-import type { MatchRequest, Result, SeatOffer, TripRequest } from '../domain';
-import { err, ok, parseUtcInstant } from '../domain';
+import type {
+  MatchRequest,
+  MatchRequestStatus,
+  Result,
+  SeatOffer,
+  TripRequest,
+} from '../domain';
+import { err, legDirectionRank, ok, parseUtcInstant } from '../domain';
 import type { MatchConfig } from './match-config';
-
-/** Gli stati di una candidatura che impediscono di riproporre quell'offerta. */
-const STATI_BLOCCANTI: readonly MatchRequest['status'][] = ['pending', 'accepted'];
 
 const MILLIS_PER_MINUTO = 60_000;
 
@@ -22,6 +25,14 @@ export interface ScoredMatch {
   readonly millisApart: number;
   /** Se chi offre appartiene allo stesso stabilimento di chi cerca. */
   readonly sameOwnerPlant: boolean;
+  /**
+   * Lo stato della candidatura del richiedente su QUESTA tratta, oppure `null` se
+   * non si e' mai candidato. Le candidature `pending`, `accepted` e `rejected`
+   * non fanno sparire l'offerta: tornano marcate, cosi' la lista puo' mostrarle
+   * come gia' richieste o rifiutate. Una `cancelled` NON marca: l'offerta risulta
+   * candidabile, come se la riga non ci fosse. Non entra nel punteggio.
+   */
+  readonly requestStatus: MatchRequestStatus | null;
 }
 
 export type MatchError =
@@ -31,10 +42,11 @@ export type MatchError =
 /**
  * Le offerte compatibili con la richiesta, ordinate dalla migliore alla peggiore.
  *
- * **Precondizione:** i `tripId` delle offerte sono distinti. L'ordine totale usa
- * `tripId` come ultima chiave, quindi due offerte con lo stesso id tornerebbero a
- * dipendere dall'ordine di input. E' garantito dalla proiezione che le produce
- * (`listOpenOffers` legge uno storage indicizzato per id), ma va dichiarato.
+ * **Precondizione:** le coppie (`tripId`, `direction`) delle offerte sono distinte.
+ * L'ordine totale usa l'identita' di tratta come ultima chiave, quindi due offerte
+ * con la stessa coppia tornerebbero a dipendere dall'ordine di input. E' garantito
+ * dalla proiezione che le produce (`listOpenOffers` emette una offerta per tratta,
+ * e la tratta e' unica per costruzione), ma va dichiarato.
  *
  * Ritorna `err` quando la domanda stessa non ha senso — istante malformato,
  * tolleranza incoerente — invece di una lista vuota: "nessun collega compatibile"
@@ -90,19 +102,29 @@ export function findMatches(
     if (millisApart > finestra) continue;
 
     // --- Vincoli duri: disponibilita' e identita' ---
+    // PRECEDENZA DICHIARATA, perche' due criteri di T04b tirano in direzioni
+    // opposte e l'ordine di queste righe decide quale vince: "posti esauriti ->
+    // nessun match" (vincolo duro di T03, non emendato) precede "la candidatura
+    // marca invece di filtrare". Conseguenza: chi ha una candidatura accepted
+    // sull'ultimo posto NON vede piu' quell'offerta in lista, perche' la tratta e'
+    // a zero. E' deliberato: il criterio emendato dice di non omettere *a causa
+    // della candidatura*, e qui si omette per i posti. La vista di chi si e'
+    // candidato e' listByRequester (T13), non questa lista.
     if (offerta.seatsAvailable <= 0) continue;
     if (offerta.ownerId === richiesta.requesterId) continue;
 
-    // --- Vincoli duri: candidature gia' in corso ---
-    // Si filtra su tripId E requesterId: una candidatura di un altro collega, o su
-    // un'altra offerta, non deve nascondere nulla a chi sta cercando.
-    const giaCandidato = candidature.some(
-      (c) =>
-        c.tripId === offerta.tripId &&
-        c.requesterId === richiesta.requesterId &&
-        STATI_BLOCCANTI.includes(c.status)
-    );
-    if (giaCandidato) continue;
+    // --- Stato della candidatura: marca, non filtra ---
+    // La corrispondenza e' per TRATTA (tripId + direction) e per richiedente: una
+    // candidatura di un altro collega, su un'altra trasferta o sull'altra tratta
+    // della stessa trasferta non marca niente. `cancelled` non conta come riga.
+    const requestStatus =
+      candidature.find(
+        (c) =>
+          c.tripId === offerta.tripId &&
+          c.direction === offerta.direction &&
+          c.requesterId === richiesta.requesterId &&
+          c.status !== 'cancelled'
+      )?.status ?? null;
 
     const sameOwnerPlant = offerta.ownerPlantId === richiesta.requesterPlantId;
 
@@ -111,6 +133,7 @@ export function findMatches(
       score: finestra - millisApart + (sameOwnerPlant ? bonusPlant : 0),
       millisApart,
       sameOwnerPlant,
+      requestStatus,
     });
   }
 
@@ -118,14 +141,19 @@ export function findMatches(
   // readonly nel tipo, ma `sort` muta in place e un array congelato farebbe
   // sollevare a runtime.
   //
-  // Ordine TOTALE, non semplicemente stabile: a parita' di punteggio decide il
-  // tripId. Un sort stabile conserverebbe l'ordine di input, cioe' ne
+  // Ordine TOTALE, non semplicemente stabile: a parita' di punteggio decide
+  // l'identita' di tratta. Un sort stabile conserverebbe l'ordine di input, cioe' ne
   // dipenderebbe — e il criterio chiede l'opposto. Su Postgres, poi, l'ordine
   // delle righe senza ORDER BY non e' garantito: senza ultima chiave la lista si
   // riordinerebbe fra due aperture della stessa schermata.
   risultati.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
-    return a.offer.tripId < b.offer.tripId ? -1 : a.offer.tripId > b.offer.tripId ? 1 : 0;
+    // Identita' di tratta in DUE passaggi (tripId, poi rango della direzione) e non
+    // tripId da solo: una trasferta con rientro produce due offerte con lo stesso
+    // tripId, e con un'unica chiave su tripId il comparatore tornerebbe 0 fra loro.
+    // Due passaggi invece di legKey: nessuna precondizione sul contenuto degli id.
+    if (a.offer.tripId !== b.offer.tripId) return a.offer.tripId < b.offer.tripId ? -1 : 1;
+    return legDirectionRank(a.offer.direction) - legDirectionRank(b.offer.direction);
   });
 
   return ok(risultati);

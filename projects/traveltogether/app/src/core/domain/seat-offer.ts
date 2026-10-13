@@ -9,15 +9,29 @@
 import type { PlantId } from './plant';
 import type { ProfileId } from './profile';
 import type { TripId } from './trip';
+import type { LegDirection } from './trip-leg';
 
+/**
+ * Un'offerta e' una TRATTA, non una trasferta: una trasferta con auto e rientro
+ * produce due offerte. L'identita' e' la coppia (`tripId`, `direction`).
+ */
 export interface SeatOffer {
   readonly tripId: TripId;
+  /** Quale tratta della trasferta: andata o ritorno. */
+  readonly direction: LegDirection;
   readonly ownerId: ProfileId;
   /** Stabilimento di appartenenza di chi offre: entra nel punteggio, non nei vincoli duri. */
   readonly ownerPlantId: PlantId;
+  /** Partenza di QUESTA tratta: sul ritorno e' la destinazione della trasferta. */
   readonly fromPlantId: PlantId;
+  /** Arrivo di QUESTA tratta: sul ritorno e' la partenza della trasferta. */
   readonly toPlantId: PlantId;
-  /** ISO 8601. La vicinanza a questo orario e' la componente principale del punteggio. */
+  /**
+   * ISO 8601. Orario di QUESTA tratta (`departureAt` della trasferta per l'andata,
+   * `returnAt` per il ritorno). La vicinanza a questo orario e' la componente
+   * principale del punteggio.
+   */
   readonly departureAt: string;
+  /** Posti liberi su QUESTA tratta, dal suo contatore e non da `Trip`. */
   readonly seatsAvailable: number;
 }

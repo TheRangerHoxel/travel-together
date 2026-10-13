@@ -234,59 +234,59 @@ già una tratta sola (`fromPlantId`, `toPlantId`, `departureAt`).
    resta in `IDEAS.md`.
 
 **Criteri di accettazione** (modello a tratte)
-- [ ] `LegDirection` è `'outbound' | 'return'`, union di letterali, con un **rango esplicito**
+- [x] `LegDirection` è `'outbound' | 'return'`, union di letterali, con un **rango esplicito**
       (`outbound` prima di `return`) sotto test: l'ordine lessicografico delle due stringhe è un
       incidente dell'ortografia, e rinominare `return` in `inbound` lo invertirebbe con i test verdi
-- [ ] Una trasferta con auto e `returnAt` non null produce da `listOpenOffers` **due** offerte: andata
+- [x] Una trasferta con auto e `returnAt` non null produce da `listOpenOffers` **due** offerte: andata
       (`fromPlantId → toPlantId` all'orario di `departureAt`) e ritorno (**plant invertiti**, orario di
       `returnAt`)
-- [ ] Una trasferta con auto e `returnAt` null produce **una** sola offerta; senza auto, nessuna
-- [ ] Salvata una trasferta con auto e 3 posti e rientro, **entrambe** le tratte hanno 3 posti: i 3
+- [x] Una trasferta con auto e `returnAt` null produce **una** sola offerta; senza auto, nessuna
+- [x] Salvata una trasferta con auto e 3 posti e rientro, **entrambe** le tratte hanno 3 posti: i 3
       posti dell'auto sono 3 su ciascuna tratta, non 3 in tutto
-- [ ] Scritto a 2 il contatore dell'andata, una rilettura dà **andata 2 e ritorno 3**
-- [ ] Il contatore di tratta non scende sotto zero né supera `seatsTotal`: errore tipizzato, come
+- [x] Scritto a 2 il contatore dell'andata, una rilettura dà **andata 2 e ritorno 3**
+- [x] Il contatore di tratta non scende sotto zero né supera `seatsTotal`: errore tipizzato, come
       `makeTrip`
-- [ ] Il filtro "almeno un posto libero" è **per tratta**: andata esaurita e ritorno libero producono
+- [x] Il filtro "almeno un posto libero" è **per tratta**: andata esaurita e ritorno libero producono
       una sola offerta, quella del ritorno
-- [ ] Due candidature dello stesso collega sulle **due tratte della stessa trasferta** sono ammesse e
+- [x] Due candidature dello stesso collega sulle **due tratte della stessa trasferta** sono ammesse e
       distinte, non una doppia candidatura
-- [ ] `findByLegAndRequester(tripId, direction, requesterId)` sostituisce `findByTripAndRequester`:
+- [x] `findByLegAndRequester(tripId, direction, requesterId)` sostituisce `findByTripAndRequester`:
       interrogata sul ritorno non restituisce la candidatura dell'andata
-- [ ] `listByLeg(tripId, direction)` sostituisce `listByTrip`: i criteri di T14 parlano di posti e di
+- [x] `listByLeg(tripId, direction)` sostituisce `listByTrip`: i criteri di T14 parlano di posti e di
       esaurimento, che sono per tratta, e la cascata di T05 deve leggere le `pending` di **quella**
       tratta
-- [ ] L'ultima chiave dell'ordine totale di `findMatches` è l'**identità di tratta**, non `tripId`: un
+- [x] L'ultima chiave dell'ordine totale di `findMatches` è l'**identità di tratta**, non `tripId`: un
       test permuta l'input e ottiene lo stesso ordine su due offerte a punteggio identico **che
       condividono il `tripId`**
-- [ ] Un test costruisce la trasferta degenere con `fromPlantId == toPlantId` (raggiungibile: non è un
+- [x] Un test costruisce la trasferta degenere con `fromPlantId == toPlantId` (raggiungibile: non è un
       invariante di `makeTrip` ma una regola di creazione di T04) e dimostra che le sue **due** tratte,
       che matchano la stessa richiesta con lo stesso punteggio e lo stesso `tripId`, restano in ordine
       totale
 
 **Criteri di accettazione** (stato della candidatura in lista)
-- [ ] `findMatches` **restituisce** le offerte su cui il richiedente ha una candidatura `pending`,
+- [x] `findMatches` **restituisce** le offerte su cui il richiedente ha una candidatura `pending`,
       `accepted` o `rejected`, con lo stato attaccato al risultato, invece di ometterle
-- [ ] Una candidatura `cancelled` **non** marca l'offerta: risulta candidabile come se non ci fosse
-- [ ] Non-regressione su T03: gli altri vincoli duri continuano a **omettere** — plant diverso, data
+- [x] Una candidatura `cancelled` **non** marca l'offerta: risulta candidabile come se non ci fosse
+- [x] Non-regressione su T03: gli altri vincoli duri continuano a **omettere** — plant diverso, data
       diversa, orario fuori finestra, `seatsAvailable == 0`, offerta del richiedente stesso
 
 **Criteri di accettazione** (note)
-- [ ] `requestNote` è facoltativa: una candidatura senza nota è valida
-- [ ] `resolutionNote` e `resolvedBy` (`'owner' | 'requester' | 'system'`, union di letterali) esistono
+- [x] `requestNote` è facoltativa: una candidatura senza nota è valida
+- [x] `resolutionNote` e `resolvedBy` (`'owner' | 'requester' | 'system'`, union di letterali) esistono
       sulla riga e sono nulli finché la candidatura è aperta
-- [ ] I due si impostano **insieme**: uno non null e l'altro null è rifiutato con errore tipizzato
-- [ ] Il limite di lunghezza delle note sta in `config/`, non nel codice: un test con una config a
+- [x] I due si impostano **insieme**: uno non null e l'altro null è rifiutato con errore tipizzato
+- [x] Il limite di lunghezza delle note sta in `config/`, non nel codice: un test con una config a
       limite ridotto dimostra che il rifiuto segue il parametro
-- [ ] Confini provati, non solo il centro: limite−1 accettato, limite esatto accettato, limite+1
+- [x] Confini provati, non solo il centro: limite−1 accettato, limite esatto accettato, limite+1
       rifiutato
-- [ ] Il limite si misura in **code point** e non in unità di stringa: un test con un carattere fuori
+- [x] Il limite si misura in **code point** e non in unità di stringa: un test con un carattere fuori
       dal piano base (`'👍'.length === 2`) dimostra che due emoji non consumano quattro caratteri,
       altrimenti il conteggio applicato non è quello che l'utente vede
-- [ ] Una nota oltre il limite è rifiutata con **errore tipizzato**, non troncata in silenzio
-- [ ] Una nota di **soli spazi** è rifiutata con errore tipizzato, non normalizzata a `null`
-- [ ] Una riga `cancelled` può tornare a `pending` **riusando lo stesso id**, e un test lo dimostra
+- [x] Una nota oltre il limite è rifiutata con **errore tipizzato**, non troncata in silenzio
+- [x] Una nota di **soli spazi** è rifiutata con errore tipizzato, non normalizzata a `null`
+- [x] Una riga `cancelled` può tornare a `pending` **riusando lo stesso id**, e un test lo dimostra
       attraverso la suite di contratto (semantica di upsert già dichiarata nel port)
-- [ ] La suite di contratto condivisa verifica che note e `resolvedBy` sopravvivano a scrittura e
+- [x] La suite di contratto condivisa verifica che note e `resolvedBy` sopravvivano a scrittura e
       rilettura, senza modifiche alla suite fra `memory` e `supabase`
 
 ⛔ Checkpoint obbligatorio, **più grande di come era stato scritto la prima volta**: modifica
