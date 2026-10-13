@@ -1361,3 +1361,64 @@ separabile per la demo, ma il secondo è quello in cui la sua assenza **costa da
 l'auto sta pianificando un viaggio e perde un passeggero senza avere motivo di ricontrollare la lista.
 Separabile per il pitch, necessaria per un pilota vero. La raccomandazione non cambia (fuori da T05),
 la motivazione sì: non è più "non serve", è "non serve *ancora*".
+
+---
+
+## 2026-10-13 — Quattro decisioni prese, **T04b** aperto, T03 emendato
+
+Nessun codice scritto. L'umano ha risposto a quattro domande poste come scelte.
+
+| Domanda | Risposta |
+|---|---|
+| Raggruppamento dei sei cambi approvati | **Task di modello prima di T05** (come raccomandato) |
+| Un rifiuto automatico blocca la ricandidatura? | **No: la riga torna da sola a `pending`** (≠ raccomandazione) |
+| La notifica entra in T05? | **No, task separato** (come raccomandato) |
+| Emendare i due criteri di T03 | **Sì, con nota datata** (come raccomandato) |
+
+### Il reintegro automatico è migliore di quello che avevo raccomandato io
+
+Avevo raccomandato "un rifiuto `system` non blocca la ricandidatura", e avevo messo come
+controindicazione del reintegro automatico una domanda di ordinamento: *se le righe auto-rifiutate
+sono più dei posti liberati, chi rientra?* **La domanda non esiste.** Il reintegro porta a `pending`,
+non ad `accepted`: tornano candidati **tutti**, e sceglie chi offre l'auto — che è esattamente il suo
+ruolo in T05. Nessun criterio di equità da inventare, nessun ordine da decidere, e il collega escluso
+per un incidente di tempismo non deve nemmeno accorgersi di dover riprovare.
+
+### Tre conseguenze, da sapere prima di scrivere T05
+
+1. **`resolvedBy` diventa portante, non informativo.** Solo i rifiuti `system` si reintegrano, quelli
+   `owner` no: senza quel campo la regola non è esprimibile. Questo **chiude** la scelta fra le due
+   forme delle note: la forma (A) — campi fissi `requestNote`, `resolutionNote`, `resolvedBy` — non è
+   più una preferenza di costo, è un requisito funzionale. La forma (B), il registro di transizioni,
+   resta disponibile ma non serve.
+2. **Il reintegro deve azzerare `resolutionNote` e `resolvedBy`**, perché la riga torna aperta: i
+   campi vanno nullable e resettabili, ed è un criterio di T05.
+3. **È la seconda transizione pilotata dal sistema.** Scatta quando i posti di una tratta passano da
+   0 a >0 con righe auto-rifiutate presenti. Oggi l'unico evento che la innesca è l'annullamento di
+   una candidatura `accepted`: non esiste un percorso di modifica dei posti di una trasferta, quindi
+   il trigger è uno solo e il criterio è scrivibile in modo preciso.
+
+**Annotato per il task delle notifiche, che resta fuori da T05:** reintegro → accettazione →
+riempimento → nuovo auto-rifiuto è un ciclo legittimo, ma con le push attive manderebbe due messaggi
+contraddittori in pochi secondi ("sei di nuovo in gara", "la macchina è stata riempita"). Non è un
+problema di T05 — senza notifiche il ciclo è silenzioso e lo stato finale è corretto — ma chi scriverà
+il task delle notifiche deve saperlo, perché è il genere di cosa che si scopre in demo.
+
+### T04b aperto in `TASKS.md`
+
+Criteri su tre dimensioni: modello a tratte, stato della candidatura in lista, note. Porta **solo** il
+modello e la forma dei dati; i comportamenti (cascata, reintegro, annullamento con nota e posto
+restituito) sono di T05. `Trip` non cambia — T04 resta intatto — e l'algoritmo di `findMatches` non
+cambia, solo la sua firma di ritorno. Verificato leggendo invece di assumere: `TripRequest` non cambia
+nemmeno, perché descrive già una tratta sola (`fromPlantId`, `toPlantId`, `departureAt`).
+
+Numerato **T04b** e non inserito come nuovo T05: rinumerare da T05 a T18 invaliderebbe ogni
+riferimento già scritto in `PROGRESS.md`, `IDEAS.md` e `ARCHITECTURE.md`, per un guadagno estetico.
+
+### T03 emendato, non riscritto
+
+I due criteri restano **spuntati** e barrati, con una nota datata sopra: T03 era stato consegnato
+correttamente contro il requisito di allora, ed è il requisito a essere cambiato. Cancellarli avrebbe
+nascosto che una decisione è stata ribaltata; lasciarli senza nota avrebbe prodotto un documento che
+contraddice il codice senza dire perché. Gli altri sette vincoli duri di T03 sono intatti e restano
+sotto test di non-regressione in T04b.

@@ -158,8 +158,19 @@ Interfacce in `core/ports` e implementazione in RAM in `adapters/memory`.
 - [x] Orario **esattamente al limite** della finestra → è un match (confine incluso, documentato)
 - [x] `seatsAvailable == 0` → nessun match
 - [x] Offerta del richiedente stesso → nessun match
-- [x] Richiedente con richiesta già `pending` su quell'offerta → nessun match
-- [x] Richiedente con richiesta già `accepted` su quell'offerta → nessun match
+- [x] ~~Richiedente con richiesta già `pending` su quell'offerta → nessun match~~
+- [x] ~~Richiedente con richiesta già `accepted` su quell'offerta → nessun match~~
+
+> **⚠️ Questi due criteri sono stati emendati il 13 ottobre 2026, dopo la chiusura di T03.**
+> Erano soddisfatti e verificati al momento del commit `e6ff157`: restano spuntati perché T03 è stato
+> consegnato correttamente contro il requisito di allora. Il **requisito è cambiato**, non
+> l'implementazione a essere stata sbagliata.
+> Decisione dell'umano: un'offerta su cui ho già una candidatura deve **restare in lista**, grigia e
+> spuntata se `pending`/`accepted`, rossa se `rejected`, non cliccabile. Un'offerta che sparisce non
+> può essere disegnata grigia, quindi l'esclusione passa da vincolo duro a **stato di presentazione**.
+> Il comportamento nuovo è un criterio di **T04b**, dove è anche sotto test di non-regressione per gli
+> altri vincoli duri, che restano invariati.
+> Vale solo per questi due criteri: gli altri sette vincoli duri di T03 sono intatti.
 
 **Criteri di accettazione** (punteggio)
 - [x] A parità di tutto, l'offerta con orario più vicino è prima in classifica
@@ -183,6 +194,53 @@ Usecase `createTrip`: con auto (offre posti) o senza (cerca passaggio).
 - [x] Data di rientro precedente alla partenza → rifiutata
 - [x] Posti offerti ≤ 0 oppure > 8 con auto dichiarata → rifiutata
 - [x] Ogni caso di rifiuto ritorna un errore tipizzato, non un'eccezione generica
+
+## T04b ⛔ Modello a tratte, stato della candidatura in lista, note
+
+Nasce da quattro decisioni di prodotto dell'umano del 13 ottobre 2026, registrate in
+[PROGRESS.md](PROGRESS.md) e in [IDEAS.md](IDEAS.md). Raggruppate in un task solo perché cadono tutte
+su `SeatOffer` e `MatchRequest`: separate sarebbero tre checkpoint e tre giri sugli stessi adapter.
+
+Porta **solo** il modello e la forma dei dati. I comportamenti (cascata di auto-rifiuto,
+reintegro, annullamento) sono di T05.
+
+`Trip` **non** cambia: resta `departureAt` + `returnAt`, quindi T04 non si tocca. L'algoritmo di
+`findMatches` **non** cambia: cambia la sua firma di ritorno. `TripRequest` **non** cambia: descrive
+già una tratta sola (`fromPlantId`, `toPlantId`, `departureAt`).
+
+**Criteri di accettazione** (modello a tratte)
+- [ ] Una trasferta con auto e `returnAt` non null produce da `listOpenOffers` **due** offerte: andata
+      (`fromPlantId → toPlantId` all'orario di `departureAt`) e ritorno (**plant invertiti**, orario di
+      `returnAt`)
+- [ ] Una trasferta con auto e `returnAt` null produce **una** sola offerta
+- [ ] I posti sono **per tratta**: un test decrementa i posti dell'andata e dimostra che quelli del
+      ritorno sono invariati
+- [ ] Due candidature dello stesso collega sulle **due tratte della stessa trasferta** sono ammesse e
+      distinte, non una doppia candidatura
+- [ ] `findByTripAndRequester` è chiavata sulla **tratta**: interrogata sul ritorno non restituisce la
+      candidatura dell'andata
+- [ ] L'identità di tratta è unica fra le offerte, e un test lo dimostra permutando l'input e
+      ottenendo lo stesso ordine (il `tripId` non è più unico fra le offerte: due tratte lo condividono)
+
+**Criteri di accettazione** (stato della candidatura in lista)
+- [ ] `findMatches` **restituisce** le offerte su cui il richiedente ha una candidatura `pending`,
+      `accepted` o `rejected`, con lo stato attaccato al risultato, invece di ometterle
+- [ ] Una candidatura `cancelled` **non** marca l'offerta: risulta candidabile come se non ci fosse
+- [ ] Non-regressione su T03: gli altri vincoli duri continuano a **omettere** — plant diverso, data
+      diversa, orario fuori finestra, `seatsAvailable == 0`, offerta del richiedente stesso
+
+**Criteri di accettazione** (note)
+- [ ] `requestNote` è facoltativa: una candidatura senza nota è valida
+- [ ] `resolutionNote` e `resolvedBy` (`'owner' | 'requester' | 'system'`, union di letterali) esistono
+      sulla riga e sono nulli finché la candidatura è aperta
+- [ ] Il limite di lunghezza delle note sta in `config/`, non nel codice: un test con una config a
+      limite ridotto dimostra che il rifiuto segue il parametro
+- [ ] Una nota oltre il limite è rifiutata con **errore tipizzato**, non troncata in silenzio
+- [ ] La suite di contratto condivisa verifica che note e `resolvedBy` sopravvivano a scrittura e
+      rilettura, senza modifiche alla suite fra `memory` e `supabase`
+
+⛔ Checkpoint obbligatorio: modifica `SeatOffer`, `MatchRequest`, il ritorno di `findMatches` e
+`MatchRequestRepository`, cioè quattro interfacce pubbliche dopo T02.
 
 ## T05 Candidatura, accettazione, rifiuto
 
