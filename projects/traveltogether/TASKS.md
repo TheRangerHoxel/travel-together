@@ -470,6 +470,15 @@ Implementazione dei port con `@supabase/supabase-js`.
 - [ ] A salvataggio avvenuto la trasferta appare nella lista personale
 - [ ] Render test su almeno un percorso completo di creazione
 
+> **⚠️ I criteri di T13 e T14 precedono le decisioni del 13–14 ottobre 2026 e vanno riscritti prima di
+> aprirli**, come è stato fatto per T05. Non menzionano: le **note** (`requestNote` facoltativa quando
+> si candida, `resolutionNote` obbligatoria quando si rifiuta), il **tetto di digitazione con contatore
+> dei caratteri residui**, le offerte già candidate che restano in lista **grigie e spuntate** o
+> **rosse** e non cliccabili, le **due tratte** andata e ritorno come righe distinte, e le due
+> transizioni pilotate dal sistema (auto-rifiuto al riempimento, reintegro). Aprirli così com'è
+> produrrebbe codice verde contro un modello che non esiste più: è esattamente il modo in cui cinque
+> criteri su otto di T05 erano diventati sbagliati senza che nessun test lo dicesse.
+
 ## T13 UI match e candidatura
 - [ ] Creata una trasferta compatibile con un'offerta esistente, il match appare in lista
 - [ ] Ogni match mostra: collega, orario, posti disponibili, quanto combacia
@@ -488,6 +497,14 @@ Implementazione dei port con `@supabase/supabase-js`.
 - [ ] I numeri coincidono con quelli calcolati da T06 e T07 sugli stessi dati (test)
 - [ ] I valori stimati sono **dichiarati come stime** in schermata
 - [ ] Utente senza viaggi → stato vuoto con zeri, nessun errore
+
+> **Vincolo deciso dall'umano il 14 ottobre 2026:** i **parametri** di `config/` non si mostrano alla
+> platea. La dashboard mostra i **KPI**, eventualmente come gauge, mai i valori da cui derivano. Il
+> criterio esistente *"è visibile che saving e CO₂ sono stime da parametri configurabili"* resta e non
+> è in conflitto: dichiarare che un numero è una stima derivata da parametri non richiede di mostrare i
+> parametri — ed è anzi ciò che la rende credibile senza aprire il cofano in sede di pitch.
+> Se un giorno servirà una UI di configurazione, è **admin-only**; oggi non esiste e non va costruita,
+> perché i parametri sono letterali compilati e non c'è nessun tab da proteggere.
 
 ## T16 UI dashboard aziendale
 - [ ] Mostra trasferte registrate, match proposti, match accettati, auto evitate, giorni evitati, saving €, CO₂

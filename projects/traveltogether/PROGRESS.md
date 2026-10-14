@@ -2015,3 +2015,64 @@ candidatura marca". Ha verificato che è un **rafforzamento** — una aggiunta, 
 nessun altro test alterato — e ha registrato il metodo per la prossima volta che un file di un task
 approvato viene toccato dopo la review: `git diff` sul solo file, contando gli `it(` aggiunti e
 cancellati. È il controllo giusto, e vale la pena averlo scritto.
+
+**T05 committato** come `792fdf6`, un commit unico, 27 file, working tree pulito.
+
+---
+
+## 2026-10-14 — Due decisioni dell'umano, e una che non chiude il problema per cui è nata
+
+Nessun codice. Registrate perché cambiano i criteri di task futuri.
+
+### 1. Tetto alla digitazione della nota, con contatore dei caratteri residui
+
+Decisione: nel campo nota la digitazione **si ferma** al massimo (~255 caratteri) e un contatore mostra
+i caratteri ancora disponibili. Da implementare **nel task che definirà la schermata delle note**.
+
+**Due cose vanno dette, perché la decisione è buona ma risponde a una domanda diversa.**
+
+La prima: **non chiude il problema che l'ha fatta nascere.** Il contatore impedisce di scrivere note
+troppo lunghe *da qui in avanti*; il caso segnalato dal reviewer è una nota scritta quando il limite
+era 280 che diventa **inchiudibile** se il limite scende a 140. Quelle righe esistono già e nessun
+contatore le raggiunge. Il residuo resta aperto, e si chiude in uno dei due modi: validare solo i campi
+che la scrittura imposta (la voce in `IDEAS.md`), oppure dichiarare il limite **non abbassabile** sotto
+il tetto di digitazione — che con questa decisione diventa una scelta coerente invece di una rinuncia,
+perché il tetto dell'interfaccia e la soglia del dominio diventerebbero lo stesso numero. **Girata
+all'umano come domanda.**
+
+La seconda: **il task in cui metterla non esiste.** Le note si scrivono in due punti — `requestNote`
+quando si candida (T13) e `resolutionNote` quando si rifiuta o si annulla (T14) — e **né T13 né T14
+menzionano le note**, perché i loro criteri precedono la loro esistenza. Non le menzionano nemmeno le
+offerte grigie o rosse, le due tratte, la cascata e il reintegro. Aggiunto un riquadro sopra T13 che
+dichiara che quei criteri **vanno riscritti prima di aprirli**, come è stato fatto per T05: aprirli
+così produrrebbe codice verde contro un modello che non esiste più, che è esattamente come cinque
+criteri su otto di T05 erano diventati sbagliati senza che nessun test lo dicesse.
+
+Vincolo tecnico annotato: il tetto di digitazione deve venire dallo **stesso** `NOTE_CONFIG.maxLength`
+del dominio, non da una costante nel componente. Due numeri che devono restare d'accordo sono il modo
+in cui divergono.
+
+### 2. I parametri di configurazione non si mostrano alla platea
+
+Decisione: i valori di `config/` sono visibili solo lato admin; la platea vede i **KPI**, eventualmente
+come gauge, mai i parametri.
+
+**Oggi non c'è niente da nascondere, e questo cambia la natura del vincolo.** I parametri sono
+**letterali compilati** in `config/`, non valori modificabili a runtime: un "tab configurativo" non
+esiste. La decisione è quindi un vincolo su **cosa non costruire** — se servirà una UI di
+configurazione è admin-only, e non è nello scope della demo.
+
+**E un "lato admin" non esiste nel modello:** `Profile` ha `id`, `displayName`, `plantId` e nessun
+ruolo. Un gate admin richiederebbe un campo ruolo, una policy RLS che lo rispetti e un ⛔ di contratto.
+Per la demo non serve, perché non c'è nessuna schermata da proteggere.
+
+Compatibile con il criterio di T16 già scritto (*"è visibile che saving e CO₂ sono stime da parametri
+configurabili"*): dichiarare che un numero è una stima derivata da parametri **non** richiede di
+mostrare i parametri, ed è anzi ciò che la rende credibile senza aprire il cofano in sede di pitch.
+Riquadro aggiunto sopra T16.
+
+### 3. I parametri di T06: default dichiarati
+
+L'umano ha confermato la prima opzione: metto default difendibili in `config/` e li elenco qui con il
+ragionamento, così li sostituisce senza toccare codice. Li scriverò nella voce di T06, non qui, perché
+è lì che vanno cercati.

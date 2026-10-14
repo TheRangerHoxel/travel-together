@@ -233,6 +233,25 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Costo** — S.
 - **Stato** — proposta
 
+### Limite alla digitazione della nota, con contatore dei caratteri residui
+- **Cosa** — nel campo nota la digitazione si **ferma** al massimo (l'umano ha indicato ~255 caratteri) e accanto compare un **contatore dei caratteri ancora disponibili**. L'utente non può scrivere una nota che verrà rifiutata.
+- **Perché** — decisione di prodotto dell'umano del 14 ottobre 2026. Oggi una nota fuori limite è rifiutata **dopo** l'invio, con un errore tipizzato: funziona, ma fa scoprire il vincolo nel momento peggiore, quando il testo è già scritto. Un contatore sposta il vincolo prima della scrittura, che è dove un limite non dà fastidio.
+- **Dove** — **criterio del task che definirà la schermata delle note**, come chiesto dall'umano. Attenzione: quel task **non esiste ancora**. Le note si scrivono in due punti diversi — `requestNote` quando si candida (T13) e `resolutionNote` quando si rifiuta o si annulla una candidatura accettata (T14) — e **né T13 né T14 menzionano le note**, perché i loro criteri sono stati scritti prima che le note esistessero. Vanno riscritti prima di aprirli, come è stato fatto per T05.
+- **⚠️ Cosa questa misura NON chiude, e va detto:** il contatore impedisce di scrivere note troppo lunghe **da qui in avanti**, ma **non** risolve il caso che l'ha fatta nascere — una nota scritta quando il limite era 280 che diventa inchiudibile se il limite scende a 140. Quelle righe esistono già e nessun contatore le raggiunge. Il residuo resta aperto: vedi la voce *"Validare le note solo sui campi che la scrittura imposta"*, oppure si chiude dichiarando il limite **non abbassabile** sotto il tetto di digitazione, che con questa decisione diventa una scelta coerente invece di una rinuncia.
+- **Impatto** — `ui/` e i criteri di T13/T14. Il tetto di digitazione deve venire dallo **stesso** `NOTE_CONFIG.maxLength` del dominio, non da una costante nel componente: due numeri che devono restare d'accordo sono il modo in cui divergono.
+- **Costo** — S.
+- **Stato** — `accettata`
+
+### I parametri di configurazione non si mostrano alla platea
+- **Cosa** — i valori di `config/` (costo noleggio/giorno, g CO₂/km, distanze, soglie dei badge) sono visibili **solo lato admin**, mai nelle schermate che vedrà la platea del pitch. La dashboard aziendale mostra i **KPI**, eventualmente come gauge, e non i parametri da cui derivano.
+- **Perché** — decisione di prodotto dell'umano del 14 ottobre 2026.
+- **Oggi non c'è niente da nascondere, e questo cambia la natura della voce:** i parametri sono **letterali compilati** in `config/`, non valori modificabili a runtime, quindi un "tab configurativo" **non esiste**. La decisione è quindi un **vincolo su cosa non costruire**: se un giorno servirà una UI di configurazione, è admin-only e non è nello scope della demo.
+- **Conseguenza da sapere:** un "lato admin" **non esiste nel modello**. `Profile` ha `id`, `displayName`, `plantId` e nessun ruolo. Un gate admin richiederebbe un campo ruolo su `Profile`, una policy RLS che lo rispetti, e un ⛔ di contratto. Per la demo non serve: non c'è nessuna schermata di configurazione da proteggere.
+- **Compatibile con il criterio di T16 già scritto** (*"è visibile che saving e CO₂ sono stime da parametri configurabili"*): dichiarare che sono stime derivate da parametri **non** richiede di mostrare i parametri. Le due cose convivono, e la seconda è anzi ciò che rende la prima credibile senza aprire il cofano in sede di pitch.
+- **Impatto** — criteri di T16, e un vincolo negativo su T15/T16. Nessun codice oggi.
+- **Costo** — XS come vincolo, M se un giorno servirà davvero il gate admin.
+- **Stato** — `accettata`
+
 ### La corsa fra la cascata e una candidatura concorrente va dichiarata nei test di T08
 - **Cosa** — un caso nei test di integrazione di T08 che riproduca "candidatura che arriva subito dopo l'esaurimento dei posti" e pinni l'esito atteso: riga `pending` su una tratta a zero posti, chiudibile solo con un rifiuto motivato.
 - **Perché** — rilievo del reviewer su T05. Fra la lettura di `listByLeg` nella cascata e una `requestSeat` concorrente non c'è alcun lock. **Non è una decisione di prodotto di nessuno:** segue dal fatto che `requestSeat` non rifiuta per posti a zero — scelta fatta perché `findMatches` omette le tratte esaurite e il prodotto gestisce l'auto piena con la cascata. Sul piano del prodotto è accettabile e **non** produce uno stato bloccato: chi offre l'auto la vede in `listByLeg`, se prova ad accettarla ottiene `no-seats-available`, e la chiude con un rifiuto motivato — che è esattamente ciò per cui la nota obbligatoria esiste. Ma è un percorso in cui l'utente si candida e **poi** scopre che non c'era posto, e oggi vive solo in un commento di `request-seat.ts` e in `PROGRESS.md`. Su Postgres la corsa è **reale**, non intercalata in un event loop.
