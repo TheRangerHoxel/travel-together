@@ -2778,3 +2778,79 @@ nel commento, dove lo troverà chi un giorno dovrà allentarlo.
 Fermato come previsto. `T04 → T04b → T05 → T06 → T07 → T07c` chiusi, tutti con reviewer approvato e
 commit singolo. Restano prima di T08: **T07d**, **T07e** e **T07b**, che è ⛔ e inverte una decisione di
 T03 — e il loop non lo inizia senza un via libera esplicito dell'umano.
+
+---
+
+## 2026-10-14 — Fine sessione · stato, decisioni aperte, lezioni
+
+Scritto per la sessione successiva. **Working tree pulito, `origin/auto/build` allineato, nessun
+commit in attesa di push.** `main` fermo a `406d7e2`: lo mergia l'umano.
+
+### Stato vero
+
+Fase 0 e Fase 1 complete. **Fase 2: T01, T02, T03, T04, T04b, T05, T06, T07, T07c chiusi**, ognuno con
+`verify` verde, reviewer approvato e **un commit solo**. `npm run verify` → **402 test unitari** in 27
+suite, 1 di integrazione, 1 di smoke.
+
+Il reviewer ha bocciato T02 due volte, T03 una e T04 una — **sempre con `verify` verde**. Da T04b in
+avanti ha approvato al primo round, e la ragione registrata è che il registro ha iniziato a funzionare
+come registro: il difetto dello stato `cancelled`, che a T06 è costato un giro, a T07 era già escluso.
+
+### Prossimi passi, in ordine
+
+1. **T07d** — compatibilità fra la trasferta dichiarata e la tratta. Criteri scritti, nessun ⛔.
+   Da fare **prima di T12**.
+2. **T07e** — massimo storico delle metriche, perché un badge non si ritiri. Criteri scritti, nessun
+   ⛔ sul port nuovo perché è additivo. Da fare **prima di T15**.
+3. **T07b ⛔** — parametri da tabella. **Inverte una decisione di T03** (i valori come letterali
+   verificabili a compile time) e introduce un port nuovo: non si inizia senza un via libera esplicito.
+4. **T08 ⛔** — schema, migrazioni e RLS. Ha accumulato **dieci criteri nuovi** da questa sessione.
+
+**T13 e T14 non si aprono senza riscriverne i criteri:** precedono le note, le due tratte, le offerte
+grigie e rosse, la cascata e il reintegro. C'è un riquadro che lo dichiara sopra T13.
+
+### Decisioni di prodotto prese in questa sessione
+
+Andata e ritorno come offerte **indipendenti**; le offerte già candidate **restano in lista** con il
+loro stato (che ha emendato due criteri di T03); note facoltativa alla candidatura e obbligatoria al
+rifiuto e all'annullamento di una accettata; `cancelled` ricliccabile; auto-rifiuto a cascata al
+riempimento e **reintegro automatico** quando i posti risalgono; tetto di digitazione delle note con
+contatore; parametri e testi da tabella con le **identità tipizzate** che restano nel codice; la base
+dei KPI è **la trasferta del passeggero** ("non ho preso una macchina per me"); il conducente si
+riconosce con **badge** e non sommandolo alle auto evitate; massimo storico invece di badge
+memorizzati.
+
+### Aperto, e da decidere quando servirà
+
+- **Il task di modifica trasferta e quello di annullamento trasferta non esistono nel backlog**, e
+  servono a tre cose già decise: l'annullamento a cascata delle candidature quando una tratta o una
+  trasferta scompare, e il caso in cui il reintegro diventa raggiungibile.
+- **Le 15+ voci `accettata` di `IDEAS.md` restano non schedulate.** Per `CLAUDE.md` non esistono finché
+  non sono task, ed è giusto così — ma la più urgente morde a T09: *"Normalizzare l'istante al confine
+  dell'adapter"*, senza cui ogni offerta da Supabase sparisce in silenzio.
+- **La forma canonica degli istanti non è unica** (i millisecondi sono opzionali), quindi il confronto
+  lessicografico non coincide sempre con quello cronologico. Nessun bug oggi; trappola per T13.
+- Il costo noleggio è ora la cifra reale (120 €/giorno); resta provvisoria **Pomigliano–Foggia a
+  165 km**, marcata `DA SOSTITUIRE` in `config/`.
+
+### Le lezioni, che sono finite in `CLAUDE.md` e non solo qui
+
+Quattro cose che questa sessione ha insegnato e che valgono per ogni progetto dell'officina, scritte
+nelle sezioni **"Brief ai subagent"**, **"Interruzioni e ripresa"**, **Verifica** e **Scope**:
+
+1. **Un divieto in un brief deve nominare il motivo.** Quattro volte un divieto ha prodotto una
+   soluzione peggiore del rischio che evitava, e in tre casi su quattro riguardava file di **test**:
+   i fake non sono scope, sono strumenti.
+2. **I difetti veri emergono da dichiarazioni volontarie, non da `verify`**, che era verde in ogni
+   caso. Va chiesto esplicitamente di dichiarare deviazioni, sonde non eseguite e cambi di
+   comportamento.
+3. **Un commento che promette più del codice è un difetto**, come un test che non può fallire. È
+   accaduto tre volte, e in un caso avrebbe reso meno urgente una policy di sicurezza di T08.
+4. **I criteri di un task si rileggono contro il modello attuale prima di aprirlo:** quelli obsoleti
+   non diventano rossi, producono codice **verde e sbagliato**.
+
+E una regola operativa che ha un costo dimostrato: **non manipolare file di testo con comandi di
+shell.** Tre episodi in due giorni — un alias di una lettera che ha cancellato sei file, un round-trip
+di encoding che ha riempito `TASKS.md` di mojibake, un BOM in un `.ts`. In tutti e tre il danno è stato
+recuperabile **solo perché il lavoro precedente era committato**, e in due su tre è stato scoperto
+guardando il **diff**, non da `verify`.

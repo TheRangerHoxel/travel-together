@@ -33,6 +33,10 @@ Un solo comando: `npm run verify` = `lint` + `typecheck` + `test:unit` + `test:i
 - Un test che non può girare **fallisce rumorosamente**. Non si salta in verde, non si marca skip
   silenzioso: un verde falso è peggio di un rosso.
 - Non modificare un test per farlo passare. Se il test è sbagliato, dillo e spiega perché.
+- **Un commento che promette più di quello che il codice ottiene è un difetto**, e il reviewer lo boccia
+  come boccia un test che non può fallire. Vale per gli invarianti dichiarati impossibili ma
+  raggiungibili, per le garanzie di sicurezza sovrastimate e per le previsioni su task futuri: qualcuno
+  le rileggerà come garanzie e ci costruirà sopra.
 
 ## Scope
 
@@ -41,6 +45,10 @@ Un solo comando: `npm run verify` = `lint` + `typecheck` + `test:unit` + `test:i
 - Le proposte in `IDEAS.md` **non entrano nello scope da sole**. Solo l'umano le approva; quando le
   marca `accettata` diventano task in `TASKS.md`. Finché non lo sono, per il loop non esistono.
 - Niente duplicati in `IDEAS.md`: se l'idea c'è già, non riscriverla.
+- **Prima di aprire un task, rileggi i suoi criteri contro il modello attuale.** Criteri scritti prima
+  di un cambio di modello producono codice **verde e sbagliato**: in Fase 2 cinque criteri su otto di
+  T05 erano diventati sbagliati senza che nessun test lo dicesse. Se sono obsoleti si riscrivono
+  **prima**, non durante.
 
 ## Circuit breaker
 
@@ -82,6 +90,28 @@ viene chiesto di specificare.
 
 Vale per i dubbi, non per i resoconti: l'esito di un task si riporta normalmente, e le decisioni
 prese restano in `PROGRESS.md`.
+
+## Brief ai subagent
+
+- **Un divieto di modifica deve nominare il motivo.** Quattro volte in Fase 2 un divieto ha prodotto
+  una soluzione peggiore del rischio che evitava, perché *"non toccare il task X"* è stato letto come
+  *"non toccare nemmeno i suoi test"*: ne sono uscite una duplicazione, un port inventato e un wrapper
+  inutile. Non vietare meno: dire **perché**.
+- **Un divieto su un file di test condiviso quasi mai protegge lo scope:** i fake non sono scope, sono
+  strumenti. Se un fake è troppo debole per il task nuovo, la modifica **additiva** è la soluzione
+  giusta, e la prova da pretendere è *"gli altri file che lo usano restano verdi senza essere
+  modificati"* — un fake modificato male non rompe la compilazione, rompe il **significato** dei test
+  di qualcun altro.
+- **Chiedi di dichiarare** le deviazioni dal brief, le sonde non eseguite e i cambi di comportamento.
+  In Fase 2 i difetti veri sono emersi da **dichiarazioni volontarie**, non da `verify`: una sonda non
+  fatta e dichiarata è recuperabile, una non fatta e taciuta no.
+- **Se un vincolo del brief costringe a duplicare o a inventare, il subagent si ferma e lo dice.**
+  Scrivilo nel brief: è l'unica rete contro i divieti sbagliati di chi lo scrive.
+- **Non manipolare file di testo con comandi di shell.** Tre episodi in due giorni: un identificatore
+  di una lettera (`R` = `Invoke-History`) che ha cancellato sei file, un round-trip di encoding che ha
+  riempito un `.md` di mojibake, un BOM in un `.ts`. Usa gli strumenti di modifica; per una
+  trasformazione, Python con l'encoding esplicito; e **controlla che il diff sia della dimensione
+  prevista** — un diff più grande del previsto è il segnale.
 
 ## Interruzioni e ripresa
 
