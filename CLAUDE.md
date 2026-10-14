@@ -83,6 +83,25 @@ viene chiesto di specificare.
 Vale per i dubbi, non per i resoconti: l'esito di un task si riporta normalmente, e le decisioni
 prese restano in `PROGRESS.md`.
 
+## Interruzioni e ripresa
+
+**Il loop non si risveglia da sé.** L'agente agisce su eventi: un messaggio dell'umano, un subagent che
+finisce, o una sveglia programmata **prima**. Un limite di sessione interrompe il turno e **nessuno
+riprova**, perché il reset non è un evento che qualcuno ascolta. L'interruzione non si può rendere
+impossibile: si rende **economica**.
+
+- **Il lavoro approvato si committa subito.** Un task verde e approvato dal reviewer **non** resta nel
+  working tree mentre si fa altro: è l'unica cosa che un'interruzione può distruggere. Con questa
+  regola si perde al massimo un giro di review in corso, che si rifà.
+- **Ripresa, in quest'ordine:** `CLAUDE.md`, `OFFICINA.md`, la **coda** di `PROGRESS.md`, `TASKS.md`,
+  poi `git log -1` e `git status`, poi `npm run verify`. Lo stato vero è **il registro più il working
+  tree**: non si ricostruisce a memoria, e non si riparte dal report di un subagent — un report dice
+  cosa un agente credeva di aver fatto, il working tree dice cosa c'è.
+- **`verify` non è eseguibile fuori da questa macchina.** `test:int` richiede le credenziali di staging
+  in `.env`, che è in `.gitignore`. Quindi una ripresa automatica **in cloud non può chiudere un
+  task**: non può ottenere `verify` verde, e a verify rosso non si committa. Una ripresa programmata ha
+  senso solo **locale**.
+
 ## Sicurezza
 
 - `.env` in `.gitignore`. Segreti e config fuori dal codice, iniettati a runtime.
