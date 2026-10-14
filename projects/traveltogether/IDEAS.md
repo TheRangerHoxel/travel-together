@@ -223,7 +223,22 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Perché** — rilievo del reviewer su T04b. `findById` valida la riga riletta contro la config **corrente** e traduce il fallimento in `invalid-record`. Per gli invarianti strutturali è giusto e simmetrico a `MemoryTripRepository`. Per la lunghezza no: `maxLength` è una **soglia tarabile**, e `PROGRESS.md` dichiara che il valore (280) verrà deciso davvero a T13, su un telefono. Il giorno in cui qualcuno lo porta a 140, ogni candidatura con una nota più lunga **già scritta** — seed di T17 compreso — diventa illeggibile: `findById` ritorna `invalid-record` e le schermate di T13/T14 mostrano un errore su un dato che **era valido quando è stato scritto**. Un parametro di prodotto non deve poter rendere illeggibili dati già scritti: è la differenza fra un invariante e una soglia.
 - **Impatto** — `core/domain/match-request.ts` e i due adapter. Nessun cambio di firma dei port.
 - **Costo** — S.
-- **Stato** — `accettata` — **diventata un criterio di T05** il 13 ottobre 2026.
+- **Stato** — `accettata` — **diventata un criterio di T05** il 13 ottobre 2026, e **soddisfatta a metà**: vedi la voce seguente, che è la sua continuazione.
+
+### Validare le note solo sui campi che la scrittura imposta
+- **Cosa** — i quattro usecase di T05 e le due transizioni di sistema validano la lunghezza **soltanto** della nota che stanno scrivendo (`resolutionNote` per rifiuto e annullamento, `requestNote` per la candidatura) e lasciano passare quella che **transitano**.
+- **Perché** — **continuazione della voce precedente, non un doppione.** T05 ha sistemato la lettura: una nota scritta con limite 280 si rilegge intatta anche dopo che il limite è scceso a 10. Ma tutte le `save` degli usecase chiamano `makeMatchRequest` sulla **riga intera**, che valida entrambe le note: quindi dopo un abbassamento del limite una riga con `requestNote` vecchia e lunga non si può più **accettare, rifiutare, annullare né reintegrare**, e in cascata finisce in `unclosed` con `note-too-long`. Una riga che non si può modificare è un grado **peggio** di una che non si può leggere: si congela nel momento in cui qualcuno la sta chiudendo. Il criterio di T05 è soddisfatto alla lettera — quelle sono scritture — ma non nello scopo, ed è il criterio a essere scritto troppo stretto: va riscritto da *"si rilegge senza `invalid-record`"* a *"si rilegge **e si può chiudere**"*, altrimenti la metà che manca scompare dal tracciamento.
+- **Non è un difetto latente che scatta da solo:** serve che un umano abbassi `NOTE_CONFIG.maxLength` sotto la lunghezza di una nota già scritta, e finché il limite è 280 note più lunghe non possono esistere. E quando scatta **non è silenzioso**: errore tipizzato che conserva la violazione originale, e nelle transizioni di sistema la riga compare in `unclosed` con la causa.
+- **Impatto** — `core/domain/match-request.ts` e i quattro usecase. Nessun cambio di firma dei port. Da decidere **prima di T12**, che scriverà la mappatura errori → testi italiani.
+- **Costo** — S.
+- **Stato** — proposta
+
+### La corsa fra la cascata e una candidatura concorrente va dichiarata nei test di T08
+- **Cosa** — un caso nei test di integrazione di T08 che riproduca "candidatura che arriva subito dopo l'esaurimento dei posti" e pinni l'esito atteso: riga `pending` su una tratta a zero posti, chiudibile solo con un rifiuto motivato.
+- **Perché** — rilievo del reviewer su T05. Fra la lettura di `listByLeg` nella cascata e una `requestSeat` concorrente non c'è alcun lock. **Non è una decisione di prodotto di nessuno:** segue dal fatto che `requestSeat` non rifiuta per posti a zero — scelta fatta perché `findMatches` omette le tratte esaurite e il prodotto gestisce l'auto piena con la cascata. Sul piano del prodotto è accettabile e **non** produce uno stato bloccato: chi offre l'auto la vede in `listByLeg`, se prova ad accettarla ottiene `no-seats-available`, e la chiude con un rifiuto motivato — che è esattamente ciò per cui la nota obbligatoria esiste. Ma è un percorso in cui l'utente si candida e **poi** scopre che non c'era posto, e oggi vive solo in un commento di `request-seat.ts` e in `PROGRESS.md`. Su Postgres la corsa è **reale**, non intercalata in un event loop.
+- **Impatto** — criteri di T08. Nessun codice.
+- **Costo** — S.
+- **Stato** — proposta
 
 ### Decidere cosa accade alle candidature quando una tratta scompare
 - **Cosa** — fissare, **prima** della migrazione di T08, il comportamento della coppia (tratta eliminata, candidature esistenti su di essa): `ON DELETE CASCADE`, oppure `save` che rifiuta la nuova forma se esistono candidature aperte, oppure annullamento a cascata con `resolvedBy: 'system'` (che sarebbe comportamento di T05).
@@ -254,6 +269,7 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — solo file di test, nessun cambio di interfaccia. Reversibile.
 - **Costo** — S.
 - **Stato** — proposta
+- **Nota (14 ottobre 2026, precedente creato da T05) — questo modulo esiste già a metà, e il task futuro deve ASSORBIRLO invece di crearne un secondo.** T05 ha prodotto `core/usecases/request-test-fakes.ts`, fake spia di `TripRepository` e `MatchRequestRepository` usato dai **sette** file di test di T05; `create-trip.test.ts` è rimasto con i propri fake locali. Il reviewer l'ha giudicato accettabile — non è questa voce implementata senza approvazione, perché quella propone un modulo **trasversale** che unifichi anche i fake esistenti — ma se il task futuro ne creasse un secondo, il motivo per cui questa idea esiste (*"fake divergenti verificano lo stesso contratto in modi diversi"*) si realizzerebbe proprio mentre la si implementa. **Vincolo scoperto, da sapere prima di provare a spostarlo:** la collocazione in una cartella di produzione è **forzata**. Un `src/core/testing/` non sarebbe un elemento dichiarato in `boundaries/elements`, e con `default: 'disallow'` nessuno potrebbe importarlo; un `.test.ts` verrebbe eseguito da jest come suite vuota. Quindi il task richiede anche una modifica a `eslint.config.js`, cioè un ⛔.
 
 ### Accumulare gli errori di validazione invece di ritornare il primo
 - **Cosa** — `createTrip` (e gli usecase di validazione in genere) ritorna l'elenco delle violazioni invece del primo errore che scatta.

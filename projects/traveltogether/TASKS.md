@@ -309,44 +309,44 @@ migliore. Sostituiti dall'elenco sotto, che incorpora anche le quattro decisioni
 13 ottobre. Vedi `PROGRESS.md`.
 
 **Criteri di accettazione** (candidatura)
-- [ ] Candidatura valida su una **tratta** → `pending`, con `requestNote` facoltativa
-- [ ] Doppia candidatura sulla stessa tratta → rifiutata se esiste già una riga `pending`, `accepted`
+- [x] Candidatura valida su una **tratta** → `pending`, con `requestNote` facoltativa
+- [x] Doppia candidatura sulla stessa tratta → rifiutata se esiste già una riga `pending`, `accepted`
       oppure `rejected`
-- [ ] Una riga `cancelled` **non** blocca: la ricandidatura è ammessa e **riusa lo stesso id**
-- [ ] Candidature dello stesso collega sulle **due tratte** della stessa trasferta: entrambe ammesse
+- [x] Una riga `cancelled` **non** blocca: la ricandidatura è ammessa e **riusa lo stesso id**
+- [x] Candidature dello stesso collega sulle **due tratte** della stessa trasferta: entrambe ammesse
 
 **Criteri di accettazione** (accettazione e rifiuto)
-- [ ] Accettazione → `accepted` **e** i posti di **quella** tratta decrementati di 1; i posti
+- [x] Accettazione → `accepted` **e** i posti di **quella** tratta decrementati di 1; i posti
       dell'altra tratta **invariati**
-- [ ] Rifiuto → `rejected`, `resolvedBy: 'owner'`, posti **invariati**
-- [ ] Rifiuto **senza nota** → errore tipizzato: la nota è obbligatoria e il modello non può imporla
+- [x] Rifiuto → `rejected`, `resolvedBy: 'owner'`, posti **invariati**
+- [x] Rifiuto **senza nota** → errore tipizzato: la nota è obbligatoria e il modello non può imporla
       (dipende dallo stato precedente della riga), quindi la impone questo usecase
-- [ ] Accettazione quando i posti di quella tratta sono a 0 → rifiutata con errore esplicito
-- [ ] Solo il proprietario della trasferta può accettare o rifiutare: un altro utente riceve errore
-- [ ] Una richiesta già `accepted` non può essere accettata di nuovo (nessun doppio decremento)
-- [ ] Un test dimostra che due accettazioni concorrenti sull'ultimo posto non portano i posti della
+- [x] Accettazione quando i posti di quella tratta sono a 0 → rifiutata con errore esplicito
+- [x] Solo il proprietario della trasferta può accettare o rifiutare: un altro utente riceve errore
+- [x] Una richiesta già `accepted` non può essere accettata di nuovo (nessun doppio decremento)
+- [x] Un test dimostra che due accettazioni concorrenti sull'ultimo posto non portano i posti della
       tratta sotto zero
 
 **Criteri di accettazione** (annullamento)
-- [ ] Annullamento di una `pending` → `cancelled`, **nessuna** nota richiesta, posti invariati
-- [ ] Annullamento di una `accepted` → `cancelled`, `resolvedBy: 'requester'`, nota **obbligatoria**
+- [x] Annullamento di una `pending` → `cancelled`, **nessuna** nota richiesta, posti invariati
+- [x] Annullamento di una `accepted` → `cancelled`, `resolvedBy: 'requester'`, nota **obbligatoria**
       (senza nota → errore tipizzato) e posti della tratta **+1**
-- [ ] Solo il richiedente può annullare la propria candidatura: un altro utente riceve errore
+- [x] Solo il richiedente può annullare la propria candidatura: un altro utente riceve errore
 
 **Criteri di accettazione** (le due transizioni pilotate dal sistema)
-- [ ] Quando un'accettazione consuma l'**ultimo** posto, tutte le altre `pending` di **quella** tratta
+- [x] Quando un'accettazione consuma l'**ultimo** posto, tutte le altre `pending` di **quella** tratta
       passano a `rejected` con `resolvedBy: 'system'` e nota automatica; quelle dell'altra tratta
       restano `pending`
-- [ ] Quando i posti di una tratta tornano **> 0**, le righe `rejected` con `resolvedBy: 'system'` di
+- [x] Quando i posti di una tratta tornano **> 0**, le righe `rejected` con `resolvedBy: 'system'` di
       quella tratta tornano a `pending`, con `resolutionNote` e `resolvedBy` **azzerati**
-- [ ] Un rifiuto con `resolvedBy: 'owner'` **non** viene reintegrato: un test lo distingue da uno
+- [x] Un rifiuto con `resolvedBy: 'owner'` **non** viene reintegrato: un test lo distingue da uno
       `system` sulla stessa tratta
-- [ ] Il reintegro non tocca le righe `cancelled`
-- [ ] Il reintegro porta a `pending` e **non** ad `accepted`: tornano candidati tutti, e sceglie chi
+- [x] Il reintegro non tocca le righe `cancelled`
+- [x] Il reintegro porta a `pending` e **non** ad `accepted`: tornano candidati tutti, e sceglie chi
       offre l'auto. Nessun criterio di precedenza fra loro, quindi nessun ordine da inventare
 
 **Criteri di accettazione** (correzioni portate da T04b)
-- [ ] La lunghezza delle note è validata **solo in scrittura**: una riga scritta quando il limite era
+- [x] La lunghezza delle note è validata **solo in scrittura**: una riga scritta quando il limite era
       più alto si rilegge senza `invalid-record`. Un test abbassa il limite **dopo** la scrittura e
       pretende che la rilettura funzioni. Gli invarianti strutturali restano validati sempre
 > **Il criterio sul guard di `save` è stato spostato a T08 il 13 ottobre 2026, perché era scritto

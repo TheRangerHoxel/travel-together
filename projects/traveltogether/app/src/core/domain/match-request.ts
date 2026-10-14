@@ -81,12 +81,41 @@ function validaNota(
 }
 
 /**
- * Costruttore di MatchRequest: il modo DA USARE per ottenerne una valida.
+ * Validazione STRUTTURALE, senza config: risoluzione incompleta e `pending` con
+ * risoluzione. E' quella usata in LETTURA (`findById`).
+ *
+ * Perche' separata dalla lunghezza delle note: il limite e' configurabile, e una
+ * nota scritta sotto un limite piu' alto non e' un record corrotto quando il limite
+ * scende. Se la lettura lo rifiutasse, abbassare `maxLength` renderebbe illeggibili
+ * (e quindi non annullabili, non rifiutabili) candidature che nessuno ha scritto
+ * male. La soglia non e' rimossa: e' spostata sul lato scrittura.
+ */
+export function validateMatchRequestStructure(
+  campi: MatchRequest
+): Result<MatchRequest, MatchRequestError> {
+  const haNota = campi.resolutionNote !== null;
+  const haChi = campi.resolvedBy !== null;
+
+  if (campi.status === 'pending' && (haNota || haChi)) {
+    return err({ kind: 'pending-with-resolution' });
+  }
+
+  if (haNota !== haChi) {
+    return err({ kind: 'resolution-incomplete' });
+  }
+
+  return ok(campi);
+}
+
+/**
+ * Costruttore di MatchRequest: il modo DA USARE per ottenerne una valida, in
+ * SCRITTURA. Controlla le note contro `config` e poi la struttura. In lettura si usa
+ * `validateMatchRequestStructure`, che non conosce il limite delle note.
  *
  * Attenzione, perche' il tipo non lo impone (come per `makeTrip`): input e output
  * sono entrambi `MatchRequest`, quindi qualunque modulo puo' costruire un letterale
- * e saltare questi controlli. Ogni adapter che scrive o ricostruisce da storage una
- * candidatura deve passare di qui.
+ * e saltare questi controlli. Ogni adapter che scrive una candidatura deve passare
+ * di qui.
  *
  * Limite noto e DELIBERATO: la nota obbligatoria al rifiuto NON e' imposta qui.
  * Dipende dallo stato *precedente* della riga (pending -> rejected), che questo
@@ -101,16 +130,5 @@ export function makeMatchRequest(
     validaNota('resolutionNote', campi.resolutionNote, noteConfig);
   if (errNota) return err(errNota);
 
-  const haNota = campi.resolutionNote !== null;
-  const haChi = campi.resolvedBy !== null;
-
-  if (campi.status === 'pending' && (haNota || haChi)) {
-    return err({ kind: 'pending-with-resolution' });
-  }
-
-  if (haNota !== haChi) {
-    return err({ kind: 'resolution-incomplete' });
-  }
-
-  return ok(campi);
+  return validateMatchRequestStructure(campi);
 }

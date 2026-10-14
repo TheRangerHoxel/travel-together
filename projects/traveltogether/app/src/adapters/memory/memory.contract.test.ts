@@ -8,7 +8,7 @@
 // XMLHttpRequest e WebSocket, quindi "senza rete" e' imposto, non promesso.
 
 import { NOTE_CONFIG } from '../../config';
-import type { ProfileId } from '../../core/domain';
+import type { MatchRequest, ProfileId } from '../../core/domain';
 import { type AmbienteDiContratto, eseguiSuiteDiContratto } from '../contract/repository-contract';
 import { MemoryMatchRequestRepository } from './memory-match-request-repository';
 import { MemoryProfileRepository } from './memory-profile-repository';
@@ -35,7 +35,10 @@ function creaGeneratoreDiId(): () => string {
 eseguiSuiteDiContratto('memory', async (): Promise<AmbienteDiContratto> => {
   const profiles = new MemoryProfileRepository();
   const trips = new MemoryTripRepository(profiles);
-  const matchRequests = new MemoryMatchRequestRepository(NOTE_CONFIG);
+  // Copia MUTABILE: l'adapter tiene il riferimento, quindi mutarla dal test e' il
+  // modo di abbassare il limite dopo che le note sono state scritte.
+  const limiteNote: { maxLength: number } = { maxLength: NOTE_CONFIG.maxLength };
+  const matchRequests = new MemoryMatchRequestRepository(limiteNote);
   const sessions = new MemorySessionGateway();
 
   const prossimoId = creaGeneratoreDiId();
@@ -62,6 +65,14 @@ eseguiSuiteDiContratto('memory', async (): Promise<AmbienteDiContratto> => {
     nuovoTripId: prossimoId,
     nuovoMatchRequestId: prossimoId,
     idInesistente: () => '00000000-0000-4000-8000-ffffffffffff',
+
+    async abbassaLimiteNote(maxLength: number) {
+      limiteNote.maxLength = maxLength;
+    },
+
+    async seminaCandidaturaGrezza(request: MatchRequest) {
+      matchRequests.seminaGrezzo(request);
+    },
 
     async registraCodiceInvito(codice, profileId) {
       sessions.semina(codice, profileId);

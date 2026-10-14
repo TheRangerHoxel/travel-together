@@ -9,7 +9,7 @@ import type {
   Result,
   TripId,
 } from '../../core/domain';
-import { err, makeMatchRequest, ok } from '../../core/domain';
+import { err, makeMatchRequest, ok, validateMatchRequestStructure } from '../../core/domain';
 import type { MatchRequestRepository, RepositoryError } from '../../core/ports';
 
 export class MemoryMatchRequestRepository implements MatchRequestRepository {
@@ -18,6 +18,22 @@ export class MemoryMatchRequestRepository implements MatchRequestRepository {
   /** Il limite delle note arriva dall'esterno: l'adapter non legge config/ da solo. */
   constructor(private readonly noteConfig: NoteConfig) {}
 
+  /**
+   * Scrive **senza validare**. Non e' nel port, e non lo sara' mai.
+   *
+   * Serve a riprodurre l'unico stato che `save` rende altrimenti irraggiungibile:
+   * lo storage che contiene gia' una candidatura strutturalmente invalida (una
+   * migrazione mal fatta, una query eseguita a mano). Senza questo, il ramo
+   * `invalid-record` in lettura sarebbe codice non verificabile. Stesso precedente
+   * di `MemoryTripRepository.seminaGrezzo`.
+   *
+   * **Non usarlo per caricare dati.** Il seed dimostrativo di T17 deve passare da
+   * `save`: usare questa porta sul retro perche' e' piu' diretta scavalcherebbe
+   * proprio il confine di validazione che `save` esiste per presidiare.
+   */
+  seminaGrezzo(request: MatchRequest): void {
+    this.richieste.set(request.id, { ...request });
+  }
   async save(request: MatchRequest): Promise<Result<MatchRequest, RepositoryError>> {
     // Validazione PRIMA della scrittura: un record rifiutato non lascia traccia.
     // core/domain/match-request.ts prescrive che ogni adapter passi di qui.
@@ -37,8 +53,10 @@ export class MemoryMatchRequestRepository implements MatchRequestRepository {
     }
 
     // Anche in lettura, come MemoryTripRepository.findById: un record invalido che
-    // arriva dallo storage non deve entrare in circolo nel dominio.
-    const valida = makeMatchRequest(trovata, this.noteConfig);
+    // arriva dallo storage non deve entrare in circolo nel dominio. Ma solo la
+    // STRUTTURA: il limite delle note vale in scrittura. Una nota scritta sotto un
+    // limite piu' alto non e' corrotta quando il limite scende.
+    const valida = validateMatchRequestStructure(trovata);
     if (!valida.ok) {
       return err({ kind: 'invalid-record', id, detail: valida.error.kind });
     }

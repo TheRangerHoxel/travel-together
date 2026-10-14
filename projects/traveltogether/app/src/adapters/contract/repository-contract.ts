@@ -61,6 +61,32 @@ export interface AmbienteDiContratto {
   registraCodiceInvito(codice: string, profileId: ProfileId): Promise<void>;
   disattivaCodiceInvito(codice: string): Promise<void>;
 
+  /**
+   * Abbassa il limite delle note applicato dall'adapter DOPO le scritture gia'
+   * fatte. Serve a provare che il limite vale in scrittura e non in lettura: una
+   * nota scritta sotto un limite piu' alto non diventa illeggibile quando scende.
+   *
+   * **Su Supabase NON e' un no-op, e scriverlo come tale romperebbe la suite.**
+   * Il doc del port impone che `save` validi con `makeMatchRequest` prima di
+   * scrivere, e `makeMatchRequest` richiede un `NoteConfig`: quindi l'adapter
+   * Supabase lo ricevera' iniettato esattamente come quello memory, e l'hook si
+   * implementa allo stesso modo — mutando l'oggetto iniettato.
+   * Se a T09 diventasse un no-op succederebbero due cose, e nessuna delle due
+   * sarebbe colpa del port: il test "si rilegge dopo l'abbassamento" diventerebbe
+   * **vacuo** (il limite non scende mai, quindi la rilettura riesce banalmente) e il
+   * test "la scrittura resta rifiutata" diventerebbe **rosso** (col limite ancora a
+   * 280 una nota di 11 caratteri si salva benissimo). Si finirebbe ad "adattare la
+   * suite", che per ARCHITECTURE.md e' il segnale che il port e' sbagliato — mentre
+   * qui sarebbe sbagliato solo questo commento.
+   */
+  abbassaLimiteNote(maxLength: number): Promise<void>;
+
+  /**
+   * Scrive una candidatura SENZA validarla, bypassando `save`: riproduce uno storage
+   * che contiene gia' una riga invalida (migrazione, query a mano). Non e' un'
+   * operazione del port. Su Supabase sara' una insert con credenziali di servizio.
+   */
+  seminaCandidaturaGrezza(request: MatchRequest): Promise<void>;
   /** Riporta lo storage allo stato vuoto. */
   pulisci(): Promise<void>;
 }
@@ -901,7 +927,61 @@ export function eseguiSuiteDiContratto(
           expect(riletta.error.kind).toBe('not-found');
         }
       });
-    });
+
+      it('una nota scritta sotto un limite piu alto resta leggibile dopo che il limite scende', async () => {
+        const id = amb.nuovoMatchRequestId();
+        const nota = 'n'.repeat(200);
+        await amb.comeUtente(richiedente);
+        await salvaCandidatura(
+          unaCandidatura(richiedente, id, offerta, 'outbound', { requestNote: nota })
+        );
+
+        await amb.abbassaLimiteNote(10);
+
+        const esito = await amb.matchRequests.findById(id);
+        expect(esito.ok).toBe(true);
+        if (esito.ok) {
+          expect(esito.value.requestNote).toBe(nota);
+        }
+      });
+
+      it('dopo che il limite scende, save di una nota oltre il limite resta invalid-record e NON scrive', async () => {
+        await amb.abbassaLimiteNote(10);
+        const id = amb.nuovoMatchRequestId();
+        await amb.comeUtente(richiedente);
+
+        const esito = await amb.matchRequests.save(
+          unaCandidatura(richiedente, id, offerta, 'outbound', { requestNote: 'n'.repeat(11) })
+        );
+
+        expect(esito.ok).toBe(false);
+        if (!esito.ok) {
+          expect(esito.error.kind).toBe('invalid-record');
+        }
+        const riletta = await amb.matchRequests.findById(id);
+        expect(riletta.ok).toBe(false);
+        if (!riletta.ok) {
+          expect(riletta.error.kind).toBe('not-found');
+        }
+      });
+
+      it('una riga strutturalmente invalida nello storage da invalid-record in lettura', async () => {
+        const id = amb.nuovoMatchRequestId();
+        await amb.seminaCandidaturaGrezza(
+          unaCandidatura(richiedente, id, offerta, 'outbound', {
+            status: 'cancelled',
+            resolutionNote: 'Nota senza chi',
+            resolvedBy: null,
+          })
+        );
+
+        const esito = await amb.matchRequests.findById(id);
+
+        expect(esito.ok).toBe(false);
+        if (!esito.ok) {
+          expect(esito.error.kind).toBe('invalid-record');
+        }
+      });    });
 
     describe('SessionGateway', () => {
       // Nessun test di questo blocco deve ereditare la sessione aperta dal

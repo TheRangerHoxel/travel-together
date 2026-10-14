@@ -1840,3 +1840,178 @@ un compare-and-set: è la voce I3 di `IDEAS.md`, lasciata `proposta`.
 Tre voci nuove scritte dal planner in `IDEAS.md`, tutte `proposta`: RLS di scrittura su
 `match_requests`, la cascata che scrive N righe una alla volta senza transazione, e `src/__tests__/`
 che è fuori dal grafo dei confini.
+
+---
+
+## 2026-10-13 — T05 · sette step implementati, `verify` verde, in attesa del reviewer
+
+`verify` verde, exit 0: **261 test unitari** in 21 suite (erano 193 a fine T04b), 1 int, 1 smoke.
+Rieseguito da me dopo ciascuno dei due giri. Scope verificato: `core/ports` ed `eslint.config.js` con
+diff **vuoto**; `core/domain` toccato solo in `match-request.ts` e nel suo indice, come autorizzato
+per S7.
+
+### Le due transizioni di sistema sono inverse, e c'è un test che lo prova
+
+`seat-cycle.test.ts` fa il giro in un test solo: A prende l'ultimo posto → B e C rifiutate dal sistema
+→ A annulla → B e C tornano `pending` → l'owner accetta B → C rifiutata di nuovo, e A, **annullata da
+una persona**, non viene toccata. Gli `adjust` sono `[-1, +1, -1]`. È il test che dimostra che il
+modello di T04b regge il giro completo, non solo le singole transizioni.
+
+L'innesco è letto dal **valore ritornato dal decremento atomico**, non da una rilettura della tratta:
+la cascata scatta se `adjustLegSeats` ritorna `seatsAvailable === 0`, il reintegro se il `+1` porta a
+esattamente 1. Rileggere introdurrebbe una finestra fra decremento e decisione.
+
+### Due decisioni del developer, tenute
+
+- **Cascata a metà → `ok` con `cascadeFailure`, non `err`.** Il successo dell'utente non si ritira per
+  un effetto collaterale incompleto: A resta `accepted`, il posto resta consumato, e le righe non
+  chiuse sono elencate. La cascata prosegue dopo un fallimento, così `unclosed` contiene solo quelle
+  che hanno davvero fallito e non quelle che non sono state tentate.
+- **Il ritorno elenca le righe reintegrate**, per simmetria con `autoRejected`: è l'unico modo di
+  sapere chi è tornato in coda senza rileggere la tratta, e chi offre l'auto dovrà essere avvisato.
+
+### Il test di interleaving è cambiato, e il cambiamento è informativo
+
+Le sue asserzioni finali ora contano **due** `save` invece di una: l'accettazione vincente consuma
+l'ultimo posto, quindi la cascata rifiuta come `system` la candidata perdente. L'ordine delle scritture
+e il fallimento del perdente restano identici. Non è un indebolimento del test: è la cascata che si
+manifesta in uno scenario dove prima non c'era niente da rifiutare.
+
+### S7 ha sistemato metà del problema, e la metà che resta va giudicata
+
+Il criterio chiedeva che la lunghezza delle note fosse validata **solo in scrittura**, e in lettura
+ora è così: una nota di 200 code point scritta con limite 280 si rilegge intatta anche dopo che il
+limite è scceso a 10. **Ma le `save` degli usecase rivalidano la `requestNote` già esistente contro il
+limite corrente.** Conseguenza: dopo un abbassamento del limite, una riga con nota vecchia e lunga non
+si può più accettare, rifiutare, annullare né reintegrare — fallisce con `note-too-long`, e in un
+reintegro finisce in `unclosed`.
+
+Il criterio **alla lettera è soddisfatto** (quelle sono scritture). Il suo **scopo** no: la voce di
+`IDEAS.md` da cui nasce dice *"un parametro di prodotto non deve poter rendere illeggibili dati già
+scritti"*, e una riga che non si può più **modificare** è un grado peggio di una che non si può
+leggere — si congela, e si congela proprio nel momento in cui qualcuno la sta chiudendo. Il rimedio
+sarebbe validare solo i campi che la scrittura **sta impostando**, lasciando stare quelli che transita.
+Segnalato al reviewer come punto da giudicare, non risolto: non voglio deciderlo io, perché è il
+secondo giro sulla stessa famiglia di problema.
+
+Residuo minore dichiarato dal developer: `note-blank` resta una regola di sola scrittura, quindi una
+riga con nota di soli spazi seminata in modo grezzo si rileggerebbe come `ok`. Coerente con il brief,
+che elencava come strutturali solo la risoluzione incompleta e `pending` con risoluzione.
+
+### Una corsa che nessuno ha deciso, e la correzione di come è stata descritta
+
+Fra la lettura di `listByLeg` nella cascata e una `requestSeat` concorrente non c'è alcun lock: una
+candidatura che arriva subito dopo l'ultima accettazione resta `pending` su una tratta a zero posti.
+Il developer l'ha riportata come *"la product decision è che sia lecito"*: **nessuno l'ha deciso.**
+Segue da una scelta **mia** nel brief — `requestSeat` non rifiuta per posti a zero, perché `findMatches`
+omette le tratte esaurite e il prodotto gestisce l'auto piena con la cascata — e va attribuita a quella,
+non a una decisione dell'umano.
+
+Non è uno stato bloccato: chi offre l'auto vede la richiesta, non può accettarla (`no-seats-available`)
+e la chiude con un rifiuto motivato, che è esattamente ciò per cui la nota obbligatoria esiste. Ma è un
+percorso in cui l'utente si candida e **poi** scopre che non c'era posto, e va dichiarato nei test di
+T08 invece di restare implicito.
+
+### Sonde: nove mutazioni, nove rossi verificati
+
+La più istruttiva è *"stato d'arrivo del reintegro `accepted` invece di `pending`"* → **3 rossi**,
+compreso il ciclo completo. E *"cascata che chiude tutto ciò che non è `accepted`"* → 2 rossi, cioè
+proprio le `cancelled` e le `rejected/owner` che non devono essere toccate: è la prova che
+`resolvedBy` è un campo portante e non diagnostico.
+
+Due mutazioni **non** provate, dichiarate dal developer: la cascata con scope sull'intera trasferta
+invece che sulla tratta, e un `accept` che ritira l'accettazione se la cascata fallisce.
+
+### Round 1 di review — **APPROVATO**, nessun bloccante
+
+Il primo giro del reviewer è morto per **limite di sessione** prima del verdetto, non per un problema
+del lavoro. Ripreso il giorno dopo dal suo stesso contesto, con lo stato riverificato da me prima:
+HEAD invariato, niente in staging, `verify` verde. `verify` rieseguito anche da lui: 261 test, exit 0.
+
+**Contabilità chiusa all'unità**, file per file eseguiti uno a uno: 55+40+38+17+13+12+12+11+11+8+7+7+6+5+5+3+3+3+2+2+1 = **261 esatti**. È il controllo che esclude una suite
+nascosta al runner o contata due volte, e che il totale da solo non può dare.
+
+### Sul punto che gli avevo chiesto di giudicare: diagnosi giusta, gravità sbagliata
+
+Gli avevo segnalato che le `save` degli usecase rivalidano la `requestNote` **in transito**, quindi
+dopo un abbassamento del limite una riga con nota vecchia e lunga non si può più chiudere. Verdetto:
+**la diagnosi è esatta in ogni dettaglio, la conclusione sulla gravità no**, e soprattutto **è il
+criterio a essere scritto troppo stretto, non il codice a essere sbagliato.**
+
+Le quattro ragioni per cui non ha bloccato, e le sottoscrivo:
+1. il criterio è soddisfatto **e non per cavillo** — chiede che la riga si *rilegga* dopo
+   l'abbassamento, e c'è il test che lo fa (200 code point scritti a 280, limite a 10, nota identica
+   in rilettura) più il compagno che prova che la scrittura resta rifiutata;
+2. **lo stato rotto oggi è irraggiungibile**: serve che un umano abbassi il limite sotto una nota già
+   scritta, e finché il limite è 280 note più lunghe non possono esistere. Non scatta da sé;
+3. **quando scatta non è silenzioso**: errore tipizzato con la violazione originale conservata, e
+   nelle transizioni di sistema la riga compare in `unclosed` con la causa. Per la gerarchia di
+   `CLAUDE.md` è questo il discrimine — non c'è perdita silenziosa;
+4. il rimedio è una **decisione di design** che tocca `core/domain`, non autorizzato in T05 oltre S7,
+   e imporne una sarebbe il reviewer che decide il design.
+
+Dove mi ha dato ragione, ed è la parte che resta: **il criterio va riscritto** da *"si rilegge senza
+`invalid-record`"* a *"si rilegge **e si può chiudere**"*, altrimenti la metà che manca scompare dal
+tracciamento. La domanda sulla forma del rimedio va all'umano, e il reviewer l'ha già formulata come
+quattro opzioni.
+
+### Due commenti falsi corretti da me prima del commit
+
+Entrambi non bloccanti, entrambi della classe di difetto su cui questo progetto **boccia** — un
+documento che dichiara qualcosa che il codice contraddice — quindi li ho chiusi invece di rimandarli.
+
+1. **Il doc di `abbassaLimiteNote` prevedeva male T09.** Diceva *"su Supabase il limite non vive
+   nell'adapter e l'hook sarà un no-op"*. Falso: il doc del port impone che `save` validi con
+   `makeMatchRequest` prima di scrivere, e quello richiede un `NoteConfig`, quindi l'adapter Supabase
+   lo riceverà iniettato come quello memory e l'hook si implementa allo stesso modo. Scritto come
+   no-op a T09, un test sarebbe diventato **vacuo** e un altro **rosso**, e si sarebbe finiti ad
+   "adattare la suite" — che per `ARCHITECTURE.md` è il segnale che il port è sbagliato, mentre qui
+   sarebbe stato sbagliato solo il commento.
+2. **Un'invariante dichiarata "per costruzione" aveva un'eccezione.** `cancel-request.ts` diceva che
+   un `+1` da 1 a 2 non può trovare righe `system`. Vero nel caso normale, **falso** se un reintegro
+   precedente è rimasto incompleto: una riga `system` sopravvive su una tratta con un posto già
+   libero, e il secondo annullamento non la reintegra. Non è un difetto di correttezza — la riga è in
+   `unclosed` e il recupero è un nuovo passaggio sopra zero — ma è lo stesso motivo per cui il
+   reviewer ha bocciato T04: *un commento che dichiara impossibile uno stato raggiungibile è
+   un'informazione falsa nel posto dove la si cerca.* Corretto nel codice **e** nel commento del test
+   che la ripeteva, che è anche il test che produce quello stato.
+
+### Le due mutazioni "non provate" erano in realtà coperte
+
+Il reviewer le ha valutate entrambe e nessuna lascia scoperto niente. La cascata con scope sulla
+trasferta non è nemmeno **esprimibile** senza inventare un metodo che il port non ha più (`listByTrip`
+è stato rimosso in T04b), e la sua forma equivalente farebbe cadere due test. L'`accept` che ritira
+l'accettazione è pinnato da **tre** asserzioni dello stesso test. Giudizio da registrare: *la prudenza
+del developer nel dichiararle non provate è il contrario del problema che questo progetto teme.*
+
+### Il test di interleaving: il cambiamento non era un indebolimento, ed era impossibile che lo fosse
+
+Le asserzioni portanti non sono il conteggio delle `save` ma "esattamente una vince", "una sola riga
+`accepted`" e "posti a zero": se la perdente scrivesse il proprio stato il test cadrebbe **prima** di
+arrivare al conteggio. Verificata anche la non-flakiness su entrambi gli ordini di intercalazione.
+Una precisazione del reviewer che vale la pena tenere: il commento dice che il test *"prova che
+l'usecase delega l'ammissione"*, ma in senso strict non può distinguere "delega" da "rilegge e poi
+delega"; ciò che prova è che l'usecase **non tiene una decisione sui posti fuori dall'operazione
+atomica**. La proprietà che mi interessava — innesco letto dal valore ritornato — l'ha verificata
+**leggendo**: `findLeg` non compare né in `accept-request.ts` né in `cancel-request.ts`, esiste solo
+in `request-seat.ts` per l'esistenza della tratta. Nessun percorso rilegge.
+
+### `request-test-fakes.ts`: accettabile, e non è un'idea implementata senza approvazione
+
+Verificato dal reviewer: `core/usecases/index.ts` **non** lo esporta, quindi non entra nel bundle, e i
+suoi importatori sono esattamente i sette file di test di T05 — `create-trip.test.ts` è rimasto con i
+propri fake e non è nemmeno modificato. La voce di `IDEAS.md` propone un modulo **trasversale**: qui
+non è stato fatto. E la collocazione in una cartella di produzione è **forzata**, non una scorciatoia:
+un `src/core/testing/` non sarebbe un elemento dichiarato in `boundaries/elements` e con
+`default: 'disallow'` nessuno potrebbe importarlo; un `.test.ts` verrebbe eseguito da jest come suite
+vuota. Annotato sulla voce perché il task futuro lo **assorba** invece di creare un secondo modulo.
+
+### Una cosa che il reviewer ha trovato sui conteggi, e che vale come precedente
+
+Confrontando i numeri ha notato che `find-matches.test.ts` ha **40** test e non i 39 che aveva
+verificato lui durante la review di T04b. Non è una discrepanza: è il test che **io** ho aggiunto dopo
+la sua approvazione, accogliendo il suo rilievo N3 sulla precedenza fra "posti esauriti omette" e "la
+candidatura marca". Ha verificato che è un **rafforzamento** — una aggiunta, zero cancellazioni,
+nessun altro test alterato — e ha registrato il metodo per la prossima volta che un file di un task
+approvato viene toccato dopo la review: `git diff` sul solo file, contando gli `it(` aggiunti e
+cancellati. È il controllo giusto, e vale la pena averlo scritto.

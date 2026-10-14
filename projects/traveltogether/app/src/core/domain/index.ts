@@ -28,7 +28,7 @@ export type {
   NoteField,
   ResolvedBy,
 } from './match-request';
-export { makeMatchRequest } from './match-request';
+export { makeMatchRequest, validateMatchRequestStructure } from './match-request';
 
 export type { NoteConfig } from './note-config';
 

@@ -12,3 +12,30 @@ export { findMatches } from './find-matches';
 export type { CreateTripConfig } from './create-trip-config';
 export type { CreateTripInput, CreateTripDeps, CreateTripError } from './create-trip';
 export { createTrip } from './create-trip';
+export type { SeatCompensation } from './seat-compensation';
+export type { RequestSeatInput, RequestSeatDeps, RequestSeatError } from './request-seat';
+export { requestSeat } from './request-seat';
+export type { RejectRequestInput, RejectRequestDeps, RejectRequestError } from './reject-request';
+export { rejectRequest } from './reject-request';
+export type { CascadeConfig } from './cascade-config';
+export type {
+  LegRef,
+  SystemTransitionError,
+  UnclosedRequest,
+} from './leg-system-transitions';
+export { rejectRemainingPending, restoreSystemRejected } from './leg-system-transitions';
+export type {
+  AcceptRequestConfig,
+  AcceptRequestDeps,
+  AcceptRequestError,
+  AcceptRequestInput,
+  AcceptRequestOutcome,
+} from './accept-request';
+export { acceptRequest } from './accept-request';
+export type {
+  CancelRequestDeps,
+  CancelRequestError,
+  CancelRequestInput,
+  CancelRequestOutcome,
+} from './cancel-request';
+export { cancelRequest } from './cancel-request';
