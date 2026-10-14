@@ -483,13 +483,13 @@ per le migrazioni — che oggi sono le uniche vie d'ingresso esistenti, perché 
 **Da fare prima di T12**, che costruirà il form da cui quel campo arriverà.
 
 **Criteri di accettazione**
-- [ ] `requesterTripId` che punta a una trasferta **inesistente** → errore tipizzato, **zero scritture**
-- [ ] `requesterTripId` che punta alla trasferta **di un altro collega** → errore tipizzato, zero
+- [x] `requesterTripId` che punta a una trasferta **inesistente** → errore tipizzato, **zero scritture**
+- [x] `requesterTripId` che punta alla trasferta **di un altro collega** → errore tipizzato, zero
       scritture. È il caso che gonfia i KPI senza che nessun test possa accorgersene
-- [ ] `requesterTripId` che punta a una trasferta **con l'auto** → errore tipizzato: chi ha noleggiato
+- [x] `requesterTripId` che punta a una trasferta **con l'auto** → errore tipizzato: chi ha noleggiato
       non si candida come passeggero, e conterebbe come auto evitata una persona che ha noleggiato
-- [ ] Il percorso valido resta valido: nessuno dei test esistenti di `requestSeat` cambia aspettativa
-- [ ] Criterio corrispondente aggiunto a **T08**: foreign key `requester_trip_id → trips.id` e policy
+- [x] Il percorso valido resta valido: nessuno dei test esistenti di `requestSeat` cambia aspettativa
+- [x] Criterio corrispondente aggiunto a **T08**: foreign key `requester_trip_id → trips.id` e policy
       che impone l'appartenenza
 
 ## T07b ⛔ Parametri da tabella, niente valori compilati

@@ -15,6 +15,7 @@ import {
   type ResolvedBy,
   type Result,
   type TripId,
+  type TripStatus,
   err,
   makeMatchRequest,
   ok,
@@ -50,7 +51,48 @@ export type RequestSeatError =
       readonly resolvedBy: ResolvedBy | null;
     }
   | { readonly kind: 'request-invalid'; readonly violation: MatchRequestError }
+  /**
+   * `requesterTripId` non e' una trasferta con cui ci si puo' candidare. UN solo
+   * `kind` con un `reason` che discrimina, e non tre (o quattro) `kind`: per T13 i
+   * quattro casi sono lo stesso evento di schermata ("scegli un'altra trasferta") e
+   * cambia solo la frase, che e' una tabella reason -> testo. Con `kind` distinti
+   * ogni chiamante dovrebbe elencarli tutti per dare la stessa risposta; il
+   * `switch` esaustivo sul `reason` resta, e il compilatore lo impone ugualmente.
+   * Non e' `requester-trip-not-owned` di computePersonalStats: quella e' la difesa
+   * lato lettura, questa lato scrittura, e i due errori non si sostituiscono.
+   */
+  | {
+      readonly kind: 'requester-trip-invalid';
+      readonly reason: Exclude<RequesterTripRejection, 'not-published'>;
+      readonly requesterTripId: TripId;
+    }
+  /**
+   * La trasferta e' del richiedente, senza auto, ma non `published`. La regola e'
+   * "deve essere published", non "non deve essere cancelled": un nuovo valore di
+   * `TripStatus` nasce rifiutato, non ammesso per dimenticanza. Porta lo stato
+   * trovato perche' T13 dica "annullata" o "conclusa".
+   */
+  | {
+      readonly kind: 'requester-trip-invalid';
+      readonly reason: 'not-published';
+      readonly status: TripStatus;
+      readonly requesterTripId: TripId;
+    }
   | { readonly kind: 'storage-failed'; readonly cause: RepositoryError };
+
+/**
+ * Perche' la trasferta indicata non va bene, in ordine di controllo: prima si
+ * stabilisce se e' DEL richiedente, poi cosa e'. A chi indica la trasferta di un
+ * altro non si dice se ha l'auto o in che stato e': sarebbero dettagli altrui.
+ */
+export type RequesterTripRejection = 'not-found' | 'not-owned' | 'has-car' | 'not-published';
+
+function rifiutoTrasferta(
+  reason: Exclude<RequesterTripRejection, 'not-published'>,
+  requesterTripId: TripId
+): Result<never, RequestSeatError> {
+  return err({ kind: 'requester-trip-invalid', reason, requesterTripId });
+}
 
 /**
  * Crea (o riapre) una candidatura `pending`.
@@ -83,14 +125,29 @@ export async function requestSeat(
   );
   if (!esistente.ok) return err({ kind: 'storage-failed', cause: esistente.error });
 
-  if (esistente.value !== null && esistente.value.status !== 'cancelled') {
-    return err({
-      kind: 'already-requested',
-      status: esistente.value.status,
-      resolvedBy: esistente.value.resolvedBy,
-    });
-  }
-
+  // Ordine: tratta, forma della candidatura, trasferta del richiedente, SOLO POI lo
+  // stato della candidatura esistente.
+  //
+  // Perche' `already-requested` viene dopo i controlli di titolo, con la portata
+  // ESATTA della protezione — una formulazione piu' forte di questa e' stata
+  // corretta in review, perche' qualcuno la rileggerebbe come una garanzia:
+  // la riga letta sopra e' la candidatura della persona NOMINATA nell'input
+  // (`input.requesterId`), non di un terzo. L'argomento vale quindi solo nel modello
+  // di minaccia in cui `requesterId` e' falsificabile — che e' quello reale di oggi,
+  // perche' questo usecase non conosce la sessione e l'identita' gliela passa chi
+  // chiama (limite gia' dichiarato in T05 e gia' criterio di T08).
+  // E in quel modello la protezione e' PARZIALE, non totale: chi si spaccia per un
+  // collega non legge piu' lo stato della sua candidatura indicando una trasferta
+  // qualsiasi, ma lo legge ancora indicando una trasferta VALIDA di quel collega
+  // (esistente, sua, senza auto, published). Questo ordine aggiunge un prerequisito
+  // di conoscenza, non chiude la rivelazione: la chiusura e' la policy
+  // `requester_id = auth.uid()` di T08, e questo commento non la rende meno urgente.
+  //
+  // La forma precede la lettura della trasferta perche' un id vuoto e' violazione del
+  // dominio (`requester-trip-missing`), non una trasferta introvabile: rispondere
+  // `not-found` a una stringa vuota direbbe che abbiamo cercato, e non e' vero.
+  // Effetto collaterale, ora sotto test: una candidatura gia' presente E con nota
+  // invalida risponde `request-invalid` anziche' `already-requested`.
   const costruita = makeMatchRequest(
     {
       id: esistente.value !== null ? esistente.value.id : input.id,
@@ -106,6 +163,37 @@ export async function requestSeat(
     noteConfig
   );
   if (!costruita.ok) return err({ kind: 'request-invalid', violation: costruita.error });
+
+  const propria = await deps.trips.findById(input.requesterTripId);
+  if (!propria.ok) {
+    if (propria.error.kind === 'not-found') return rifiutoTrasferta('not-found', input.requesterTripId);
+    return err({ kind: 'storage-failed', cause: propria.error });
+  }
+  // Titolo prima di tutto il resto (vedi RequesterTripRejection).
+  if (propria.value.ownerId !== input.requesterId) {
+    return rifiutoTrasferta('not-owned', input.requesterTripId);
+  }
+  // Chi ha noleggiato non si candida: conterebbe come auto evitata.
+  if (propria.value.hasCar) return rifiutoTrasferta('has-car', input.requesterTripId);
+  // Solo `published`: annullata o conclusa non si viaggia, non c'e' un posto da chiedere.
+  // (T06 conta nei KPI le `completed`: la' sono viaggi avvenuti, qui si rifiuta di
+  // candidarsi a un viaggio finito.) Regola in positivo: un nuovo stato nasce vietato.
+  if (propria.value.status !== 'published') {
+    return err({
+      kind: 'requester-trip-invalid',
+      reason: 'not-published',
+      status: propria.value.status,
+      requesterTripId: input.requesterTripId,
+    });
+  }
+
+  if (esistente.value !== null && esistente.value.status !== 'cancelled') {
+    return err({
+      kind: 'already-requested',
+      status: esistente.value.status,
+      resolvedBy: esistente.value.resolvedBy,
+    });
+  }
 
   const salvata = await deps.requests.save(costruita.value);
   if (!salvata.ok) return err({ kind: 'storage-failed', cause: salvata.error });

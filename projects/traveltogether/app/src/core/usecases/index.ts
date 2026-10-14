@@ -26,7 +26,12 @@ export type { CreateTripConfig } from './create-trip-config';
 export type { CreateTripInput, CreateTripDeps, CreateTripError } from './create-trip';
 export { createTrip } from './create-trip';
 export type { SeatCompensation } from './seat-compensation';
-export type { RequestSeatInput, RequestSeatDeps, RequestSeatError } from './request-seat';
+export type {
+  RequestSeatInput,
+  RequestSeatDeps,
+  RequestSeatError,
+  RequesterTripRejection,
+} from './request-seat';
 export { requestSeat } from './request-seat';
 export type { RejectRequestInput, RejectRequestDeps, RejectRequestError } from './reject-request';
 export { rejectRequest } from './reject-request';

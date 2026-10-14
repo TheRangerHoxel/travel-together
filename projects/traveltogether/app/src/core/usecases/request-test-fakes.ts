@@ -43,6 +43,8 @@ export interface AdjustCall {
 
 export interface TripsSpia extends TripRepository {
   readonly adjustCalls: AdjustCall[];
+  /** Id letti con `findById`, nell'ordine: per asserire che un controllo non ha guardato. */
+  readonly findByIdCalls: TripId[];
   /** Imposta direttamente i posti liberi di una tratta (preparazione del test). */
   setSeats(direction: LegDirection, seatsAvailable: number): void;
   seats(direction: LegDirection): number;
@@ -56,6 +58,11 @@ export interface TripsOptions {
   readonly withReturn?: boolean;
   /** Numero (1-based) di chiamata a adjustLegSeats che fallisce con storage-unavailable. */
   readonly failAdjustOnCall?: number;
+  /**
+   * Altre trasferte che `findById` deve trovare (per esempio quella con cui ci si
+   * candida). Additivo: non hanno tratte e `findLeg`/`adjustLegSeats` non le vedono.
+   */
+  readonly otherTrips?: readonly Trip[];
 }
 
 export function unTripsSpia(opzioni: TripsOptions = {}): TripsSpia {
@@ -80,9 +87,11 @@ export function unTripsSpia(opzioni: TripsOptions = {}): TripsSpia {
     tratte.set(legKey(TRIP_ID, direction), { tripId: TRIP_ID, direction, seatsTotal, seatsAvailable: liberi });
   }
   const adjustCalls: AdjustCall[] = [];
+  const findByIdCalls: TripId[] = [];
 
   return {
     adjustCalls,
+    findByIdCalls,
     setSeats(direction, posti) {
       const tratta = tratte.get(legKey(TRIP_ID, direction));
       if (!tratta) throw new Error('tratta inesistente nel fake');
@@ -94,9 +103,12 @@ export function unTripsSpia(opzioni: TripsOptions = {}): TripsSpia {
       return tratta.seatsAvailable;
     },
     async findById(id: TripId): Promise<Result<Trip, RepositoryError>> {
+      findByIdCalls.push(id);
       await Promise.resolve();
-      if (id !== trip.id) return { ok: false, error: { kind: 'not-found', id } };
-      return { ok: true, value: trip };
+      if (id === trip.id) return { ok: true, value: trip };
+      const altra = (opzioni.otherTrips ?? []).find((t) => t.id === id);
+      if (altra) return { ok: true, value: altra };
+      return { ok: false, error: { kind: 'not-found', id } };
     },
     async findLeg(tripId, direction): Promise<Result<TripLeg, RepositoryError>> {
       await Promise.resolve();

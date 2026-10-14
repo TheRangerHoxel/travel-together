@@ -252,6 +252,20 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Costo** — XS come vincolo, M se un giorno servirà davvero il gate admin.
 - **Stato** — `accettata`
 
+### `storage-failed` di `requestSeat` deve dire quale lettura è fallita
+- **Cosa** — aggiungere a `RequestSeatError.storage-failed` un campo che nomina il punto: `'leg' | 'existing-request' | 'requester-trip'`.
+- **Perché** — rilievo del reviewer su T07c. `requestSeat` ha ora **tre** letture che collassano nello stesso errore — `findLeg`, `findByLegAndRequester`, `findById` — e l'errore porta solo la causa grezza del repository. Con un lettore era irrilevante; con tre si perde l'informazione nel punto in cui serve: in demo *"storage non disponibile"* senza sapere **cosa** non era disponibile è il genere di diagnosi che costa dieci minuti davanti a una platea. Si lega alla voce sul port di osservabilità, che risolve lo stesso problema per i degradi silenziosi, quindi può aspettare quella.
+- **Impatto** — `core/usecases/request-seat.ts` e i suoi test.
+- **Costo** — XS.
+- **Stato** — proposta
+
+### Un divieto su un file di test condiviso quasi mai protegge lo scope
+- **Cosa** — nota operativa per come si scrivono i brief: i divieti di modifica si applicano alla **logica** di un task chiuso, non ai suoi **fake**. Se un fake condiviso è troppo debole per il task nuovo, la modifica **additiva** è la soluzione giusta, e la prova da pretendere è *"gli altri file che lo usano restano verdi senza essere modificati"*.
+- **Perché** — **quarto episodio della stessa famiglia** in una sessione: il port separato in T04b (per non toccare il fake di `create-trip.test.ts`), la collisione di `legKey` che non esiste, `lookupDistance` duplicata in T07 (per non toccare T06), e un wrapper locale in T07c (per non toccare lo spia condiviso). Dato aggiunto dal reviewer: **in tre casi su quattro il divieto riguardava file di test o di supporto**, e la soluzione imposta era peggiore del rischio evitato — *"i fake non sono scope, sono strumenti"*. Completa la regola già scritta in `PROGRESS.md`: non vietare meno, **nominare il motivo del divieto**. Si lega alla voce sui fake condivisi dei port.
+- **Impatto** — nessun codice. Il modo di scrivere i brief ai subagent, ed è un risparmio su ogni task futuro.
+- **Costo** — XS.
+- **Stato** — proposta
+
 ### Il presidio sui testi dei badge deve seguire i testi dentro T07b
 - **Cosa** — decidere se le **etichette** dei badge passano in tabella e, se sì, spostare il controllo sulle parole vietate al **confine di lettura** dei parametri, con errore tipizzato.
 - **Perché** — rilievo del reviewer su T07. Oggi il criterio *"nessun badge implica premi, denaro o buoni"* è imposto da un test che ispeziona **costanti compilate** in `BADGE_CATALOG`. T07b dichiara che in tabella vanno "i valori — numeri **e testi**", elenca le soglie dei badge e il testo della nota automatica, ma **non** le etichette: la questione è aperta e va sciolta **prima** di scrivere la migrazione. Se i testi diventano modificabili dalla dashboard Supabase senza che il controllo li segua, l'unica garanzia contro una promessa che il prodotto non può mantenere svanisce **nel momento di massimo rischio** — la sera prima del pitch, dall'unica persona che ha accesso a quella dashboard.

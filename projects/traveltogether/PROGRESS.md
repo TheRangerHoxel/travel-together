@@ -2539,3 +2539,183 @@ registro sta funzionando come registro."*
 
 E: *"la duplicazione che avrei bocciato non è mai arrivata in review: è questo il modo in cui il ciclo
 diventa più economico, non scrivendo meno test."*
+
+**T07 committato** come `fa33c2e`, un commit unico, 16 file, working tree pulito.
+
+---
+
+## 2026-10-14 — Regola nuova: interruzioni e ripresa
+
+L'umano ha chiesto perché il loop non ha ripreso da sé al reset del limite di sessione del 13 ottobre.
+
+**La causa non è correggibile e va detta chiara:** l'agente non ha un avvio autonomo. Agisce su eventi
+— un messaggio dell'umano, un subagent che finisce, o una sveglia programmata **prima**. Il reset di un
+limite **non è un evento ascoltabile**, quindi nessuna configurazione fa reagire all'istante in cui si
+sblocca: si può solo programmare in anticipo un risveglio che cada dopo.
+
+**Un vincolo scoperto controllando, che esclude la soluzione più ovvia:** `verify` non è eseguibile
+fuori da questa macchina, perché `test:int` richiede le credenziali di staging in `.env`, che è in
+`.gitignore` per decisione di Fase 1. Quindi una ripresa **in cloud non può chiudere un task**:
+scriverebbe codice e si fermerebbe davanti a `verify` rosso, dove committare è vietato. La ripresa
+programmata ha senso **solo locale**.
+
+**Tre regole scritte in `CLAUDE.md` § "Interruzioni e ripresa"** (commit `af82d4b`), perché il costo
+dell'interruzione non è stato lo stop:
+1. il lavoro approvato si committa **subito** — è l'unica cosa che un'interruzione può distruggere, e
+   con questa regola si perde al massimo un giro di review in corso;
+2. la ripresa parte dal **registro più il working tree** in ordine fisso, non dal report di un
+   subagent: un report dice cosa un agente *credeva* di aver fatto;
+3. `verify` è locale, scritto come fatto durevole invece di riscoperto da chi proverà il cloud.
+
+La prima regola è stata applicata immediatamente: T07 era approvato dal reviewer e **ancora nel working
+tree** — la stessa esposizione del 13 ottobre, riaperta. Committato prima di qualsiasi altra cosa.
+
+**Scelta dell'umano sul meccanismo:** loop locale che si autosveglia fino al primo ⛔. Armato in
+autopacing con sveglie di sicurezza da 30 minuti. Non è polling — quando un subagent finisce il
+risveglio è immediato e automatico — la sveglia serve **solo** se il lavoro si pianta o se un limite
+interrompe il turno, cioè è la rete che il 13 ottobre non c'era. Costo accettato e dichiarato: il
+budget si consuma senza supervisione fino al limite successivo.
+
+---
+
+## 2026-10-14 — T07c · validazione di `requesterTripId`, due giri
+
+`verify` verde, exit 0: **401 test** in 27 suite (erano 393 a fine T07). Rieseguito da me dopo
+entrambi i giri. Scope verificato: solo **quattro** file toccati, e `core/domain`, `core/ports`, gli
+adapter, `eslint.config.js` e gli altri usecase con diff **vuoto**.
+
+### La quarta volta che un divieto del mio brief produce una soluzione peggiore
+
+Il developer non poteva toccare lo spia condiviso dei test, che conosceva solo `trip-1`, quindi gli ha
+costruito attorno un **wrapper locale** per far rispondere `findById` alle trasferte del richiedente.
+**Me l'ha detto**, come gli avevo chiesto esplicitamente di fare nel brief — e l'elenco ora è: il port
+separato in T04b, la collisione di `legKey` che non esiste, `lookupDistance` duplicata in T07, e
+questo.
+
+Il divieto serviva a non allargare lo scope, non a far aggirare un fake troppo debole. Autorizzata la
+modifica allo spia con il vincolo che fosse **additiva**, e la prova pretesa in anticipo: i sei altri
+file di test che lo usano devono restare verdi **senza essere modificati**. Verificato da me — diff
+**vuoto** su tutti e sei, e il wrapper è sparito (zero occorrenze).
+
+Lo spia ha guadagnato anche `findByIdCalls`, che conta gli id letti: serve ad asserire che con un id
+vuoto la trasferta **non viene nemmeno letta**, cioè che l'ordine dei controlli è quello dichiarato.
+È la stessa forma delle asserzioni "zero scritture" di T05: contare le chiamate invece di guardare i
+valori finali.
+
+### Un buco trovato dal developer, chiuso con una regola invece di due
+
+Una candidatura sulla **propria** trasferta `completed` passava: una trasferta conclusa non si viaggia,
+quindi non c'è nessun posto da chiedere. Invece di aggiungere un quinto motivo di rifiuto, la regola è
+stata **invertita**: la trasferta del richiedente deve essere **`published`**, con un solo `reason` che
+porta lo **stato trovato** così T13 può formulare la frase.
+
+Il guadagno è che un nuovo valore di `TripStatus` nasce **rifiutato** invece che ammesso per
+dimenticanza — la stessa forma per cui nel grafo del lint `default: 'disallow'` fa nascere un modulo
+isolato e non libero. Sonda eseguita: disattivando il controllo cadono **esattamente** i due casi
+(`cancelled` e `completed`) su 24 test del file.
+
+**Non è in conflitto con T06**, che nei KPI conta le trasferte `completed`: lì si contano viaggi
+**avvenuti**, qui si rifiuta di candidarsi a un viaggio **finito**. Due cose diverse sullo stesso
+stato, ed è scritto nel commento del codice perché non venga "corretto" da qualcuno in buona fede.
+
+### Le decisioni del developer, tenute
+
+- **Un errore con `reason`, non quattro `kind`.** Per T13 i quattro casi sono lo stesso evento di
+  schermata — "scegli un'altra trasferta" — e cambia solo la frase. Il `switch` esaustivo sul `reason`
+  resta imposto dal compilatore, e il tipo è esportato perché T13 possa scrivere la tabella
+  reason → testo.
+- **L'ordine dei controlli protegge l'estraneo.** Il titolo si verifica **prima** di `already-requested`,
+  perché quel rifiuto rivelerebbe lo stato di una candidatura che non è dell'attore. E fra i motivi,
+  `not-owned` precede `has-car` e `not-published`, per non rivelare dettagli di una trasferta altrui.
+  La sonda su `not-owned` fa cadere **due** test, e il developer sa dire perché: il secondo verifica
+  l'**ordine**. Una sonda che fa cadere più di un test e spiega perché è una sonda; una che non lo sa
+  dire è un test accoppiato.
+- **Due difese su lati opposti del confine, non una ridondanza.** `computePersonalStats` ha già
+  `requester-trip-not-owned` in **lettura** (si rifiuta di *contare* un dato incoerente già scritto);
+  questa è in **scrittura** (rifiuta di *scriverlo*). È la struttura che l'umano ha scelto rispondendo
+  "in entrambi i posti", e la terza metà è la foreign key a T08.
+
+### Un effetto collaterale dichiarato, che non ho corretto io
+
+Col nuovo ordine, una candidatura **già presente** e **con nota invalida** risponde `request-invalid`
+invece di `already-requested`. Nessun test esistente lo copriva, il developer l'ha dichiarato invece di
+lasciarlo scoprire, e il suo argomento è difendibile: la forma prima della semantica, e il titolo prima
+di rivelare lo stato. **Girato al reviewer con il suo ragionamento**, perché non ho elementi per dire
+che la mia intuizione sull'ordine valga più della sua.
+
+### Round 1 di review — **APPROVATO**, e l'ordine va tenuto
+
+`verify` rieseguito dal reviewer: 401 test, exit 0. Contabilità: **un solo file** cambia conteggio
+(`request-seat.test.ts`, 13 → 20 blocchi), gli altri 26 identici a `HEAD`, totale 393 + 8 = 401.
+
+**Sull'ordine dei controlli: tienilo**, con tre ragioni verificate. (1) *Forma prima di semantica è già
+la regola di questo codice* — `createTrip` valida config, orologio e istanti prima di ogni regola di
+business, `computeCompanyKpi` i quattro scalari prima di leggere una trasferta; e rispondere `not-found`
+a una stringa vuota **direbbe una cosa falsa**, perché non abbiamo cercato niente. (2) La precedenza
+"titolo prima di stato" **ha un test**, quindi è un contratto e non un accidente. (3) L'obiezione di
+usabilità richiede **due** problemi simultanei e il primo non è raggiungibile dalla UI, mentre
+l'alternativa renderebbe la rivelazione dello stato **incondizionata** — e quella sì è raggiungibile.
+
+### Il rilievo che ho chiuso prima di committare: il commento prometteva più del codice
+
+Il reviewer ha verificato leggendo che la riga esistente è letta con
+`findByLegAndRequester(tripId, direction, **input.requesterId**)`: è la candidatura della persona
+**nominata nell'input**, non di un terzo. Il mio commento diceva che `already-requested` *"rivelerebbe
+a un estraneo lo stato di una candidatura che non è sua"*, e questo **sovrastima**: l'argomento vale
+solo nel modello di minaccia in cui `requesterId` è falsificabile — che è quello reale di oggi — e **in
+quel modello la protezione è parziale**. Chi si spaccia per un collega non legge più lo stato indicando
+una trasferta qualsiasi, ma lo legge ancora indicando una trasferta **valida di quel collega**.
+
+Quindi l'ordine **aggiunge un prerequisito di conoscenza, non chiude la rivelazione**. È la stessa
+classe del rilievo di T04b sull'invariante dichiarata impossibile: il codice è giusto, il commento
+promette di più. E il danno specifico qui era peggiore di un'imprecisione: *"a T08 qualcuno potrebbe
+considerare la policy `requester_id = auth.uid()` meno urgente perché l'usecase già protegge"*.
+Riscritto con la portata esatta, e con una riga che dice che **non** rende quella policy meno urgente.
+
+### Il test che ho aggiunto, e la sonda che lo giustifica
+
+Il reviewer ha segnalato un'asimmetria: di **due** decisioni di ordinamento prese nello stesso giro,
+una era un contratto (titolo prima di stato, con il suo test) e l'altra una **dichiarazione in un
+commento** (forma prima di stato). Un riordino futuro avrebbe riportato `already-requested` davanti
+**senza nessun rosso**, e il commento sarebbe rimasto a descrivere un ordine che non c'è più.
+
+Aggiunto l'`it`, e **sonda eseguita** spostando `already-requested` davanti alla forma: cadono **due**
+test — il mio nuovo **e** quello preesistente sull'estraneo. Cioè quella mutazione rompe entrambe le
+precedenze che doveva rispettare, ed è la prova che ora sono entrambe contratti. `verify` finale verde
+a **402** test, sonda rimossa (zero occorrenze verificate).
+
+### Tre cose che il reviewer ha verificato e che valeva la pena pretendere
+
+- **`otherTrips` preserva davvero il default**, dimostrato leggendo i due rami e non "a parole": con
+  l'opzione assente il secondo ramo è una ricerca su array vuoto, quindi la funzione calcola **lo
+  stesso risultato per ogni input**. E le trasferte di `otherTrips` **non** entrano nella mappa delle
+  tratte, quindi `findLeg` e `adjustLegSeats` non le vedono e non possono alterare i test degli altri
+  usecase. *"Un fake modificato in modo non additivo non rompe la compilazione: rompe il significato
+  dei test di qualcun altro, e solo i loro conteggi verdi lo escludono."*
+- **Il fixture del caso `not-owned` è costruito perché solo il titolo possa far scattare l'errore**
+  (trasferta altrui **senza auto e pubblicata**). Un fixture sciatto — altrui *e* con auto — avrebbe
+  potuto passare per il motivo sbagliato.
+- **`storage-unavailable` nella lettura della trasferta è tradotto in `storage-failed` e non in un
+  rifiuto di merito:** è la distinzione che impedisce a un guasto di rete di apparire in schermata come
+  "scegli un'altra trasferta".
+
+### Un corollario sul pattern dei miei divieti, dal reviewer
+
+Il suo dato in più: *"in tre casi su quattro il divieto riguardava file di **test** o di supporto, e la
+soluzione imposta era peggiore del rischio evitato"*. Il corollario alla regola che avevo già scritto:
+**un divieto su un file di test condiviso quasi mai protegge lo scope, perché i fake non sono scope,
+sono strumenti.** La prova da pretendere quando si modifica un fake condiviso è quella usata qui: gli
+altri file che lo usano restano verdi **senza essere modificati**.
+
+### Tre non bloccanti registrati in `IDEAS.md`, più uno chiuso
+
+Chiuso: il test sulla precedenza della forma (era N1). Registrati: `storage-failed` che non dice
+**quale** delle tre letture è fallita, il fixture della trasferta propria da assorbire nei fake
+condivisi, e la nota operativa sui divieti nei brief.
+
+**Terza domanda per l'umano, da accorpare alle due in coda:** `requestSeat` ora verifica che la
+trasferta dichiarata esista, sia tua, senza auto e `published`, ma **non** che abbia a che vedere con
+la tratta su cui chiedi il posto. Si può dichiarare la propria Pomigliano→Grottaglie di 6 giorni e
+prendere un posto su una Pomigliano→Foggia di un giorno: il controllo passa e i KPI accreditano 6
+giorni e i km della tratta più lunga. La domanda nasce **ora** perché T07c ha chiuso l'altra metà dello
+stesso buco.
