@@ -2719,3 +2719,62 @@ la tratta su cui chiedi il posto. Si può dichiarare la propria Pomigliano→Gro
 prendere un posto su una Pomigliano→Foggia di un giorno: il controllo passa e i KPI accreditano 6
 giorni e i km della tratta più lunga. La domanda nasce **ora** perché T07c ha chiuso l'altra metà dello
 stesso buco.
+
+**T07c committato** come `ac88514`, un commit unico, 7 file, working tree pulito.
+
+---
+
+## 2026-10-14 — Tre decisioni dell'umano, due task nuovi, e il loop si ferma a T07b
+
+Nessun codice. Le tre domande in coda sono state sciolte, tutte e tre come raccomandato.
+
+### 1. Le etichette dei badge passano in tabella, **con il controllo che le segue**
+
+Criterio aggiunto a T07b: l'adapter che legge le etichette **rifiuta con errore tipizzato** un testo
+che contiene una parola vietata. Il motivo per cui non bastava spostarle: oggi il criterio *"nessun
+badge implica premi, denaro o buoni"* è imposto da un test su **costanti compilate**, e se i testi
+diventano modificabili dalla dashboard senza che il controllo li segua, l'unica garanzia contro una
+promessa che il prodotto non può mantenere svanisce **nel momento di massimo rischio** — la sera prima
+del pitch, dalla sola persona che ha accesso a quella dashboard.
+
+Secondo criterio, perché è il difetto che questo progetto ha già bocciato due volte: **la lista delle
+parole vietate vive in un punto solo**, condivisa fra il test del catalogo e la validazione
+dell'adapter. Due liste divergerebbero, e divergerebbero in silenzio.
+
+### 2. **T07e** aperto: si memorizza il massimo storico delle metriche, non i badge
+
+Delle tre vie, l'umano ha scelto quella trovata dal reviewer, e vale la pena scrivere **perché** è
+migliore e non solo che è stata scelta: `awardBadges` resta una funzione pura sulle sole statistiche, i
+duplicati restano **non rappresentabili** — la proprietà più forte che quel criterio ha oggi — e un
+badge non si ritira perché un massimo non scende.
+
+L'alternativa "memorizzo i badge assegnati" avrebbe riaperto il criterio dei duplicati, riportandolo da
+*non rappresentabile* a *da verificare*: si sarebbe pagato in verifica ciò che si guadagnava in
+permanenza. Nasce da un prezzo che il **developer di T07 ha dichiarato** invece di lasciarlo scoprire.
+
+L'invariante su cui poggia tutto il task è una riga: **l'aggiornamento è monotono**, scrivere un valore
+più basso non abbassa il massimo. E un criterio su T15: va **dichiarato in schermata** che le
+statistiche mostrate e quelle che assegnano i badge possono essere due numeri diversi, con la stessa
+onestà con cui si dichiara che saving e CO₂ sono stime.
+
+### 3. **T07d** aperto: la trasferta dichiarata deve essere compatibile con la tratta
+
+T07c ha chiuso metà del buco e **ha reso visibile l'altra**: dopo quel task l'unico modo di gonfiare i
+KPI è dichiarare una trasferta propria **legittima ma irrilevante**. Chiedo un posto su una tratta
+Pomigliano→Foggia di **un giorno** e dichiaro la mia Pomigliano→Grottaglie di **sei**: tutti i controlli
+di T07c passano, e i KPI accreditano sei giorni e i km della tratta più lunga.
+
+Il vincolo scelto non è arbitrario: sono gli **stessi vincoli duri** che `findMatches` applica già per
+*proporre* quell'offerta, quindi non rifiuta nulla che l'app possa aver suggerito. Da cui il criterio
+più importante del task, che è un test di **non-regressione sul vincolo stesso**: un percorso che
+`findMatches` avrebbe proposto deve passare, e se quel test diventa rosso il difetto è nel vincolo e non
+nel test.
+
+Limite dichiarato: il vincolo esclude le **tappe intermedie**, che oggi il modello non esprime. Scritto
+nel commento, dove lo troverà chi un giorno dovrà allentarlo.
+
+### Stato del loop
+
+Fermato come previsto. `T04 → T04b → T05 → T06 → T07 → T07c` chiusi, tutti con reviewer approvato e
+commit singolo. Restano prima di T08: **T07d**, **T07e** e **T07b**, che è ⛔ e inverte una decisione di
+T03 — e il loop non lo inizia senza un via libera esplicito dell'umano.

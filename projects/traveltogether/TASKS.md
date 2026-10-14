@@ -492,6 +492,71 @@ per le migrazioni — che oggi sono le uniche vie d'ingresso esistenti, perché 
 - [x] Criterio corrispondente aggiunto a **T08**: foreign key `requester_trip_id → trips.id` e policy
       che impone l'appartenenza
 
+## T07d Compatibilità fra la trasferta dichiarata e la tratta
+
+Decisione dell'umano del 14 ottobre 2026, su un buco che **T07c ha reso visibile chiudendo l'altra metà
+dello stesso problema**. Dopo T07c l'unico modo di gonfiare i KPI è dichiarare una trasferta propria
+**legittima ma irrilevante**, e l'umano ha scelto di impedirlo.
+
+**Il buco, con i numeri.** `requestSeat` verifica che la trasferta dichiarata esista, sia tua, sia senza
+auto e sia `published`, ma **non** che abbia a che vedere con la tratta su cui chiedi il posto. Quindi
+oggi passa: chiedo un posto su una tratta **Pomigliano→Foggia di un giorno** e dichiaro la mia
+trasferta **Pomigliano→Grottaglie di sei giorni**. Tutti i controlli di T07c sono soddisfatti, e i KPI
+aziendali accreditano **sei giorni di noleggio evitati e i km della tratta più lunga**, perché la base
+di calcolo di T06 è la trasferta del passeggero.
+
+**Perché il vincolo non è arbitrario:** sono gli **stessi vincoli duri** che `findMatches` applica già
+per *proporre* quell'offerta. Quindi non rifiuta nulla che l'app possa aver suggerito — chiude solo la
+via "scelgo a mano la trasferta che mi conviene dichiarare".
+
+**Da fare prima di T12**, che costruirà il form da cui la candidatura parte.
+
+**Criteri di accettazione**
+- [ ] `requestSeat` rifiuta con errore tipizzato se i **plant** della trasferta dichiarata non
+      coincidono con quelli della tratta su cui si chiede il posto
+- [ ] Rifiuta se la **data di partenza** della trasferta dichiarata non coincide con quella della tratta
+- [ ] Il motivo entra nell'errore `requester-trip-invalid` **già esistente**, come quinto `reason`: non
+      un `kind` nuovo, perché per T13 resta lo stesso evento di schermata
+- [ ] Un test dimostra il caso dei numeri qui sopra: tratta di un giorno, trasferta dichiarata di sei,
+      → rifiutata. È il caso che gonfia la slide
+- [ ] **Nessun percorso legittimo viene rifiutato:** un test parte da un'offerta che `findMatches`
+      avrebbe proposto e dimostra che la candidatura passa. Se questo test diventa rosso, il vincolo è
+      più stretto dei vincoli duri del matching e il difetto è nel vincolo, non nel test
+- [ ] Ogni rifiuto asserisce **zero scritture**, contando le chiamate sullo spia
+- [ ] Limite dichiarato nel commento: il vincolo esclude le **tappe intermedie**, che oggi il modello
+      non esprime. Se un domani serviranno, è questo vincolo da allentare — e va scritto dove si trova
+
+## T07e Massimo storico delle metriche, perché un badge non si ritiri
+
+Decisione dell'umano del 14 ottobre 2026, fra tre opzioni. Nasce da un prezzo che il developer di T07
+ha **dichiarato**: `awardBadges` ricalcola da zero dalle statistiche, quindi un badge **sparisce** se le
+statistiche scendono. Oggi irraggiungibile — nessun usecase annulla una trasferta — ma lo diventerà
+insieme a quel flusso, e un premio simbolico **ritirato** è peggio di non averlo dato.
+
+**La via scelta, e perché non paga il prezzo delle altre due.** Si memorizza il **massimo storico** di
+ogni metrica, **non** i badge. Così `awardBadges` resta una funzione pura sulle sole statistiche, i
+duplicati restano **non rappresentabili** — che è la proprietà più forte che quel criterio ha oggi — e
+un badge non si ritira perché un massimo non scende. L'alternativa "memorizzo i badge" avrebbe
+riaperto il criterio dei duplicati, riportandolo da *non rappresentabile* a *da verificare*.
+
+**Da fare prima di T15**, la dashboard personale che mostra badge e statistiche.
+
+**Criteri di accettazione**
+- [ ] Esiste un port per leggere e aggiornare il **massimo** di ogni metrica per profilo, con adapter
+      memory, e la suite di contratto condivisa lo copre
+- [ ] L'aggiornamento è **monotono**: scrivere un valore più basso del massimo memorizzato non lo
+      abbassa. Un test lo dimostra, ed è l'invariante su cui poggia tutto il task
+- [ ] `awardBadges` **non cambia firma**: resta una funzione pura su `PersonalStats` e config. Chi la
+      chiama le passa il massimo invece delle statistiche correnti
+- [ ] Un test dimostra il caso che il task esiste per impedire: statistiche che **scendono** (una
+      trasferta annullata) → i badge **restano**
+- [ ] I duplicati restano **non rappresentabili**: il criterio di T07 non si indebolisce, e un test lo
+      riafferma sul percorso nuovo
+- [ ] **T15 dichiara in schermata** che le statistiche mostrate e quelle che assegnano i badge possono
+      essere due numeri diversi, con la stessa onestà con cui dichiara che saving e CO₂ sono stime
+- [ ] Criterio corrispondente su **T08**: la tabella dei massimi, con RLS che permette a ciascuno di
+      leggere i propri
+
 ## T07b ⛔ Parametri da tabella, niente valori compilati
 
 Nasce da una decisione dell'umano del 14 ottobre 2026: *"tutti i dati devono poter essere configurabili
@@ -530,6 +595,17 @@ valori**. L'architettura aveva già anticipato questo passaggio senza che fosse 
 - [ ] RLS: lettura per tutti gli autenticati, **scrittura per nessuno** dall'app. Il gate è l'accesso
       alla dashboard Supabase, che ha solo l'umano: nessun ruolo admin nel modello e nessuna schermata
       di configurazione nell'app
+- [ ] **Anche le etichette dei badge passano in tabella** (decisione dell'umano, 14 ottobre 2026), e
+      **l'adapter che le legge rifiuta con errore tipizzato** un testo che contiene una parola vietata
+      (premi, buoni, euro, €, denaro, soldi, sconti, voucher, regali, bonus, rimborsi, ricompense,
+      gratis, coupon, **ticket**, **welfare**). Oggi il criterio *"nessun badge implica premi, denaro o
+      buoni"* è imposto da un test su **costanti compilate**: se i testi diventano modificabili dalla
+      dashboard senza che il controllo li segua, l'unica garanzia contro una promessa che il prodotto
+      non può mantenere svanisce **nel momento di massimo rischio**, la sera prima del pitch e dalla
+      sola persona che ha accesso a quella dashboard. È un caso del criterio "un parametro malformato
+      non passa in silenzio", non un meccanismo nuovo
+- [ ] La lista delle parole vietate vive in **un punto solo**, condiviso fra il test del catalogo e la
+      validazione dell'adapter: due liste divergerebbero, e divergerebbero in silenzio
 
 ⛔ Checkpoint: port nuovo, e rovescia la decisione di T03 che teneva i valori come letterali
 verificabili a compile time. Il motivo per cui si rovescia è buono — un parametro che richiede una
