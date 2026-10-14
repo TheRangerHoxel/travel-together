@@ -2160,3 +2160,85 @@ Pomigliano–Foggia perché non l'ho confermato. Stanno in `config/`, quindi si 
 codice, ed è esattamente perché i criteri lo pretendono.
 
 **Fonti:** [EEA via Sicurauto](https://www.sicurauto.it/news/novita-del-mercato/auto-nuove-emissioni-co2-medie-scendono-a-106-g-km-in-ue/) · [AGI, dati 2025](https://www.agi.it/scienza/news/2026-06-26/emissioni-nuove-auto-europa-37730281/) · [Foggia–Grottaglie](https://calcolopercorso.it/it/distanza/Foggia/Grottaglie) · [Taranto–Pomigliano](https://calcolopercorso.it/it/distanza/Taranto/Pomigliano-d-Arco)
+
+---
+
+## 2026-10-14 — T06 implementato, poi i parametri sono cambiati tre volte in un giro
+
+`verify` verde, exit 0, **330 test** in 24 suite (erano 261). Scope pulito, verificato da me: `ports`,
+`adapters`, `eslint.config.js` e `find-matches.ts` con diff **vuoto**. Non committato: il task va
+rifatto in parte, perché l'umano ha cambiato i parametri **dopo** che era stato implementato.
+
+### Il buco che ho trovato verificando, e che tocca la base di calcolo
+
+**`MatchRequest` non sa qual è la trasferta di chi si candida.** Ha il `tripId` della trasferta che
+*offre* il posto e il `requesterId`, e nessun collegamento alla trasferta del richiedente — verificato
+leggendo i campi, non sulla parola del developer. Che l'ha quindi **ricostruita per euristica**: la
+trasferta del richiedente senza auto, sugli stessi plant e nello stesso giorno della tratta condivisa.
+
+L'euristica è stretta — i vincoli duri del matching impongono già stessi plant e stesso giorno — e
+sbaglia solo se la stessa persona ha due trasferte sulla stessa tratta nello stesso giorno, caso che
+l'app non impedisce e che il seed di T17 può costruire per sbaglio. Ma *"i giorni della **sua**
+trasferta"* è il numero che va in cima alla slide, e poggiava su una **regola** invece che su un dato.
+
+**Decisione dell'umano: `requesterTripId` si aggiunge ora.** Costa poco adesso perché lo schema di T08
+non è ancora scritto: nessuna migrazione da rifare. È un ⛔ di contratto, approvato.
+
+**Perché sta dentro T06 e non in un task a parte**, benché cambi `MatchRequest` e `requestSeat` che
+sono artefatti di T04b/T05: è un **prerequisito della base di calcolo di T06**, e separarlo produrrebbe
+un commit intermedio che non posso verificare in isolamento senza mettere da parte il lavoro di T06 già
+scritto. Scritto come criterio dentro T06 con il ⛔ dichiarato. Se il reviewer ritiene che vada
+separato, è un rilievo legittimo e lo accetto.
+
+### Tre decisioni dell'umano, e la terza ha ribaltato una mia
+
+1. **Carburante nel saving.** 2,2 €/litro, consumo **7,0 l/100 km** — media benzina, auto non
+   performanti, parole sue — quindi **15,4 € ogni 100 km**. Costo auto da 55 a **120 €/giorno**, che è
+   la sua cifra reale e sostituisce il mio segnaposto.
+2. **Tutto configurabile da tabelle, niente valori compilati.** Aperto come **T07b**, prima di T08
+   perché le tabelle vanno disegnate in una migrazione sola. Il confine deciso con lui: in tabella i
+   **valori**, nel codice le **identità che il compilatore controlla** — i tre plant, gli stati, gli id
+   dei badge — perché lì il tipo è ciò che rende un valore inesistente un errore di compilazione, ed è
+   una scelta di T01 su cui il reviewer ha costruito in tre task. Da registrare come **inversione** di
+   una decisione di T03 (i valori come letterali verificabili a compile time): il motivo per cui si
+   rovescia è buono — un parametro che richiede una build EAS non è configurabile — ma è un'inversione
+   e non un dettaglio. Nota che rende il lavoro minore di quanto sembri: **ogni usecase riceve già la
+   config come parametro e la valida**, con un errore tipizzato se è incoerente. L'architettura aveva
+   anticipato il passaggio senza che fosse il suo scopo.
+3. **Il conducente va riconosciuto**, e la mia domanda sulla base di CO₂ è rimasta senza risposta
+   perché lui ha risposto a una domanda migliore. I KPI **aziendali** restano invariati: contare il
+   conducente fra le auto evitate conterebbe due volte la stessa auto, ed è il doppio conteggio da cui
+   due test di T06 difendono. Il riconoscimento sta in **T07** (badge dedicati a chi guida) e in T15.
+   Criteri aggiunti a T07, incluso il caso che li distingue: chi ha offerto posti e **non** ha avuto
+   nessuna candidatura accettata **non** riceve i badge da conducente — il riconoscimento è per aver
+   trasportato qualcuno, non per aver offerto.
+
+### La coerenza che l'umano ha lasciato aperta: decisa da me
+
+Avevo scritto CO₂ "per tratta condivisa" mentre noleggio e auto evitate erano "per trasferta". Con il
+carburante la stessa incoerenza si ripresentava. **Deciso: tutto sulla trasferta del passeggero.** Chi
+non ha noleggiato non ha guidato, quindi la sua auto mancata non ha percorso **nessuna** delle due
+tratte: si contano andata e ritorno. Conseguenza messa sotto test: CO₂ e carburante **non** raddoppiano
+se ha condiviso entrambe le tratte invece di una — la candidatura accettata è l'**innesco**, non
+l'unità di misura. È lo stesso principio già vero per auto e giorni, e rende i quattro numeri della
+slide calcolati sulla stessa base.
+
+Il developer aveva implementato la CO₂ per tratta, con un test che pretendeva il raddoppio: quel test
+va **invertito**, ed è il tipo di modifica che va dichiarata e non fatta in silenzio.
+
+### Decisioni del developer da tenere
+
+- **Aritmetica di calendario in `calendar.ts`, file nuovo e non dentro `instant.ts`.** Argomento suo e
+  lo condivido: `instant.ts` dichiara per contratto di non validare il calendario (`2026-02-31` passa),
+  quindi una funzione che valida nello stesso file darebbe **due nozioni di data valida a poche righe
+  di distanza**. Espone `civilDayNumber` (giorni dal 1970-01-01, interi, nessun `Date`) e
+  `inclusiveDaysBetween`. Ancore assolute sotto test: `1970-01-01 = 0`, `2000-01-01 = 10957`.
+- **Data impossibile → `null`, mai un numero**, e nell'usecase diventa un errore tipizzato. Coperti
+  `2026-02-31`, `2027-02-29`, **`2100-02-29`** (non bisestile) e `2000-02-29` (bisestile): è il caso
+  che distingue una regola corretta da quella approssimata dei soli multipli di 4.
+- **Coppia di plant assente → errore tipizzato, non zero.** Uno zero farebbe sparire una tratta reale
+  dalla CO₂ mostrando in demo una cifra plausibile e al ribasso.
+- **CO₂ in grammi interi**, conversione in kg lasciata alla UI: nessun float nel dominio.
+
+Sonde eseguite con rosso verificato: "conta per tratta" → 2 rossi; giorni senza il `+1` → **16** rossi;
+simmetria delle distanze rimossa → 3 rossi.

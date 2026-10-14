@@ -406,9 +406,20 @@ Il conteggio è **inclusivo**: dal 3 al 5 novembre sono 3 giorni, come dice il c
 - [ ] Chi **offre** l'auto non compare fra le auto evitate
 - [ ] Giorni inclusivi: dal 3 al 5 novembre sono 3; `returnAt` null → 1 giorno
 - [ ] L'aritmetica dei giorni è provata su **fine mese, anno bisestile e cambio d'anno**
-- [ ] Saving € = giorni evitati × costo noleggio/giorno da `config`, verificato su un caso a mano
-- [ ] CO₂ evitata = distanza della tratta (tabella statica in `config`) × g CO₂/km da `config`,
-      contata **per tratta condivisa**, verificata su un caso a mano
+- [ ] **Prerequisito ⛔, approvato il 14 ottobre:** `MatchRequest` guadagna `requesterTripId`,
+      valorizzato da `requestSeat`. Senza, la trasferta del passeggero — da cui dipendono giorni,
+      saving e CO₂ — si può solo **dedurre** (stessa persona, senza auto, stessi plant, stesso giorno),
+      e il numero in cima alla slide poggerebbe su una regola invece che su un dato. Lo schema di T08
+      non è ancora scritto, quindi adesso non c'è nessuna migrazione da rifare
+- [ ] **Saving €** = (giorni evitati × costo auto/giorno) **+** (km evitati × consumo × prezzo
+      carburante), tutti e quattro i parametri da `config`, verificato su un caso a mano
+- [ ] **CO₂ e carburante si contano sulla trasferta del passeggero, non per tratta condivisa.**
+      Chi non ha noleggiato non ha guidato: la sua auto mancata non ha percorso **nessuna** delle due
+      tratte, quindi si contano andata **e** ritorno (×1 se `returnAt` è null). È l'unica base coerente
+      con i giorni di noleggio, e quattro numeri sulla stessa base non si smontano
+- [ ] **Conseguenza da mettere sotto test:** CO₂ e carburante **non** raddoppiano se il collega ha
+      condiviso entrambe le tratte invece di una. Il valore è lo stesso, esattamente come per auto
+      evitate e giorni: la candidatura accettata è l'**innesco**, non l'unità di misura
 - [ ] Cambiando un parametro in `config` il risultato cambia di conseguenza (niente valori hardcoded)
 - [ ] Le candidature `pending`, `rejected` e `cancelled` **non** contribuiscono ad alcun KPI
 - [ ] Una tratta la cui coppia di plant non è nella tabella delle distanze **non** fa fallire il
@@ -419,11 +430,77 @@ Il conteggio è **inclusivo**: dal 3 al 5 novembre sono 3 giorni, come dice il c
 Usecase `awardBadges` sulle statistiche personali. Funzione pura.
 
 **Criteri di accettazione**
+### Il conducente va riconosciuto, deciso dall'umano il 14 ottobre 2026
+
+*"Anche il conducente risparmia facendo così perché condivide l'auto e deve essere premiato perché ha
+messo a disposizione l'auto e il fastidio."*
+
+I KPI **aziendali** restano invariati: contare il conducente fra le auto evitate conterebbe **due
+volte** la stessa auto — una per il passeggero e una per chi guidava — ed è il doppio conteggio da cui
+due test di T06 difendono. Il conducente non risparmia denaro, ha noleggiato comunque: il suo
+contributo è **aver reso possibile** il risparmio altrui, e si riconosce invece di sommarsi.
+Il riconoscimento vive quindi qui e nella dashboard personale di T15.
+
+**Criteri di accettazione**
 - [ ] Primo viaggio condiviso → badge "primo viaggio" assegnato
 - [ ] Soglie definite in `config`, non nel codice
 - [ ] Il badge è assegnato **esattamente** al raggiungimento della soglia, non uno prima né uno dopo
 - [ ] Nessun badge duplicato se la funzione viene eseguita due volte
 - [ ] Nessun badge implica premi, denaro o buoni: solo simbolico (verificato sui testi)
+
+**Criteri di accettazione** (riconoscimento del conducente)
+- [ ] Esistono badge **dedicati a chi guida e offre posti**, distinti da quelli del passeggero
+- [ ] Le statistiche del conducente si contano su ciò che ha **offerto e visto accettare**: tratte
+      offerte con almeno una candidatura accettata, colleghi trasportati, km condivisi
+- [ ] Un collega che ha fatto **entrambi** i ruoli — guidatore su una trasferta, passeggero su
+      un'altra — riceve i badge di **entrambe** le famiglie, e un test lo dimostra
+- [ ] Un conducente che ha offerto posti e **non** ha avuto nessuna candidatura accettata non riceve
+      i badge da conducente: il riconoscimento è per aver trasportato qualcuno, non per aver offerto
+- [ ] Le soglie dei badge da conducente stanno in `config` come le altre, e un test con soglie ridotte
+      dimostra che l'assegnazione segue il parametro
+
+## T07b ⛔ Parametri da tabella, niente valori compilati
+
+Nasce da una decisione dell'umano del 14 ottobre 2026: *"tutti i dati devono poter essere configurabili
+da tabelle dedicate, non voglio cose hard-codate"*. Il motivo pratico è concreto: oggi per ritarare un
+numero prima del pitch servono una ricompilazione e una build EAS, e il piano gratuito ne concede 15 al
+mese.
+
+**Il confine, deciso con l'umano.** In tabella vanno i **valori** — numeri e testi. Restano nel codice
+le **identità che il compilatore controlla**: i tre `PlantId`, gli stati come union di letterali, gli
+id dei badge. Lì il tipo è ciò che rende un valore inesistente un **errore di compilazione** invece di
+un dato sbagliato scoperto in demo, ed è una scelta deliberata di T01 su cui il reviewer ha costruito
+in tre task.
+
+**Perché prima di T08 e non dopo:** le tabelle dei parametri vanno disegnate insieme alle altre, in una
+migrazione sola. Farlo dopo significa una seconda migrazione su uno schema già applicato.
+
+**Il lavoro è minore di quanto sembri, e la ragione è nel codice già scritto:** ogni usecase riceve già
+la propria config **come parametro** e la valida, con un errore tipizzato se è incoerente
+(`invalid-config`, `invalid-tolerance`). Quindi il core non cambia: cambia solo **da dove arrivano i
+valori**. L'architettura aveva già anticipato questo passaggio senza che fosse il suo scopo.
+
+**Criteri di accettazione**
+- [ ] Un port nuovo per leggere i parametri, con un adapter memory che li serve da fixture e uno
+      Supabase che li legge dalla tabella
+- [ ] Passano dalla tabella: costo auto/giorno, prezzo carburante, consumo, distanze fra plant,
+      tolleranza oraria del matching, massimo posti offribili, limite lunghezza note, testo della nota
+      automatica, soglie dei badge
+- [ ] Restano nel codice, e un test di conformità lo dichiara: `PlantId`, gli stati, gli id dei badge
+- [ ] **Un parametro mancante o malformato nella tabella non passa in silenzio:** errore tipizzato al
+      confine, come per ogni altro dato che arriva dallo storage. È il rischio che la decisione di T03
+      voleva evitare tenendo i valori come letterali, e qui si paga con una validazione al confine
+- [ ] `test:unit` continua a girare **senza rete**: gli usecase ricevono config da fixture, mai dalla
+      tabella
+- [ ] Un test dimostra che **cambiando una riga della tabella** il risultato di un usecase cambia,
+      senza ricompilare
+- [ ] RLS: lettura per tutti gli autenticati, **scrittura per nessuno** dall'app. Il gate è l'accesso
+      alla dashboard Supabase, che ha solo l'umano: nessun ruolo admin nel modello e nessuna schermata
+      di configurazione nell'app
+
+⛔ Checkpoint: port nuovo, e rovescia la decisione di T03 che teneva i valori come letterali
+verificabili a compile time. Il motivo per cui si rovescia è buono — un parametro che richiede una
+build non è configurabile — ma va registrato come inversione e non come dettaglio.
 
 ## T08 ⛔ Schema Supabase, migrazioni e RLS
 
