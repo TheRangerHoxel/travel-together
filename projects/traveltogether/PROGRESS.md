@@ -2076,3 +2076,87 @@ Riquadro aggiunto sopra T16.
 L'umano ha confermato la prima opzione: metto default difendibili in `config/` e li elenco qui con il
 ragionamento, così li sostituisce senza toccare codice. Li scriverò nella voce di T06, non qui, perché
 è lì che vanno cercati.
+
+---
+
+## 2026-10-14 — La base di calcolo dei KPI, e il residuo delle note chiuso come migrazione
+
+Nessun codice. Due risposte dell'umano, nessuna delle quali era fra le opzioni che avevo offerto.
+
+### Il residuo delle note: non è un problema di codice, è una migrazione
+
+Risposta dell'umano: *"tutto quello che è oltre quel limite, attualmente, abbassalo sotto la soglia
+facendo una sintesi in modo che non ci siano falsi negativi."*
+
+**Applicata oggi è un no-op, e va detto:** non esiste **nessun dato** da migrare. L'app non è
+deployata, `match_requests` non esiste nemmeno come tabella (arriva a T08), e le sole note in
+circolazione sono fixture di test. Quindi il residuo oggi è chiuso dal fatto che non c'è niente da
+chiudere.
+
+**Quello che la risposta stabilisce, e che vale per il futuro, è una procedura:** abbassare
+`NOTE_CONFIG.maxLength` **non è una modifica di configurazione, è una migrazione** — chi lo abbassa
+accorcia contestualmente le note che sforano, così nessuna riga resta inchiudibile. Il codice non
+cambia: resta la validazione sulla riga intera, e il limite resta liberamente abbassabile **a patto
+che** l'abbassamento porti con sé il dato. Registrato come criterio di T08, che è dove le migrazioni
+si scrivono.
+
+**Una cosa la decido io e la dichiaro, invece di chiederla:** la sintesi **non è silenziosa**. Accorciare
+la nota di una persona significa riscrivere ciò che ha scritto, e in questo progetto una modifica
+silenziosa del dato di un utente è il difetto che inseguiamo da tre task. Quindi la riga accorciata va
+**marcata come tale**, così chi la legge sa di non star leggendo l'originale. Il come — un flag, un
+suffisso dichiarato — lo decide T08 insieme alla migrazione.
+
+### La base di calcolo dei KPI: la sua risposta è migliore della mia raccomandazione
+
+Avevo proposto: CO₂ per tratta, auto e giorni solo con **entrambe** le tratte coperte. Ragionamento:
+un noleggio si paga a periodo, quindi condividere una sola tratta non evita giorni di noleggio.
+
+Risposta dell'umano: *"io comunque devo fare una trasferta di 3 giorni, ma non ho preso una macchina
+per me, indipendentemente da come vado e torno."*
+
+**Ha ragione, e il mio errore era di modello.** Avevo assunto che chi condivide una sola tratta noleggi
+per l'altra. Ma nel prodotto un **passeggero non noleggia affatto**: ha `hasCar: false` sulla propria
+trasferta, e come copre la tratta che non ha condiviso (treno, un altro collega, un passaggio) è fuori
+dal modello. Il fatto contabile — l'unico misurabile dai dati, e l'unico che l'azienda conta davvero —
+è **che per quella persona non è stato pagato un noleggio**.
+
+Come l'ho capita, e la scrivo qui perché se ho capito male va corretto adesso e non a review:
+- **auto evitate** = colleghi con `hasCar: false` sulla **propria** trasferta e **almeno una**
+  candidatura `accepted`. Non per tratta, e non serve che entrambe le tratte siano coperte;
+- **giorni di noleggio evitati** = i giorni della **sua** trasferta, da `departureAt` a `returnAt`,
+  conteggio **inclusivo** (3→5 novembre = 3 giorni, come diceva il criterio originale);
+- **chi offre l'auto non conta** fra le auto evitate: ha noleggiato, ed è l'auto condivisa;
+- **CO₂** resta **per tratta condivisa**: ogni tratta condivisa è un'auto in meno su quella strada.
+
+Due test lo proteggono dal doppio conteggio in entrambe le direzioni: un collega con **una** tratta
+accettata dà 1 auto e 3 giorni; lo **stesso** collega con **entrambe** le tratte accettate dà ancora
+1 auto e 3 giorni, non 2 e non 6.
+
+Semplificazione da dichiarare in schermata: il modello non sa come il collega ha coperto le tratte non
+condivise e non conta le emissioni di quei mezzi.
+
+### T06 pretende l'aritmetica di calendario che manca dal 13 ottobre
+
+"Giorni fra `departureAt` e `returnAt`" non è calcolabile oggi: `parseUtcInstant` si ferma al giorno
+per scelta dichiarata. Serve una conversione data civile → numero di giorno in `core/domain`, provata
+su fine mese, anno bisestile e cambio d'anno. È il buco che avevo segnalato il 13 ottobre dicendo che
+si sarebbe misurato a T06 e non prima: ci siamo, ed è additivo — nessuna firma cambia, nessun ⛔.
+
+### I parametri di `config/` per T06, con la fonte
+
+Promessi come "default difendibili e dichiarati". Difendibile significa che hanno una fonte, non che
+suonano plausibili, quindi:
+
+| Parametro | Default | Fonte e ragionamento |
+|---|---|---|
+| g CO₂/km | **110** | EEA: **96,7 g/km** sulle nuove immatricolazioni 2025 e **106,7 g/km** nel 2024. Quelle medie **includono le elettriche a 0 g/km**, quindi un'auto a combustione da noleggio sta sopra: 110 è una scelta **conservativa** per un'auto termica, e sottostima il beneficio invece di gonfiarlo. |
+| Costo noleggio €/giorno | **55** | **Segnaposto, ed è il parametro che solo tu puoi sapere:** dipende dalla convenzione aziendale, non da un dato pubblico. Da sostituire con la tariffa reale. |
+| Pomigliano–Foggia | **165 km** | **Stima, non confermata.** La ricerca non ha dato la coppia diretta; Lucera (provincia di Foggia) è a 153 km, e Foggia è più a est. Da verificare. |
+| Foggia–Grottaglie | **232 km** | Confermato da un calcolatore di percorsi (232 km, ~2h24). |
+| Pomigliano–Grottaglie | **320 km** | Derivato: Pomigliano–Taranto 308–329 km, e Grottaglie è a 23 km da Taranto. |
+
+Due dei cinque sono dichiaratamente da sostituire — il costo del noleggio perché è aziendale, e
+Pomigliano–Foggia perché non l'ho confermato. Stanno in `config/`, quindi si cambiano senza toccare
+codice, ed è esattamente perché i criteri lo pretendono.
+
+**Fonti:** [EEA via Sicurauto](https://www.sicurauto.it/news/novita-del-mercato/auto-nuove-emissioni-co2-medie-scendono-a-106-g-km-in-ue/) · [AGI, dati 2025](https://www.agi.it/scienza/news/2026-06-26/emissioni-nuove-auto-europa-37730281/) · [Foggia–Grottaglie](https://calcolopercorso.it/it/distanza/Foggia/Grottaglie) · [Taranto–Pomigliano](https://calcolopercorso.it/it/distanza/Taranto/Pomigliano-d-Arco)

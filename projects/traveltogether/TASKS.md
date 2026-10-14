@@ -367,15 +367,52 @@ nell'adapter, dove sarebbe logica di business vietata dal criterio di T09.
 
 ## T06 KPI aziendali
 
-Usecase `computeCompanyKpi` sui match accettati. Funzione pura su parametri configurabili.
+Usecase `computeCompanyKpi`. Funzione pura su parametri configurabili.
+
+### La base di calcolo, decisa dall'umano il 14 ottobre 2026
+
+I criteri originali dicevano *"1 match accettato su trasferta di 3 giorni → 1 auto evitata, 3 giorni di
+noleggio evitati"*, scritti quando un match era per **trasferta**. Con le tratte un match accettato è
+mezzo viaggio, e contarlo per tratta dava numeri sbagliati in entrambe le direzioni.
+
+**L'unità di misura è la trasferta del richiedente, e il fatto misurato è che per lui non è stato
+noleggiato nulla.** Parole dell'umano: *"io comunque devo fare una trasferta di 3 giorni, ma non ho
+preso una macchina per me, indipendentemente da come vado e torno"*. Quindi:
+
+- **Un'auto è evitata** per ogni collega la cui **propria** trasferta ha `hasCar: false` e che ha
+  **almeno una** candidatura `accepted`. Non per tratta, e non serve che entrambe le tratte siano
+  coperte: il fatto contabile è che per quella persona non è stato pagato un noleggio.
+- **I giorni di noleggio evitati** sono i giorni della **sua** trasferta, da `departureAt` a `returnAt`.
+  Un noleggio si paga a periodo, non a tratta.
+- **Chi offre l'auto non conta** fra le auto evitate: ha noleggiato, ed è l'auto che viene condivisa.
+
+È la base più difendibile perché è **misurabile dai dati** e corrisponde a come l'azienda conta
+davvero: quanti noleggi non ha pagato. Semplificazione da dichiarare in schermata: il modello non sa
+come il collega ha coperto le tratte che non ha condiviso (treno, un altro collega, un passaggio
+privato) e non conta le emissioni di quei mezzi.
+
+**Serve aritmetica di calendario, che oggi non esiste.** `parseUtcInstant` si ferma al giorno per
+scelta dichiarata, quindi "giorni fra `departureAt` e `returnAt`" non è calcolabile: va aggiunta una
+conversione data civile → numero di giorno in `core/domain`, provata su fine mese, anno bisestile e
+cambio d'anno. È il buco segnalato il 13 ottobre, e questo è il task che lo pretende.
+Il conteggio è **inclusivo**: dal 3 al 5 novembre sono 3 giorni, come dice il criterio originale.
 
 **Criteri di accettazione**
-- [ ] Zero match accettati → tutti i KPI a zero, nessuna divisione per zero
-- [ ] 1 match accettato su trasferta di 3 giorni → 1 auto evitata, 3 giorni di noleggio evitati
+- [ ] Zero candidature accettate → tutti i KPI a zero, nessuna divisione per zero
+- [ ] Un collega senza auto con **una** candidatura accettata su una trasferta di 3 giorni → **1 auto
+      evitata, 3 giorni** di noleggio evitati, anche se ha condiviso **una sola** tratta
+- [ ] Lo stesso collega con **entrambe** le tratte accettate → ancora **1 auto evitata e 3 giorni**,
+      non 2 e non 6: è il test che impedisce il doppio conteggio
+- [ ] Chi **offre** l'auto non compare fra le auto evitate
+- [ ] Giorni inclusivi: dal 3 al 5 novembre sono 3; `returnAt` null → 1 giorno
+- [ ] L'aritmetica dei giorni è provata su **fine mese, anno bisestile e cambio d'anno**
 - [ ] Saving € = giorni evitati × costo noleggio/giorno da `config`, verificato su un caso a mano
-- [ ] CO₂ evitata = distanza tratta (tabella statica) × g CO₂/km da `config`, verificato su un caso a mano
+- [ ] CO₂ evitata = distanza della tratta (tabella statica in `config`) × g CO₂/km da `config`,
+      contata **per tratta condivisa**, verificata su un caso a mano
 - [ ] Cambiando un parametro in `config` il risultato cambia di conseguenza (niente valori hardcoded)
-- [ ] I match `pending` e `rejected` **non** contribuiscono ad alcun KPI
+- [ ] Le candidature `pending`, `rejected` e `cancelled` **non** contribuiscono ad alcun KPI
+- [ ] Una tratta la cui coppia di plant non è nella tabella delle distanze **non** fa fallire il
+      calcolo in silenzio: errore tipizzato oppure zero dichiarato, documentato
 
 ## T07 Badge
 
@@ -427,6 +464,14 @@ Tabelle da `ARCHITECTURE.md`, come SQL versionato nel repo.
       sbagliata e **non** da un client ostile
 - [ ] Un test di concorrenza **reale** su Postgres ripete l'interleaving di T05 su due connessioni: in
       RAM l'intercalatura è deterministica e scelta dal test, qui no
+- [ ] **Abbassare `NOTE_CONFIG.maxLength` è una migrazione, non una modifica di configurazione**
+      (decisione dell'umano, 14 ottobre 2026). Chi lo abbassa accorcia contestualmente le note che
+      sforano, così nessuna riga resta inchiudibile — oggi le `save` degli usecase validano la riga
+      intera, quindi una nota vecchia e troppo lunga bloccherebbe accettazione, rifiuto, annullamento e
+      reintegro. La riga accorciata va **marcata come tale**: accorciare la nota di una persona
+      significa riscrivere ciò che ha scritto, e una modifica silenziosa del dato di un utente è
+      esattamente la classe di difetto che questo progetto rifiuta. Oggi è un no-op — nessun dato
+      esiste ancora — ma la procedura va scritta prima che ne esista
 
 ⛔ Checkpoint obbligatorio: cambio di schema DB.
 
