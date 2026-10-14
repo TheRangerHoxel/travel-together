@@ -252,6 +252,20 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Costo** — XS come vincolo, M se un giorno servirà davvero il gate admin.
 - **Stato** — `accettata`
 
+### Il presidio sui testi dei badge deve seguire i testi dentro T07b
+- **Cosa** — decidere se le **etichette** dei badge passano in tabella e, se sì, spostare il controllo sulle parole vietate al **confine di lettura** dei parametri, con errore tipizzato.
+- **Perché** — rilievo del reviewer su T07. Oggi il criterio *"nessun badge implica premi, denaro o buoni"* è imposto da un test che ispeziona **costanti compilate** in `BADGE_CATALOG`. T07b dichiara che in tabella vanno "i valori — numeri **e testi**", elenca le soglie dei badge e il testo della nota automatica, ma **non** le etichette: la questione è aperta e va sciolta **prima** di scrivere la migrazione. Se i testi diventano modificabili dalla dashboard Supabase senza che il controllo li segua, l'unica garanzia contro una promessa che il prodotto non può mantenere svanisce **nel momento di massimo rischio** — la sera prima del pitch, dall'unica persona che ha accesso a quella dashboard.
+- **Impatto** — criteri di T07b e l'adapter dei parametri. Il criterio *"un parametro malformato non passa in silenzio"* esiste già in T07b, e questo ne è un caso.
+- **Costo** — S se deciso dentro T07b, M se scoperto dopo.
+- **Stato** — proposta
+
+### Un test diretto del criterio "primo viaggio" con la config di produzione
+- **Cosa** — un `it` che passa `BADGE_CONFIG` ad `awardBadges` con `sharedTrips: 1` e pretende `['primo-viaggio']`.
+- **Perché** — rilievo del reviewer su T07. Il criterio è coperto da **tre** test in composizione — la soglia di produzione pinnata a 1, il confine che assegna, l'end-to-end che però imposta la soglia a mano invece di usare `BADGE_CONFIG` — e la catena è completa, quindi non è un buco. Ma nessun test **si legge come il criterio**, e `primo-viaggio` è il badge nominato nei criteri e quello che si vedrà in demo: vale avere il test che somiglia alla frase che deve garantire.
+- **Impatto** — due righe in `badge-config.test.ts`.
+- **Costo** — XS.
+- **Stato** — proposta
+
 ### Validare `requesterTripId`: esistenza, appartenenza, assenza di auto
 - **Cosa** — `requestSeat` verifica la trasferta indicata (esiste, è **del richiedente**, ha `hasCar: false`) e rifiuta con errore tipizzato; T08 aggiunge la foreign key `requester_trip_id → trips.id` e la policy che impone l'appartenenza.
 - **Perché** — rilievo del reviewer su T06, ed è **il campo meno protetto e più pesante del modello**. È obbligatorio e non vuoto, e lì si fermano i controlli: nessuno verifica che quella trasferta esista, che sia di chi si candida o che sia senza auto. `requestSeat` ha già `deps.trips` in mano e non la interroga; il dominio non può, perché non ha accesso allo storage. Conseguenze, **tutte con `verify` verde**: un riferimento alla trasferta **di un collega**, o a una più **lunga** della propria, gonfia giorni, km, CO₂ e saving senza che nulla protesti — e sono i quattro numeri della dashboard aziendale; un id inesistente fa fallire l'**intero** calcolo con `unknown-requester-trip`, cioè un dato sbagliato di una riga spegne la dashboard. Oggi irraggiungibile da un utente solo perché nessuna UI esiste.

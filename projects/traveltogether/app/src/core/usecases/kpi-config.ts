@@ -4,16 +4,7 @@
 // VALORI stanno in src/config/kpi.ts e vi arrivano come parametro, con lo stesso
 // schema di MatchConfig; il legame fra le due meta' e' kpi-config.test.ts.
 
-import type { PlantId } from '../domain';
-
-/**
- * Distanze fra stabilimenti, in km, **dichiarate una volta sola per coppia**: la
- * ricerca e' simmetrica (`a -> b` e, se manca, `b -> a`), perche' la tratta di
- * ritorno ha i plant invertiti e la tabella non deve ripetere la stessa strada.
- */
-export type PlantDistanceTable = Readonly<
-  Partial<Record<PlantId, Readonly<Partial<Record<PlantId, number>>>>>
->;
+import type { PlantDistanceTable } from './plant-distance';
 
 export interface KpiConfig {
   /** Grammi di CO2 per chilometro di un'auto. Numero finito >= 0. */

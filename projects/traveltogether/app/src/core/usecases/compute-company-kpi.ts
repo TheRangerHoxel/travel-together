@@ -40,6 +40,7 @@
 import type { MatchRequest, PlantId, Result, Trip } from '../domain';
 import { civilDayNumber, err, inclusiveDaysBetween, ok, parseUtcInstant } from '../domain';
 import type { KpiConfig } from './kpi-config';
+import { lookupPlantDistance } from './plant-distance';
 
 export interface CompanyKpi {
   /** Trasferte senza auto con almeno una candidatura accettata. */
@@ -83,14 +84,6 @@ export type CompanyKpiError =
 
 function isNonNegativeFinite(value: number): boolean {
   return Number.isFinite(value) && value >= 0;
-}
-
-/**
- * Ricerca SIMMETRICA: prima `a -> b`, poi `b -> a`. Ritorna `undefined` se la
- * coppia non e' nella tabella in nessun verso.
- */
-function lookupDistance(config: KpiConfig, a: PlantId, b: PlantId): number | undefined {
-  return config.distanceKm[a]?.[b] ?? config.distanceKm[b]?.[a];
 }
 
 const SCALARS = [
@@ -160,7 +153,7 @@ export function computeCompanyKpi(
       tripDays = count;
     }
 
-    const legKm = lookupDistance(config, trip.fromPlantId, trip.toPlantId);
+    const legKm = lookupPlantDistance(config, trip.fromPlantId, trip.toPlantId);
     if (legKm === undefined) {
       return err({
         kind: 'missing-distance',

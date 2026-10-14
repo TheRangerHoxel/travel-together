@@ -2380,3 +2380,162 @@ un cambiamento di comportamento sugli stati (il difetto), una sonda non eseguita
 per errore. Tutte e tre recuperabili **perché** dichiarate, e nessuna delle tre l'avrebbe trovata
 `verify`. È il terzo task di fila in cui il difetto vero emerge da una dichiarazione volontaria e non
 dalla macchina.
+
+**T06 committato** come `a62f067`, un commit unico, 22 file, working tree pulito.
+
+---
+
+## 2026-10-14 — T07 · badge, con il riconoscimento del conducente
+
+`verify` verde, exit 0: **393 test** in 27 suite (erano 343 a fine T06), 1 int, 1 smoke. Rieseguito da
+me dopo entrambi i giri. Conteggio di partenza **misurato** dal developer prima di cominciare, come
+avevo chiesto: era mancato nei due task precedenti.
+
+### T07 consegna due funzioni, non una — decisione mia dichiarata nel brief
+
+`computePersonalStats` (le statistiche per collega) e `awardBadges(stats, config)` (i badge dalle
+statistiche). I criteri pretendono che le statistiche del conducente *si contino*, quindi qualcuno deve
+contarle, e `awardBadges` deve restare una funzione sulle sole statistiche per essere testabile sui
+confini delle soglie. Separarle tiene i test delle soglie piccoli e indipendenti dal conteggio.
+
+### Tre cose del developer che sono scelte e non adempimenti
+
+1. **Ha cancellato un proprio test perché tautologico.** Aveva scritto "il test sa riconoscere un testo
+   vietato", che affermava cose su stringhe costanti e non poteva fallire. Il conteggio che scende da
+   394 a 393 è il segno che la regola è stata applicata **contro il proprio lavoro**.
+2. **Le etichette dei badge non contengono numeri.** Le soglie sono configurabili, quindi "Cinque
+   viaggi" con soglia 3 mentirebbe. È lo stesso ragionamento per cui a T03 il bonus di plant non è
+   configurabile: un testo che pubblicizza un numero che un parametro può cambiare è una trappola. Gli
+   **id** contengono ancora i numeri (`cinque-viaggi`, `mille-km`) perché erano già nel dominio: sono
+   interni e non si mostrano.
+3. **Il test sui premi provato mettendo "Buono" in un'etichetta** → 2 rossi. Senza quella prova il
+   criterio "nessun badge implica premi o buoni" sarebbe stato una dichiarazione d'intenti. La lista
+   delle parole vietate è nel test con il motivo scritto: welfare e buoni sono fuori scope per
+   decisione dell'umano, e un testo che li promette è una promessa che il prodotto non può mantenere.
+
+### La duplicazione che ho causato io, e come è stata chiusa
+
+T07 ha introdotto una **seconda copia** di `lookupDistance`, perché nel brief avevo vietato di toccare
+i file di T06. Il divieto serviva a evitare scope creep nella logica di T06, **non** a costringere a
+copiare una funzione — ed è la stessa classe di difetto per cui il reviewer ha bocciato T04: la stessa
+regola definita in due punti. Due copie della ricerca simmetrica nella tabella delle distanze
+divergerebbero in silenzio: una smetterebbe di provare il verso inverso e nessun test dell'altra se ne
+accorgerebbe.
+
+Estratta in `core/usecases/plant-distance.ts`, con il tipo della tabella. Due prove, entrambe
+verificate da me:
+- **i test di T06 sono intatti** (`compute-company-kpi.test.ts` con diff vuoto) e restano verdi: è la
+  dimostrazione che il refactor non cambia comportamento, e il conteggio resta 393;
+- **la sonda rompe entrambi i consumatori**: togliendo il tentativo `b→a` dal modulo condiviso cadono
+  4 test in **3 suite**, fra cui quelle dei due usecase e il test di conformità della config. Con due
+  copie ne sarebbero caduti solo quelli di uno — ed è esattamente la differenza fra una regola e due.
+
+**Terza volta che un vincolo del mio brief produce una scelta peggiore di quella che il developer
+avrebbe fatto da sé:** il port separato in T04b, la collisione di `legKey` che non esiste, e questa. Il
+pattern è lo stesso — vieto un file per proteggere lo scope, e il divieto costringe a duplicare o a
+inventare. La correzione non è vietare meno, è **nominare il motivo del divieto**, così chi lo riceve
+sa quando non si applica.
+
+### Una decisione di prodotto che resta all'umano
+
+`awardBadges` **ricalcola da zero** dalle statistiche, quindi idempotenza e assenza di duplicati sono
+vere **per costruzione** e non per controllo: non riceve i badge già assegnati, e per questo non esiste
+un test "su un collega che ha già badge in input" — quell'input non esiste.
+
+Il prezzo, dichiarato dal developer: **un badge può sparire** se le statistiche scendono, per esempio
+se una trasferta viene annullata dopo che il badge era stato ottenuto. Oggi irraggiungibile, perché
+nessun usecase annulla una trasferta — è la voce `IDEAS.md` sull'annullamento a cascata. Ma quando quel
+flusso arriverà, un badge che svanisce è un premio simbolico **ritirato**, che è peggio di non averlo
+dato. Da girare all'umano come scelta, non bloccante.
+
+### Un controllo in più rispetto al brief, e perché lo tengo
+
+Il developer ha aggiunto `requester-trip-not-owned` dentro `computePersonalStats`: se la trasferta
+indicata da una candidatura accettata è **di un altro**, è un errore tipizzato. Non era nel brief, ed è
+precisamente il rischio N1 che il reviewer aveva segnalato su T06. Lo tengo: è una difesa della propria
+funzione, dentro un file nuovo, e non anticipa T07c — che chiude lo stesso buco **all'ingresso**, in
+`requestSeat`, dove l'umano ha deciso di metterlo.
+
+### T07c aperto, su decisione dell'umano
+
+La validazione di `requesterTripId` in `requestSeat` (esiste, è del richiedente, è senza auto) diventa
+un task a sé con i suoi criteri, invece di entrare in T07: è un rilievo del reviewer su T06 sciolto
+dall'umano in **entrambi** i posti — usecase adesso, vincoli DB a T08 — e aggiunto anche il criterio
+corrispondente a T08 (foreign key più policy di appartenenza).
+
+Il developer ha notato che `TASKS.md` risultava modificato e ha **chiesto di controllarlo** invece di
+assumere che fosse suo o mio. Era mio. È il comportamento giusto, e vale la pena registrarlo: in questa
+sessione tre episodi diversi di corruzione di file sono stati scoperti guardando il diff.
+
+### Round 1 di review — **APPROVATO**, nessun bloccante
+
+`verify` rieseguito dal reviewer: 393 test, exit 0. Contabilità chiusa in due modi indipendenti —
+per file (393 esatti su 27) e per delta (343 + 24 + 22 + 4 = 393) — quindi i 50 test nuovi stanno
+**tutti e soli** nei tre file nuovi, e nessun file preesistente ha perso un test.
+
+**Il refactor che tocca T06 è esattamente e soltanto quello dichiarato**, verificato leggendo il diff
+riga per riga: un import, la cancellazione della funzione locale, il call site. Nessun errore nuovo o
+rimosso, nessuna soglia spostata, l'ordine dei controlli identico, i payload degli errori identici.
+E la sonda sulla simmetria l'ha **ricostruita da sé**, tracciando i quattro test che cadono in tre
+suite — due delle quali appartengono a usecase **diversi**, che è il punto: con due copie ne cadrebbero
+solo due, nello stesso file.
+
+Sul merito: *"il divieto nel brief era l'errore"*, e il motivo che aggiunge è migliore del mio — con due
+copie la divergenza non si manifesta come errore ma come **km mancanti su una slide**.
+
+### Il rilievo che ho chiuso prima del commit, perché il buco era in un presidio
+
+Il reviewer ha **eseguito** il predicato del test sulle parole vietate contro dodici etichette
+avvelenate: ne intercettava **11 su 12**. Mancavano `ticket` e `welfare` — e sono i due termini
+italiani più probabili per promettere proprio ciò che il PRD mette fuori scope, perché "ticket" è il
+nome corrente del buono pasto e il welfare è escluso per decisione dell'umano. *"Ticket restaurant"* e
+*"Welfare aziendale"* **passavano** il controllo.
+
+Aggiunte le due parole, con il motivo nel commento, e **sonda eseguita**: ora entrambe le etichette
+sono intercettate, e `verify` resta verde a 393 perché le etichette di produzione sono pulite. È due
+stringhe, ma era l'unico presidio di una promessa verso l'utente, e un presidio con un buco nei due
+casi più probabili è peggio di nessun presidio, perché dà fiducia.
+
+### Due giudizi del reviewer che valgono come principio
+
+**Sulla separazione in due funzioni:** *"è nel punto giusto, e la prova è nella forma dei test"*. I
+confini delle soglie sono una matrice 6 × 3 che si scrive in un `it.each` di otto righe perché
+`awardBadges` prende quattro numeri; con una funzione sola dai dati ai badge, ciascuna delle diciotto
+celle avrebbe richiesto di costruire trasferte e candidature, e un fallimento su "soglia−1" non
+avrebbe distinto un errore di **conteggio** da un errore di **confronto**.
+
+**Sull'idempotenza per costruzione:** è la forma **forte**, non quella debole. Un duplicato non è
+**rappresentabile**, quindi il criterio è soddisfatto più di quanto chiedesse — e non è "vero per
+assenza di input", perché il test asserisce l'unicità in uno stato dove tutti e sei i badge sono
+assegnati, intercettando così un id ripetuto nel catalogo, che è l'unico modo in cui un duplicato
+potrebbe ancora nascere. *"È la differenza giusta fra un caso non testato e un caso non
+rappresentabile."*
+
+E su `requester-trip-not-owned`: **non** è scope strisciato. `computePersonalStats` dichiara di contare
+*le trasferte proprie*, quindi contare quella di un altro la renderebbe **scorretta rispetto al proprio
+contratto**, non solo meno severa. Difende l'enunciato della funzione, e non anticipa T07c, che chiude
+lo stesso buco all'**ingresso**: le due difese stanno su lati opposti del confine, che è la struttura
+che l'umano ha scelto rispondendo "in entrambi i posti".
+
+### Non bloccanti registrati e non implementati
+
+- **Le etichette dei badge e T07b**: oggi il presidio vale su costanti compilate, e T07b sposta "numeri
+  **e testi**" in tabella senza elencare le etichette. **Girato all'umano come domanda**, perché cambia
+  un criterio di T07b e va deciso prima della migrazione.
+- **Un test diretto di "primo viaggio" con la config di produzione**: oggi coperto da tre test in
+  composizione, catena completa, ma nessuno si legge come il criterio. Due righe, voce in `IDEAS.md`.
+- **`PersonalStats.profileId` non è usato da `awardBadges`**, che dipende dalle sole quattro metriche.
+  Non è un difetto — tiene insieme statistiche e persona per T15 — ma il tipo d'ingresso è più largo
+  del dominio della funzione, e il reviewer lo segnala come *"porta aperta che conviene sapere che c'è"*:
+  un domani un badge legato alla **persona** e non a una metrica sarebbe possibile **senza** cambiare la
+  firma, cioè senza un checkpoint.
+
+### Il giudizio di chiusura, che è il dato più utile del task
+
+*"T07 è il primo task in cui il difetto strutturale non è stato **riscoperto**: lo stato `cancelled`
+della trasferta, che a T06 è costato un terzo giro, qui è escluso in entrambe le famiglie dal primo
+colpo e con due test che lo pinnano in positivo (`completed` conta) e in negativo. È il segnale che il
+registro sta funzionando come registro."*
+
+E: *"la duplicazione che avrei bocciato non è mai arrivata in review: è questo il modo in cui il ciclo
+diventa più economico, non scrivendo meno test."*

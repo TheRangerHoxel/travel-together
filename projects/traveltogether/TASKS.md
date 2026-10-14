@@ -447,22 +447,50 @@ contributo è **aver reso possibile** il risparmio altrui, e si riconosce invece
 Il riconoscimento vive quindi qui e nella dashboard personale di T15.
 
 **Criteri di accettazione**
-- [ ] Primo viaggio condiviso → badge "primo viaggio" assegnato
-- [ ] Soglie definite in `config`, non nel codice
-- [ ] Il badge è assegnato **esattamente** al raggiungimento della soglia, non uno prima né uno dopo
-- [ ] Nessun badge duplicato se la funzione viene eseguita due volte
-- [ ] Nessun badge implica premi, denaro o buoni: solo simbolico (verificato sui testi)
+- [x] Primo viaggio condiviso → badge "primo viaggio" assegnato
+- [x] Soglie definite in `config`, non nel codice
+- [x] Il badge è assegnato **esattamente** al raggiungimento della soglia, non uno prima né uno dopo
+- [x] Nessun badge duplicato se la funzione viene eseguita due volte
+- [x] Nessun badge implica premi, denaro o buoni: solo simbolico (verificato sui testi)
 
 **Criteri di accettazione** (riconoscimento del conducente)
-- [ ] Esistono badge **dedicati a chi guida e offre posti**, distinti da quelli del passeggero
-- [ ] Le statistiche del conducente si contano su ciò che ha **offerto e visto accettare**: tratte
+- [x] Esistono badge **dedicati a chi guida e offre posti**, distinti da quelli del passeggero
+- [x] Le statistiche del conducente si contano su ciò che ha **offerto e visto accettare**: tratte
       offerte con almeno una candidatura accettata, colleghi trasportati, km condivisi
-- [ ] Un collega che ha fatto **entrambi** i ruoli — guidatore su una trasferta, passeggero su
+- [x] Un collega che ha fatto **entrambi** i ruoli — guidatore su una trasferta, passeggero su
       un'altra — riceve i badge di **entrambe** le famiglie, e un test lo dimostra
-- [ ] Un conducente che ha offerto posti e **non** ha avuto nessuna candidatura accettata non riceve
+- [x] Un conducente che ha offerto posti e **non** ha avuto nessuna candidatura accettata non riceve
       i badge da conducente: il riconoscimento è per aver trasportato qualcuno, non per aver offerto
-- [ ] Le soglie dei badge da conducente stanno in `config` come le altre, e un test con soglie ridotte
+- [x] Le soglie dei badge da conducente stanno in `config` come le altre, e un test con soglie ridotte
       dimostra che l'assegnazione segue il parametro
+
+## T07c Validazione di `requesterTripId` in `requestSeat`
+
+Nasce dal rilievo N1 del reviewer su T06, e l'umano ha scelto il 14 ottobre 2026 di chiuderlo **in
+entrambi i posti**: il controllo nell'usecase adesso, i vincoli nel DB a T08.
+
+**Perché è il campo più pesante del modello.** `requesterTripId` è obbligatorio e non vuoto, e lì si
+fermano i controlli: nessuno verifica che quella trasferta esista, che sia **del richiedente** o che
+sia **senza auto**. Da lui dipendono tutti e quattro i numeri della dashboard aziendale. Conseguenze
+**con `verify` verde**: un riferimento alla trasferta di un collega, o a una più lunga della propria,
+gonfia giorni, km, CO₂ e saving senza che nulla protesti; un id inesistente fa fallire l'**intero**
+calcolo, cioè un dato sbagliato di una riga spegne la dashboard.
+
+`requestSeat` ha già `deps.trips` in mano e non la interroga. Il controllo nell'usecase dà il messaggio
+giusto in schermata a T13; il vincolo nel DB rende lo stato **impossibile**, anche per il seed di T17 e
+per le migrazioni — che oggi sono le uniche vie d'ingresso esistenti, perché nessuna UI è scritta.
+
+**Da fare prima di T12**, che costruirà il form da cui quel campo arriverà.
+
+**Criteri di accettazione**
+- [ ] `requesterTripId` che punta a una trasferta **inesistente** → errore tipizzato, **zero scritture**
+- [ ] `requesterTripId` che punta alla trasferta **di un altro collega** → errore tipizzato, zero
+      scritture. È il caso che gonfia i KPI senza che nessun test possa accorgersene
+- [ ] `requesterTripId` che punta a una trasferta **con l'auto** → errore tipizzato: chi ha noleggiato
+      non si candida come passeggero, e conterebbe come auto evitata una persona che ha noleggiato
+- [ ] Il percorso valido resta valido: nessuno dei test esistenti di `requestSeat` cambia aspettativa
+- [ ] Criterio corrispondente aggiunto a **T08**: foreign key `requester_trip_id → trips.id` e policy
+      che impone l'appartenenza
 
 ## T07b ⛔ Parametri da tabella, niente valori compilati
 
@@ -544,6 +572,10 @@ Tabelle da `ARCHITECTURE.md`, come SQL versionato nel repo.
       creazione e l'annullamento, l'owner della trasferta per accettazione e rifiuto. In RAM
       l'`actorId` lo passa il chiamante, quindi i controlli degli usecase di T05 proteggono da una UI
       sbagliata e **non** da un client ostile
+- [ ] Foreign key `match_requests.requester_trip_id → trips.id`, **più** una policy che impone che
+      quella trasferta sia **del richiedente**. È la metà DB della decisione dell'umano del 14 ottobre
+      (l'altra metà è T07c): rende impossibile lo stato in cui il campo da cui dipendono tutti e
+      quattro i KPI punta alla trasferta di un altro, anche per il seed e per le migrazioni
 - [ ] Un test di concorrenza **reale** su Postgres ripete l'interleaving di T05 su due connessioni: in
       RAM l'intercalatura è deterministica e scelta dal test, qui no
 - [ ] **Abbassare `NOTE_CONFIG.maxLength` è una migrazione, non una modifica di configurazione**
