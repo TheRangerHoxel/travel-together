@@ -30,6 +30,13 @@ export interface MatchRequest {
    */
   readonly direction: LegDirection;
   readonly requesterId: ProfileId;
+  /**
+   * La trasferta di CHI SI CANDIDA (non quella che offre il posto, che e' `tripId`).
+   * Obbligatoria: i KPI aziendali (T06) contano auto, giorni, CO2 e carburante sulla
+   * trasferta del passeggero, e senza questo riferimento dovrebbero ricostruirla per
+   * indizio (plant e giorno), che sbaglia con due trasferte uguali nello stesso giorno.
+   */
+  readonly requesterTripId: TripId;
   readonly status: MatchRequestStatus;
   /** Nota facoltativa di chi si candida. `null` = nessuna nota. */
   readonly requestNote: string | null;
@@ -54,7 +61,9 @@ export type MatchRequestError =
   /** `resolutionNote` e `resolvedBy` devono essere entrambi null o entrambi valorizzati. */
   | { readonly kind: 'resolution-incomplete' }
   /** Una candidatura `pending` e' aperta: non puo' avere una risoluzione. */
-  | { readonly kind: 'pending-with-resolution' };
+  | { readonly kind: 'pending-with-resolution' }
+  /** `requesterTripId` vuoto o di soli spazi: il riferimento e' obbligatorio. */
+  | { readonly kind: 'requester-trip-missing' };
 
 /** Lunghezza in code point: l'unita' che l'utente vede ('👍'.length e' 2, qui conta 1). */
 function codePointLength(testo: string): number {
@@ -93,6 +102,10 @@ function validaNota(
 export function validateMatchRequestStructure(
   campi: MatchRequest
 ): Result<MatchRequest, MatchRequestError> {
+  if (campi.requesterTripId.trim() === '') {
+    return err({ kind: 'requester-trip-missing' });
+  }
+
   const haNota = campi.resolutionNote !== null;
   const haChi = campi.resolvedBy !== null;
 

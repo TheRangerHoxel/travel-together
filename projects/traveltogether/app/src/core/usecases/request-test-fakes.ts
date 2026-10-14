@@ -194,6 +194,7 @@ export function unaRichiesta(modifiche: Partial<MatchRequest> = {}): MatchReques
     tripId: TRIP_ID,
     direction: 'outbound',
     requesterId: RICHIEDENTE,
+    requesterTripId: 'trip-richiedente',
     status: 'pending',
     requestNote: null,
     resolutionNote: null,

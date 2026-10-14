@@ -252,6 +252,34 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Costo** — XS come vincolo, M se un giorno servirà davvero il gate admin.
 - **Stato** — `accettata`
 
+### Validare `requesterTripId`: esistenza, appartenenza, assenza di auto
+- **Cosa** — `requestSeat` verifica la trasferta indicata (esiste, è **del richiedente**, ha `hasCar: false`) e rifiuta con errore tipizzato; T08 aggiunge la foreign key `requester_trip_id → trips.id` e la policy che impone l'appartenenza.
+- **Perché** — rilievo del reviewer su T06, ed è **il campo meno protetto e più pesante del modello**. È obbligatorio e non vuoto, e lì si fermano i controlli: nessuno verifica che quella trasferta esista, che sia di chi si candida o che sia senza auto. `requestSeat` ha già `deps.trips` in mano e non la interroga; il dominio non può, perché non ha accesso allo storage. Conseguenze, **tutte con `verify` verde**: un riferimento alla trasferta **di un collega**, o a una più **lunga** della propria, gonfia giorni, km, CO₂ e saving senza che nulla protesti — e sono i quattro numeri della dashboard aziendale; un id inesistente fa fallire l'**intero** calcolo con `unknown-requester-trip`, cioè un dato sbagliato di una riga spegne la dashboard. Oggi irraggiungibile da un utente solo perché nessuna UI esiste.
+- **Impatto** — `core/usecases/request-seat.ts` e il suo tipo d'errore, più criteri su T08. Nessun cambio di firma dei port.
+- **Costo** — S nell'usecase, S a T08. Da fare **prima di T12**, che costruirà il form da cui quel campo arriverà.
+- **Stato** — proposta
+
+### La trasferta degenere nei dati spegne la dashboard aziendale
+- **Cosa** — due criteri: su **T17** il seed non contiene trasferte con `fromPlantId == toPlantId`; su **T16** la dashboard distingue "tabella distanze incompleta" da "tutti zeri".
+- **Perché** — rilievo del reviewer su T06. `lookupDistance(config, a, a)` cerca una coppia che nella tabella non esiste per costruzione, quindi una trasferta con partenza uguale a destinazione fra le auto evitate produce `missing-distance` e **l'intero** `computeCompanyKpi` ritorna errore. `createTrip` rifiuta `same-plant`, quindi la via d'ingresso non è l'utente: sono `seminaGrezzo`, una migrazione e **il seed di T17**, che è lo scenario realistico. La scelta "errore tipizzato invece di zero" è giusta e deliberata — uno zero farebbe sparire una tratta reale mostrando una cifra plausibile e al ribasso — ma va **dichiarata dove verrà incontrata**, cioè in schermata.
+- **Impatto** — criteri di T16 e T17. Nessun codice.
+- **Costo** — XS.
+- **Stato** — proposta
+
+### L'errore sulla tabella distanze non dice quale coppia è rotta
+- **Cosa** — aggiungere `fromPlantId`/`toPlantId` al payload di `invalid-config / distanceKm`.
+- **Perché** — rilievo del reviewer su T06. L'errore gemello `missing-distance` nomina già entrambi i plant; questo no. Con tre sedi il valore rotto si trova a occhio, ma con la tabella **da file** di T07b diventerà "un valore della tabella è rotto, cercalo". L'asimmetria si noterà solo quando darà fastidio, ed è una riga: il tipo dell'errore è già un'unione discriminata che la regge.
+- **Impatto** — `core/usecases/compute-company-kpi.ts` e i suoi test.
+- **Costo** — XS.
+- **Stato** — proposta
+
+### Annullare una trasferta deve chiudere le candidature che la riguardano
+- **Cosa** — quando una trasferta passa a `cancelled`, le candidature collegate vanno chiuse: quelle **ricevute** sulle sue tratte (chi offriva non c'è più) e quelle **inviate** dal suo proprietario come passeggero (il viaggio non si fa più, quindi il posto va restituito a chi l'aveva concesso).
+- **Perché** — scoperto in T06. Oggi nessun usecase annulla una trasferta, quindi lo stato `cancelled` è raggiungibile solo da `seminaGrezzo`, da una migrazione o dal seed di T17 — ma `TripStatus` ha quel valore proprio perché le trasferte si annullano, e il flusso arriverà. Senza la chiusura a cascata restano **candidature accettate su un viaggio che non esiste più**: chi offriva tiene un posto occupato da nessuno, e chi si era candidato vede "accettata" una tratta che non partirà. È la stessa famiglia del caso già deciso per la **tratta** che scompare (annullamento a cascata con `resolvedBy: 'system'` e nota automatica), applicata all'intera trasferta, e la soluzione coerente è la stessa: un usecase che chiude prima e salva dopo, **non** logica nell'adapter.
+- **Impatto** — un usecase nuovo (`cancelTrip`), che non esiste in nessun task del backlog; `leg-system-transitions.ts` guadagna una terza funzione; criteri su T08 per le RLS di scrittura. Si lega al task di **modifica trasferta**, anch'esso non ancora nel backlog: sono due facce dello stesso buco, e conviene schedularle insieme.
+- **Costo** — M.
+- **Stato** — proposta
+
 ### La corsa fra la cascata e una candidatura concorrente va dichiarata nei test di T08
 - **Cosa** — un caso nei test di integrazione di T08 che riproduca "candidatura che arriva subito dopo l'esaurimento dei posti" e pinni l'esito atteso: riga `pending` su una tratta a zero posti, chiudibile solo con un rifiuto motivato.
 - **Perché** — rilievo del reviewer su T05. Fra la lettura di `listByLeg` nella cascata e una `requestSeat` concorrente non c'è alcun lock. **Non è una decisione di prodotto di nessuno:** segue dal fatto che `requestSeat` non rifiuta per posti a zero — scelta fatta perché `findMatches` omette le tratte esaurite e il prodotto gestisce l'auto piena con la cascata. Sul piano del prodotto è accettabile e **non** produce uno stato bloccato: chi offre l'auto la vede in `listByLeg`, se prova ad accettarla ottiene `no-seats-available`, e la chiude con un rifiuto motivato — che è esattamente ciò per cui la nota obbligatoria esiste. Ma è un percorso in cui l'utente si candida e **poi** scopre che non c'era posto, e oggi vive solo in un commento di `request-seat.ts` e in `PROGRESS.md`. Su Postgres la corsa è **reale**, non intercalata in un event loop.
@@ -275,8 +303,10 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Costo** — M.
 - **Stato** — proposta
 
-### Vietare agli script degli agenti gli identificatori di una lettera su PowerShell
-- **Cosa** — una regola operativa (in `CLAUDE.md` o in una skill): negli script PowerShell non si usano nomi di variabile o di comando di **una sola lettera**.
+### Vietare agli agenti di manipolare i file di testo via shell
+- **Cosa** — una regola operativa: i file si modificano con gli **strumenti di modifica**, non con comandi di shell. In particolare, negli script PowerShell non si usano nomi di variabile o di comando di **una sola lettera**, e non si fanno round-trip di lettura/riscrittura di un file di testo.
+- **Aggiornamento (14 ottobre 2026): tre episodi in due giorni, tutti della stessa famiglia.** (1) Uno script del developer ha usato `R`, alias di `Invoke-History`, svuotando e cancellando sei file fra cui uno di un commit approvato. (2) Io ho usato `Set-Content` per spuntare delle caselle in `TASKS.md`: il round-trip ha letto UTF-8 come ANSI e ha riscritto **mojibake su ogni carattere accentato** del file. (3) Uno script di sonda del developer ha introdotto un **BOM** in un `.ts`, che passa il lint e rompe altrove. In tutti e tre i casi il danno è stato recuperabile **solo perché il lavoro precedente era committato**, e in due casi su tre è stato scoperto guardando il diff e non da `verify`.
+- **Cosa fare in pratica:** usare gli strumenti di modifica; se serve una trasformazione su un file, farla con Python specificando l'encoding in modo esplicito (`io.open(..., encoding="utf-8", newline="\n")`), che è l'unica forma che non ha trappole su questa macchina; e controllare il **diff atteso** dopo ogni trasformazione — un diff più grande del previsto è il segnale.
 - **Perché** — incidente reale durante T04b: uno script del developer ha usato `R`, che su Windows PowerShell è **alias di `Invoke-History`**. Ha riesesguito comandi precedenti, svuotando `trip-repository.ts` e cancellando altri cinque file, fra cui `create-trip.test.ts` del commit di T04 già approvato. Nessun danno permanente **solo perché T04 era committato**: `git restore` ha recuperato tutto. Se il lavoro fosse stato ancora nel working tree sarebbe stato irrecuperabile. Altri alias di una lettera con lo stesso potenziale: `r`, `h` (`Get-History`), `sl` (`Set-Location`), `ri` (`Remove-Item`).
 - **Impatto** — una riga di regola operativa, più eventualmente una deny rule o un controllo nell'hook sui comandi che contengono identificatori di una lettera. Nessun effetto sul codice applicativo.
 - **Costo** — S.

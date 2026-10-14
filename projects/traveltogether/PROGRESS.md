@@ -2242,3 +2242,141 @@ va **invertito**, ed è il tipo di modifica che va dichiarata e non fatta in sil
 
 Sonde eseguite con rosso verificato: "conta per tratta" → 2 rossi; giorni senza il `+1` → **16** rossi;
 simmetria delle distanze rimossa → 3 rossi.
+
+### Secondo giro: carburante, base unica, `requesterTripId`
+
+`verify` verde, **340 test**. Tre sonde, tutte con rosso verificato:
+- CO₂ moltiplicata per il numero di candidature → 2 rossi;
+- costo auto sostituito col prezzo carburante nella componente noleggio → **4** rossi, fra cui il caso
+  a mano e "ciascuna componente ai propri parametri". È la prova che esporre `rentalSavingsEuro` e
+  `fuelSavingsEuro` separatamente serviva: un test sul solo totale non vedrebbe due parametri scambiati
+  che per caso sommano giusto;
+- `requesterTripId` sostituito con la vecchia euristica → **4** rossi, fra cui il test con **due
+  trasferte gemelle** (stessi plant, stesso giorno, una di 3 giorni e una di 6). Il risultato cambia
+  davvero, quindi nessuna ricostruzione per indizio è sopravvissuta altrove. È la sonda che conta,
+  perché l'euristica eliminata male avrebbe lasciato un ripiego invisibile.
+
+Due errori **eliminati** perché non più raggiungibili (`unknown-offer-trip`,
+`return-leg-without-return-date`): con `requesterTripId` la trasferta che offre il posto non serve più
+al calcolo. Rimuovere un errore diventato irraggiungibile è giusto — un ramo che nessun test può
+coprire è codice morto, non difesa.
+
+### Terzo giro: il difetto che ho trovato verificando, e come
+
+Il developer aveva scritto nel report: *"se la trasferta indicata ha lo stato `cancelled`, ora conta
+comunque. Prima la escludevo; con il riferimento esplicito decide il dato."*
+
+**Il cambiamento andava nella direzione sbagliata e la motivazione non reggeva:** il riferimento
+esplicito dice *quale* trasferta è, non *se* una annullata debba contare. Verificato nel codice:
+filtrava su `request.status !== 'accepted'` e `own.status` non era guardato da nessuna parte. Quindi un
+collega con trasferta `cancelled` contava come auto evitata, con giorni, km, CO₂ e saving pieni —
+e una trasferta annullata non è avvenuta, quindi non c'era nessun noleggio da evitare. Gonfiava **tutti
+e quattro** i numeri destinati alla slide.
+
+**Il criterio mancava nei miei**, e la ragione per cui mi era sfuggito vale la pena scriverla: avevo
+scritto *"le candidature `pending`, `rejected` e `cancelled` non contribuiscono"* senza accorgermi che
+lo stesso stato esiste su **due entità diverse**. Aggiunto come criterio distinto, con la distinzione
+dichiarata, e corretto anche il commento in testa al file che confondeva le due cose.
+
+**Due cose sul processo, più importanti del difetto.** La prima: il developer l'ha **dichiarato** invece
+di nasconderlo. Un cambiamento silenzioso nella stessa direzione sarebbe passato con `verify` verde e
+sarebbe arrivato in demo. La seconda: ha aggiunto un test su `completed` e `published` che conta, non
+solo quello su `cancelled` che non conta — così la regola non può degenerare nell'opposto ("solo
+`published`"), e ha dichiarato di **non** aver provato quella mutazione. Dichiarare una sonda non fatta
+è esattamente ciò che la rende recuperabile.
+
+Ha anche segnalato di aver introdotto per errore un **BOM** con uno script di sonda, e di averlo
+rimosso. Verificato da me su **tutti** i `.ts` toccati: nessun BOM. È il tipo di cosa che passa il lint
+e rompe altrove, e vale come terzo episodio della stessa famiglia — dopo l'alias `R` e il mio
+round-trip di encoding su `TASKS.md`, tre volte in due giorni che una manipolazione di testo via shell
+ha corrotto un file. La regola in `IDEAS.md` va estesa oltre gli identificatori di una lettera.
+
+`verify` verde finale: **343 test** in 24 suite (erano 261 a fine T05), rieseguito da me dopo ogni
+giro. Scope verificato: `core/ports`, `eslint.config.js`, `find-matches.ts` e gli altri usecase di T05
+con diff **vuoto**.
+
+### Round 1 di review — **APPROVATO**, nessun bloccante
+
+La verifica più accurata della sessione, e vale la pena registrare **come** l'ha fatta, perché i metodi
+sono riutilizzabili.
+
+**L'aritmetica di calendario provata contro un oracolo indipendente.** Ha confrontato `civilDayNumber`
+con `Date.UTC` — lecito, perché l'ha eseguito in node e non dentro `core/` — su **109.938 date dal 1900
+al 2200**: zero divergenze. Più le ancore assolute (`1970-01-01 = 0`, `2000-01-01 = 10957`,
+`1969-12-31 = -1`) e la regola bisestile sui tre casi che la discriminano (2100 no, 2000 sì, 2028 sì).
+È la differenza fra "i test passano" e "la funzione è corretta".
+
+**La contabilità dei test chiusa in due modi indipendenti.** Per file, eseguendo i 24 uno a uno: 343.
+Per delta: 261 + 29 + 43 + 3 + 3 + 3 + 1 = 343. E nessun conteggio **scceso** in nessun file, con i
+diff dei file toccati fatti di sole aggiunte. Ha anche nominato l'unico punto dove un test potrebbe
+essere scomparso senza traccia — **dentro i due file nuovi**, fra il primo e il terzo giro, perché non
+esiste un baseline committato — e ha detto che lì la difesa non è il conteggio ma la copertura criterio
+per criterio, che ha fatto.
+
+**Le due rimozioni di errori verificate irraggiungibili, non accettate sulla parola.** `grep` per
+`request.tripId`, `request.direction`, `offer`: zero riscontri, l'unico accoppiamento è
+`requesterTripId`. Più una prova indipendente: un test passa a `computeCompanyKpi` **solo** la
+trasferta del passeggero, senza l'offerta, e il calcolo riesce — se il codice la cercasse ancora, quel
+test sarebbe rosso.
+
+**Il test invertito giudicato non un indebolimento, con un argomento che non avevo.** `both.co2 ===
+one.co2` da solo passerebbe anche se entrambi fossero zero: il test **pinna prima il valore assoluto**
+(40.000 g verificato a mano) e poi confronta quattro campi. L'inversione è ancorata, non tautologica.
+
+**Una precisazione che archivia un mio timore con la ragione giusta.** Temevo che due parametri
+scambiati potessero sommare giusto per caso. Il reviewer ha mostrato che lo scambio fra **consumo** e
+**prezzo al litro** è indistinguibile da *qualunque* test, perché `km × c / 100 × p` è commutativa in
+`c` e `p`: non è un buco di copertura, è una **simmetria dell'aritmetica**. Ciò che si può pinnare è
+che ciascuno muova il carburante e **non** il noleggio, ed è esattamente ciò che il test fa.
+
+**La mutazione che il developer aveva dichiarato di non aver provato non serve:** il test che la uccide
+l'aveva già scritto. L'`it.each` su `published` **e** `completed` asserisce tutti e quattro i numeri,
+quindi il mutante "conta solo `published`" fa cadere il caso `completed`. Prudenza nella dichiarazione,
+non un buco.
+
+**`requesterTripId` dentro T06: accettabile**, e con un argomento migliore del mio. Il mio era la
+non-separabilità; il suo è che un commit intermedio avrebbe aggiunto un campo obbligatorio **senza
+consumatore**, e l'unico test possibile sarebbe stato il round-trip di contratto che c'è già — quindi
+il commit separato non avrebbe aggiunto verifica, solo un punto di rollback su uno stato intermedio
+inutile. Ha verificato anche che `TASKS.md` dicesse il vero sul fatto che lo schema di T08 non esiste:
+nessun `.sql` nel repo.
+
+**BOM e mojibake: zero**, scansionati su **tutti** i sorgenti e tutti i `.md`, non solo sui file
+toccati. Il danno da `Set-Content` su `TASKS.md` è completamente rientrato.
+
+### Quattro non bloccanti, tre diventati voci di `IDEAS.md`
+
+Il più sostanzioso è **N1, e va saputo perché riguarda il numero in cima alla slide**:
+`requesterTripId` è obbligatorio e non vuoto, e **lì si fermano i controlli**. Nessuno verifica che
+quella trasferta esista, che sia del richiedente o che sia senza auto. `requestSeat` ha già
+`deps.trips` in mano e non la interroga. Conseguenze con `verify` verde: un riferimento alla trasferta
+di un collega o a una più lunga della propria gonfia tutti e quattro i KPI; un id inesistente spegne
+l'intera dashboard. Oggi irraggiungibile solo perché nessuna UI esiste. **Girato all'umano come
+domanda.**
+
+**N2:** una trasferta degenere `from == to` nei dati fa ritornare `missing-distance` per **tutto** il
+calcolo. Via d'ingresso: `seminaGrezzo`, una migrazione, e **il seed di T17** — lo scenario realistico.
+Due criteri, su T17 e T16.
+**N3:** `invalid-config / distanceKm` non dice **quale** coppia è rotta, mentre il gemello
+`missing-distance` le nomina entrambe. Con tre sedi si trova a occhio, con la tabella da file di T07b
+no.
+**N4, non promosso a voce:** `invalid-trip-date` è provato solo sul **rientro**; i due rami gemelli
+sulla **partenza** non hanno test. È la stessa riga di codice e lo stesso errore, quindi il reviewer ha
+giudicato il rischio minimo e l'ha segnalato perché il prossimo lettore non creda che la copertura sia
+simmetrica. Registrato qui e non implementato: non tocco codice approvato per una copertura che il
+reviewer ha giudicato ridondante.
+
+### Il giudizio di chiusura del reviewer, che vale come principio
+
+*"T06 è il task dove i numeri finiscono su un proiettore, e la cosa che lo rende difendibile non sono
+gli 82 test nuovi: è che tutti e sette i campi del risultato stanno su **una** base, quella dichiarata,
+e che la base si legge da un dato e non da un indovinello. Le tre decisioni che hanno richiesto tre
+giri — base di calcolo, carburante, `requesterTripId` — hanno tutte spostato il lavoro nella direzione
+di meno inferenza e più dato esplicito, che è l'unica direzione in cui un numero sopravvive a una
+domanda in sala."*
+
+E una nota di processo da tenere: il developer ha dichiarato **tre** cose contro il proprio interesse —
+un cambiamento di comportamento sugli stati (il difetto), una sonda non eseguita, e un BOM introdotto
+per errore. Tutte e tre recuperabili **perché** dichiarate, e nessuna delle tre l'avrebbe trovata
+`verify`. È il terzo task di fila in cui il difetto vero emerge da una dichiarazione volontaria e non
+dalla macchina.

@@ -27,6 +27,8 @@ export interface RequestSeatInput {
   readonly tripId: TripId;
   readonly direction: LegDirection;
   readonly requesterId: ProfileId;
+  /** La trasferta di chi si candida: chi si candida sa qual e' la propria. */
+  readonly requesterTripId: TripId;
   readonly requestNote: string | null;
 }
 
@@ -95,6 +97,7 @@ export async function requestSeat(
       tripId: input.tripId,
       direction: input.direction,
       requesterId: input.requesterId,
+      requesterTripId: input.requesterTripId,
       status: 'pending',
       requestNote: input.requestNote,
       resolutionNote: null,

@@ -398,31 +398,36 @@ cambio d'anno. È il buco segnalato il 13 ottobre, e questo è il task che lo pr
 Il conteggio è **inclusivo**: dal 3 al 5 novembre sono 3 giorni, come dice il criterio originale.
 
 **Criteri di accettazione**
-- [ ] Zero candidature accettate → tutti i KPI a zero, nessuna divisione per zero
-- [ ] Un collega senza auto con **una** candidatura accettata su una trasferta di 3 giorni → **1 auto
+- [x] Zero candidature accettate → tutti i KPI a zero, nessuna divisione per zero
+- [x] Un collega senza auto con **una** candidatura accettata su una trasferta di 3 giorni → **1 auto
       evitata, 3 giorni** di noleggio evitati, anche se ha condiviso **una sola** tratta
-- [ ] Lo stesso collega con **entrambe** le tratte accettate → ancora **1 auto evitata e 3 giorni**,
+- [x] Lo stesso collega con **entrambe** le tratte accettate → ancora **1 auto evitata e 3 giorni**,
       non 2 e non 6: è il test che impedisce il doppio conteggio
-- [ ] Chi **offre** l'auto non compare fra le auto evitate
-- [ ] Giorni inclusivi: dal 3 al 5 novembre sono 3; `returnAt` null → 1 giorno
-- [ ] L'aritmetica dei giorni è provata su **fine mese, anno bisestile e cambio d'anno**
-- [ ] **Prerequisito ⛔, approvato il 14 ottobre:** `MatchRequest` guadagna `requesterTripId`,
+- [x] Chi **offre** l'auto non compare fra le auto evitate
+- [x] Giorni inclusivi: dal 3 al 5 novembre sono 3; `returnAt` null → 1 giorno
+- [x] L'aritmetica dei giorni è provata su **fine mese, anno bisestile e cambio d'anno**
+- [x] **Prerequisito ⛔, approvato il 14 ottobre:** `MatchRequest` guadagna `requesterTripId`,
       valorizzato da `requestSeat`. Senza, la trasferta del passeggero — da cui dipendono giorni,
       saving e CO₂ — si può solo **dedurre** (stessa persona, senza auto, stessi plant, stesso giorno),
       e il numero in cima alla slide poggerebbe su una regola invece che su un dato. Lo schema di T08
       non è ancora scritto, quindi adesso non c'è nessuna migrazione da rifare
-- [ ] **Saving €** = (giorni evitati × costo auto/giorno) **+** (km evitati × consumo × prezzo
+- [x] **Saving €** = (giorni evitati × costo auto/giorno) **+** (km evitati × consumo × prezzo
       carburante), tutti e quattro i parametri da `config`, verificato su un caso a mano
-- [ ] **CO₂ e carburante si contano sulla trasferta del passeggero, non per tratta condivisa.**
+- [x] **CO₂ e carburante si contano sulla trasferta del passeggero, non per tratta condivisa.**
       Chi non ha noleggiato non ha guidato: la sua auto mancata non ha percorso **nessuna** delle due
       tratte, quindi si contano andata **e** ritorno (×1 se `returnAt` è null). È l'unica base coerente
       con i giorni di noleggio, e quattro numeri sulla stessa base non si smontano
-- [ ] **Conseguenza da mettere sotto test:** CO₂ e carburante **non** raddoppiano se il collega ha
+- [x] **Conseguenza da mettere sotto test:** CO₂ e carburante **non** raddoppiano se il collega ha
       condiviso entrambe le tratte invece di una. Il valore è lo stesso, esattamente come per auto
       evitate e giorni: la candidatura accettata è l'**innesco**, non l'unità di misura
-- [ ] Cambiando un parametro in `config` il risultato cambia di conseguenza (niente valori hardcoded)
-- [ ] Le candidature `pending`, `rejected` e `cancelled` **non** contribuiscono ad alcun KPI
-- [ ] Una tratta la cui coppia di plant non è nella tabella delle distanze **non** fa fallire il
+- [x] Cambiando un parametro in `config` il risultato cambia di conseguenza (niente valori hardcoded)
+- [x] Le candidature `pending`, `rejected` e `cancelled` **non** contribuiscono ad alcun KPI
+- [x] Una **trasferta** con stato `cancelled` **non** contribuisce ad alcun KPI, nemmeno se ha una
+      candidatura accettata: non è avvenuta, quindi non c'era nessun noleggio da evitare e nessun km da
+      non percorrere. `published` e `completed` contribuiscono. È un criterio distinto da quello sopra,
+      che parla dello stato della **candidatura**: sono due stati diversi su due entità diverse, e
+      confonderli gonfia ogni numero della slide
+- [x] Una tratta la cui coppia di plant non è nella tabella delle distanze **non** fa fallire il
       calcolo in silenzio: errore tipizzato oppure zero dichiarato, documentato
 
 ## T07 Badge

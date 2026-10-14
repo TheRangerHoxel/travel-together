@@ -47,6 +47,7 @@ function unaCandidatura(modifiche: Partial<MatchRequest> = {}): MatchRequest {
     tripId: 'trip-a',
     direction: 'outbound',
     requesterId: R,
+    requesterTripId: 'trip-richiedente',
     status: 'pending',
     requestNote: null,
     resolutionNote: null,

@@ -12,6 +12,7 @@ function unInput(modifiche: Partial<RequestSeatInput> = {}): RequestSeatInput {
     tripId: TRIP_ID,
     direction: 'outbound',
     requesterId: RICHIEDENTE,
+    requesterTripId: 'trip-richiedente',
     requestNote: null,
     ...modifiche,
   };
@@ -35,11 +36,35 @@ describe('requestSeat: casi validi', () => {
       tripId: TRIP_ID,
       direction: 'outbound',
       requesterId: RICHIEDENTE,
+      requesterTripId: 'trip-richiedente',
       status: 'pending',
       requestNote: null,
       resolutionNote: null,
       resolvedBy: null,
     });
+  });
+
+  it('salva la trasferta di chi si candida, quella passata in input', async () => {
+    const { requests } = await esegui(unInput({ requesterTripId: 'altra-trasferta' }));
+
+    expect(requests.saveCalls[0]?.requesterTripId).toBe('altra-trasferta');
+  });
+
+  it('una cancelled riaperta prende la trasferta della NUOVA candidatura', async () => {
+    const vecchia = unaRichiesta({ id: 'req-vecchia', status: 'cancelled', resolutionNote: 'x', resolvedBy: 'requester', requesterTripId: 'vecchia-trasferta' });
+    const { requests } = await esegui(unInput({ requesterTripId: 'nuova-trasferta' }), [vecchia]);
+
+    expect(requests.saveCalls[0]?.requesterTripId).toBe('nuova-trasferta');
+  });
+
+  it('senza trasferta del richiedente la candidatura e rifiutata e non scrive', async () => {
+    const { r, requests } = await esegui(unInput({ requesterTripId: '  ' }));
+
+    expect(r).toEqual({
+      ok: false,
+      error: { kind: 'request-invalid', violation: { kind: 'requester-trip-missing' } },
+    });
+    expect(requests.saveCalls).toHaveLength(0);
   });
 
   it('conserva la nota byte per byte (spazi interni, a capo, emoji, spazi ai bordi)', async () => {

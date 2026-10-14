@@ -9,6 +9,9 @@
 export type { MatchConfig } from './match-config';
 export type { ScoredMatch, MatchError } from './find-matches';
 export { findMatches } from './find-matches';
+export type { KpiConfig, PlantDistanceTable } from './kpi-config';
+export type { CompanyKpi, CompanyKpiError } from './compute-company-kpi';
+export { computeCompanyKpi } from './compute-company-kpi';
 export type { CreateTripConfig } from './create-trip-config';
 export type { CreateTripInput, CreateTripDeps, CreateTripError } from './create-trip';
 export { createTrip } from './create-trip';

@@ -63,6 +63,8 @@ describe('reintegro delle righe di sistema', () => {
         tripId: 'trip-1',
         direction: 'outbound',
         requesterId: `utente-${id}`,
+        // Il reintegro conserva il campo introdotto per T06 (fixture di default).
+        requesterTripId: 'trip-richiedente',
         // pending e NON accepted: tornano candidati tutti, sceglie chi offre.
         status: 'pending',
         requestNote: 'passo da Napoli',

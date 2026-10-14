@@ -658,6 +658,7 @@ export function eseguiSuiteDiContratto(
           tripId,
           direction,
           requesterId,
+          requesterTripId: `trip-di-${requesterId}`,
           status: 'pending',
           requestNote: null,
           resolutionNote: null,
@@ -675,6 +676,25 @@ export function eseguiSuiteDiContratto(
         expect(esito.ok).toBe(true);
         if (esito.ok) {
           expect(esito.value.status).toBe('pending');
+        }
+      });
+
+      it('requesterTripId sopravvive a scrittura e rilettura', async () => {
+        // Il KPI aziendale (T06) conta sulla trasferta del richiedente: se l'adapter
+        // perdesse il campo, tornerebbe l'indovinello per plant e giorno.
+        const id = amb.nuovoMatchRequestId();
+        await amb.comeUtente(richiedente);
+        await salvaCandidatura(
+          unaCandidatura(richiedente, id, offerta, 'outbound', {
+            requesterTripId: 'trasferta-del-richiedente',
+          })
+        );
+
+        const esito = await amb.matchRequests.findById(id);
+
+        expect(esito.ok).toBe(true);
+        if (esito.ok) {
+          expect(esito.value.requesterTripId).toBe('trasferta-del-richiedente');
         }
       });
 

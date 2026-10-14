@@ -6,4 +6,5 @@
 
 export { MATCH_CONFIG } from './matching';
 export { CREATE_TRIP_CONFIG } from './trips';
+export { KPI_CONFIG } from './kpi';
 export { NOTE_CONFIG, CASCADE_CONFIG } from './notes';

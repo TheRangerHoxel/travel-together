@@ -20,6 +20,8 @@ export type { TripRequest } from './trip-request';
 export type { Instant } from './instant';
 export { parseUtcInstant } from './instant';
 
+export { civilDayNumber, inclusiveDaysBetween } from './calendar';
+
 export type {
   MatchRequest,
   MatchRequestId,

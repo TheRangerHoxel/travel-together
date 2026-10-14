@@ -12,6 +12,7 @@ function unaCandidatura(modifiche: Partial<MatchRequest> = {}): MatchRequest {
     tripId: 'trip-1',
     direction: 'outbound',
     requesterId: 'profile-1',
+    requesterTripId: 'trip-2',
     status: 'pending',
     requestNote: null,
     resolutionNote: null,
@@ -23,6 +24,18 @@ function unaCandidatura(modifiche: Partial<MatchRequest> = {}): MatchRequest {
 function errore(esito: ReturnType<typeof makeMatchRequest>): string | null {
   return esito.ok ? null : esito.error.kind;
 }
+
+describe('makeMatchRequest — trasferta del richiedente', () => {
+  it.each(['', '   '])('rifiuta requesterTripId %j', (valore) => {
+    expect(errore(makeMatchRequest(unaCandidatura({ requesterTripId: valore }), LIMITE))).toBe(
+      'requester-trip-missing'
+    );
+  });
+
+  it('accetta un riferimento valorizzato', () => {
+    expect(makeMatchRequest(unaCandidatura({ requesterTripId: 'trip-9' }), LIMITE).ok).toBe(true);
+  });
+});
 
 describe('makeMatchRequest — nota di candidatura', () => {
   it('accetta una candidatura senza nota', () => {

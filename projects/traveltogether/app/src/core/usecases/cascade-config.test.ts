@@ -29,6 +29,7 @@ describe('i valori di config della cascata sono conformi al tipo del core', () =
         tripId: 't',
         direction: 'outbound',
         requesterId: 'p',
+        requesterTripId: 'tp',
         status: 'rejected',
         requestNote: null,
         resolutionNote: CASCADE_CONFIG.autoRejectNote,
