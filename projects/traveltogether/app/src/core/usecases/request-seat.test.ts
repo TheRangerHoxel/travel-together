@@ -1,6 +1,7 @@
 // requestSeat: candidatura a una tratta. Ogni rifiuto asserisce zero `save` sullo spia.
 
-import type { MatchRequest, NoteConfig, Trip } from '../domain';
+import type { MatchRequest, NoteConfig, SeatOffer, Trip, TripRequest } from '../domain';
+import { findMatches } from './find-matches';
 import { requestSeat, type RequestSeatInput } from './request-seat';
 import {
   ESTRANEO,
@@ -33,7 +34,9 @@ function unaTrasfertaPropria(modifiche: Partial<Trip> = {}): Trip {
     fromPlantId: 'pomigliano',
     toPlantId: 'foggia',
     departureAt: '2026-11-03T07:00:00.000Z',
-    returnAt: null,
+    // Come l'offerente del fake (rientro alle 17:00 dello stesso giorno): senza un
+    // `returnAt` compatibile ogni candidatura sul rientro sarebbe rifiutata (T07d).
+    returnAt: '2026-11-03T17:00:00.000Z',
     hasCar: false,
     seatsTotal: 0,
     seatsAvailable: 0,
@@ -322,5 +325,206 @@ describe('requestSeat: rifiuti (zero scritture)', () => {
 
     expect(r.ok).toBe(true);
     expect(requests.saveCalls).toHaveLength(1);
+  });
+});
+
+// L'offerente del fake: Pomigliano -> Foggia, andata 2026-11-03 07:00, rientro 17:00 dello
+// stesso giorno di default. In quella forma i due capi sono INDISTINGUIBILI per un confronto
+// sul giorno: i test sul capo dell'offerente usano `returnAt` del fake (rientro 2026-11-05).
+describe('requestSeat: compatibilita della trasferta dichiarata con la tratta (T07d)', () => {
+  const INCOMPATIBILE = {
+    ok: false,
+    error: { kind: 'requester-trip-invalid', reason: 'leg-incompatible', requesterTripId: 'trip-richiedente' },
+  };
+
+  async function rifiutata(input: RequestSeatInput, propria: Trip) {
+    const { r, requests, trips } = await esegui(input, [], [propria]);
+    expect(r).toEqual(INCOMPATIBILE);
+    // Zero scritture contate sulle spie, non sui valori finali.
+    expect(requests.saveCalls).toHaveLength(0);
+    expect(trips.adjustCalls).toHaveLength(0);
+  }
+
+  it('il caso dei numeri: tratta di un giorno, trasferta dichiarata Pomigliano-Grottaglie di sei', async () => {
+    const lunga = unaTrasfertaPropria({
+      toPlantId: 'grottaglie',
+      departureAt: '2026-11-03T07:00:00.000Z',
+      returnAt: '2026-11-08T17:00:00.000Z',
+    });
+    await rifiutata(unInput(), lunga);
+  });
+
+  it.each(['outbound', 'return'] as const)('plant diversi (%s): rifiutata', async (direction) => {
+    await rifiutata(unInput({ direction }), unaTrasfertaPropria({ toPlantId: 'grottaglie' }));
+    await rifiutata(unInput({ direction }), unaTrasfertaPropria({ fromPlantId: 'grottaglie' }));
+  });
+
+  it.each(['outbound', 'return'] as const)(
+    'plant invertiti rispetto all\'offerente (%s): rifiutata, il confronto e con la trasferta e non con la proiezione',
+    async (direction) => {
+      await rifiutata(unInput({ direction }), unaTrasfertaPropria({ fromPlantId: 'foggia', toPlantId: 'pomigliano' }));
+    }
+  );
+
+  it('andata: giorno di partenza diverso, rifiutata', async () => {
+    await rifiutata(unInput(), unaTrasfertaPropria({ departureAt: '2026-11-04T07:00:00.000Z' }));
+  });
+
+  it('rientro: giorno di rientro diverso, rifiutata', async () => {
+    await rifiutata(unInput({ direction: 'return' }), unaTrasfertaPropria({ returnAt: '2026-11-04T17:00:00.000Z' }));
+  });
+
+  it('rientro: trasferta dichiarata senza returnAt, rifiutata con lo stesso reason', async () => {
+    await rifiutata(unInput({ direction: 'return' }), unaTrasfertaPropria({ returnAt: null }));
+  });
+
+  it('il confronto e sul capo della direzione della trasferta DICHIARATA: il suo altro capo non conta', async () => {
+    // Copre il lato del richiedente; il lato dell'offerente e' nel describe "offerente su piu giorni".
+    // Rientro diverso ma andata uguale: per l'andata passa.
+    const soloRientroDiverso = unaTrasfertaPropria({ returnAt: '2026-11-09T17:00:00.000Z' });
+    const a = await esegui(unInput({ direction: 'outbound' }), [], [soloRientroDiverso]);
+    expect(a.r.ok).toBe(true);
+    // Andata diversa ma rientro uguale: per il rientro passa.
+    const soloAndataDiversa = unaTrasfertaPropria({ departureAt: '2026-11-02T07:00:00.000Z' });
+    const b = await esegui(unInput({ direction: 'return' }), [], [soloAndataDiversa]);
+    expect(b.r.ok).toBe(true);
+  });
+
+  it('confine: stesso giorno e ora diversa passa (nessuna finestra di tolleranza), giorno UTC adiacente no', async () => {
+    const stessoGiornoAltraOra = unaTrasfertaPropria({ departureAt: '2026-11-03T23:59:59.000Z' });
+    const ok1 = await esegui(unInput(), [], [stessoGiornoAltraOra]);
+    expect(ok1.r.ok).toBe(true);
+
+    const primoIstanteDelGiorno = unaTrasfertaPropria({ departureAt: '2026-11-03T00:00:00.000Z' });
+    const ok2 = await esegui(unInput(), [], [primoIstanteDelGiorno]);
+    expect(ok2.r.ok).toBe(true);
+
+    await rifiutata(unInput(), unaTrasfertaPropria({ departureAt: '2026-11-04T00:00:00.000Z' }));
+  });
+
+  it('istante illeggibile nella trasferta dichiarata: rifiutata, non confrontata come uguale', async () => {
+    await rifiutata(unInput(), unaTrasfertaPropria({ departureAt: 'non-una-data' }));
+  });
+
+  describe('non-regressione: un percorso che findMatches avrebbe proposto passa', () => {
+    const CONFIG = { toleranceMinutes: 30 };
+
+    // La domanda del passeggero e l'offerta come le produrrebbe listOpenOffers.
+    function richiestaDel(propria: Trip, direction: 'outbound' | 'return'): TripRequest {
+      return {
+        requesterId: RICHIEDENTE,
+        requesterPlantId: 'grottaglie',
+        fromPlantId: direction === 'outbound' ? propria.fromPlantId : propria.toPlantId,
+        toPlantId: direction === 'outbound' ? propria.toPlantId : propria.fromPlantId,
+        departureAt: direction === 'outbound' ? propria.departureAt : (propria.returnAt ?? ''),
+      };
+    }
+    function offertaDel(offerente: Trip, direction: 'outbound' | 'return'): SeatOffer {
+      return {
+        tripId: offerente.id,
+        direction,
+        ownerId: offerente.ownerId,
+        ownerPlantId: 'pomigliano',
+        fromPlantId: direction === 'outbound' ? offerente.fromPlantId : offerente.toPlantId,
+        toPlantId: direction === 'outbound' ? offerente.toPlantId : offerente.fromPlantId,
+        departureAt: direction === 'outbound' ? offerente.departureAt : (offerente.returnAt ?? ''),
+        seatsAvailable: 3,
+      };
+    }
+
+    // Due offerenti: in giornata (default del fake) e su piu' giorni. Solo il secondo
+    // distingue i due capi: col primo andata e rientro sono lo stesso giorno.
+    it.each([
+      ['in giornata', undefined, '2026-11-03', '2026-11-03'],
+      ['su piu giorni', '2026-11-05T17:00:00.000Z', '2026-11-03', '2026-11-05'],
+    ] as const)('offerente %s: entrambe le tratte passano', async (_nome, returnAtOfferente, giornoAndata, giornoRientro) => {
+      for (const direction of ['outbound', 'return'] as const) {
+        const trips = unTripsSpia({ returnAt: returnAtOfferente, otherTrips: [] });
+        const offerente = await trips.findById(TRIP_ID);
+        if (!offerente.ok) throw new Error('offerente del fake non trovato');
+        const propria = unaTrasfertaPropria({
+          // Venti e dieci minuti di scarto dall'offerente: dentro la tolleranza di findMatches.
+          departureAt: `${giornoAndata}T07:20:00.000Z`,
+          returnAt: `${giornoRientro}T16:50:00.000Z`,
+        });
+
+        // Precondizione: il matching propone davvero questa offerta. Se non fosse cosi'
+        // il test non proverebbe nulla sul vincolo.
+        const proposte = findMatches(richiestaDel(propria, direction), [offertaDel(offerente.value, direction)], [], CONFIG);
+        expect(proposte.ok && proposte.value.map((m) => m.offer.direction)).toEqual([direction]);
+
+        const requests = unRequestsSpia();
+        const r = await requestSeat(
+          unInput({ direction }),
+          { trips: unTripsSpia({ returnAt: returnAtOfferente, otherTrips: [propria] }), requests },
+          NOTE
+        );
+        expect(r.ok).toBe(true);
+        expect(requests.saveCalls).toHaveLength(1);
+      }
+    });
+  });
+
+  describe('offerente su piu giorni (11-03 -> 11-05): i due capi dell\'offerente sono distinguibili', () => {
+    const RIENTRO_OFFERENTE = '2026-11-05T17:00:00.000Z';
+
+    async function rifiutataConOfferenteMultiGiorno(input: RequestSeatInput, propria: Trip) {
+      const requests = unRequestsSpia();
+      const trips = unTripsSpia({ returnAt: RIENTRO_OFFERENTE, otherTrips: [propria] });
+      const r = await requestSeat(input, { trips, requests }, NOTE);
+      expect(r).toEqual(INCOMPATIBILE);
+      expect(requests.saveCalls).toHaveLength(0);
+      expect(trips.adjustCalls).toHaveLength(0);
+    }
+
+    it('rientro: il rientro dichiarato cade nel giorno di PARTENZA dell\'offerente, rifiutata', async () => {
+      await rifiutataConOfferenteMultiGiorno(
+        unInput({ direction: 'return' }),
+        unaTrasfertaPropria({ returnAt: '2026-11-03T17:00:00.000Z' })
+      );
+    });
+
+    it('andata: la partenza dichiarata cade nel giorno di RIENTRO dell\'offerente, rifiutata', async () => {
+      await rifiutataConOfferenteMultiGiorno(
+        unInput({ direction: 'outbound' }),
+        unaTrasfertaPropria({ departureAt: '2026-11-05T07:00:00.000Z' })
+      );
+    });
+  });
+
+  it('i controlli di T07c precedono quello di compatibilita: una trasferta altrui e incompatibile risponde not-owned', async () => {
+    const altruiEIncompatibile = unaTrasfertaPropria({ ownerId: ESTRANEO, toPlantId: 'grottaglie' });
+    const { r, requests, trips } = await esegui(unInput(), [], [altruiEIncompatibile]);
+    expect(r).toEqual({
+      ok: false,
+      error: { kind: 'requester-trip-invalid', reason: 'not-owned', requesterTripId: 'trip-richiedente' },
+    });
+    expect(requests.saveCalls).toHaveLength(0);
+    expect(trips.adjustCalls).toHaveLength(0);
+  });
+
+  it('il controllo precede already-requested: incompatibile con candidatura esistente risponde leg-incompatible', async () => {
+    const { r, requests } = await esegui(unInput(), [unaRichiesta({ status: 'accepted' })], [
+      unaTrasfertaPropria({ toPlantId: 'grottaglie' }),
+    ]);
+    expect(r).toEqual(INCOMPATIBILE);
+    expect(requests.saveCalls).toHaveLength(0);
+  });
+
+  it('tratta trovata ma trasferta dell\'offerente no (storage incoerente): storage-failed con la causa, non leg-not-found', async () => {
+    const requests = unRequestsSpia();
+    const base = unTripsSpia({ otherTrips: [unaTrasfertaPropria()] });
+    const trips: TripsSpia = {
+      ...base,
+      findById: (id) =>
+        id === TRIP_ID ? Promise.resolve({ ok: false, error: { kind: 'not-found', id } }) : base.findById(id),
+    };
+    const r = await requestSeat(unInput(), { trips, requests }, NOTE);
+
+    expect(r).toEqual({
+      ok: false,
+      error: { kind: 'storage-failed', cause: { kind: 'not-found', id: TRIP_ID } },
+    });
+    expect(requests.saveCalls).toHaveLength(0);
   });
 });

@@ -56,6 +56,13 @@ export interface TripsOptions {
   /** Posti liberi del solo ritorno, se diversi da quelli dell'andata. */
   readonly returnAvailable?: number;
   readonly withReturn?: boolean;
+  /**
+   * Rientro dell'offerente, se diverso dal default (stesso giorno dell'andata, 17:00).
+   * Serve ai test che devono distinguere i due capi: col default `departureAt` e
+   * `returnAt` cadono nello stesso giorno UTC e un confronto sul giorno non li separa.
+   * Ignorato con `withReturn: false`.
+   */
+  readonly returnAt?: string;
   /** Numero (1-based) di chiamata a adjustLegSeats che fallisce con storage-unavailable. */
   readonly failAdjustOnCall?: number;
   /**
@@ -74,7 +81,7 @@ export function unTripsSpia(opzioni: TripsOptions = {}): TripsSpia {
     fromPlantId: 'pomigliano',
     toPlantId: 'foggia',
     departureAt: '2026-11-03T07:00:00.000Z',
-    returnAt: opzioni.withReturn === false ? null : '2026-11-03T17:00:00.000Z',
+    returnAt: opzioni.withReturn === false ? null : (opzioni.returnAt ?? '2026-11-03T17:00:00.000Z'),
     hasCar: true,
     seatsTotal,
     seatsAvailable,

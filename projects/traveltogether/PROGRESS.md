@@ -2961,3 +2961,230 @@ aggiunte e 16 rimosse su `TASKS.md` e `IDEAS.md`, nessun mojibake e nessun BOM: 
 per tre task nuovi, un blocco di criteri riscritti e dodici annotazioni.
 
 **Prossimo passo:** T07d, developer diretto senza planner, poi `verify`, poi reviewer.
+
+---
+
+## 2026-10-23 — T07d · implementato, `verify` verde, in attesa del reviewer
+
+**`verify` rifatto da me**, non preso dal report del developer: **418 test unitari in 27 suite** (+16
+sulla baseline 402), 1 di integrazione, 1 di smoke. Diff +224/−5 su due file, la dimensione prevista.
+Nessun file nuovo, nessuna suite nuova, nessun port toccato.
+
+**Come è stato implementato.** `trasfertaCompatibile(dichiarata, offerente, direction)` confronta le due
+**trasferte** e non la proiezione della tratta: plant nello stesso ordine, e stesso **giorno** del capo
+corrispondente — `departureAt` per l'andata, `returnAt` per il rientro. Il predicato è equivalente alla
+simmetria per direzione scritta nei criteri **perché** `listOpenOffers` proietta il rientro invertendo i
+plant dell'offerente, e il developer ha verificato l'equivalenza sul codice invece di fidarsi del brief.
+Il dato mancante — `TripLeg` non ha né plant né date — arriva da un `findById(input.tripId)` su un
+metodo del port **che esiste già**: nessuna firma cambia.
+
+Collocazione del controllo: dopo `not-published` e prima di `already-requested`, con **due test che la
+pinnano**. Conseguenza voluta: chi dichiara una trasferta altrui *e* incompatibile riceve `not-owned`,
+e chi ne dichiara una incompatibile avendo già una candidatura riceve `leg-incompatible` e non
+`already-requested`. È la regola "titolo prima di stato" già decisa in T07c, estesa al caso nuovo.
+
+### Le tre decisioni che il developer ha preso da sé e ha dichiarato
+
+1. **Nome del quinto `reason`: `leg-incompatible`.** Il brief non lo dava.
+2. **Un istante illeggibile non coincide con niente** → rifiuto. Vale anche per il `departureAt`
+   dell'**offerente**, e questo è il punto da far guardare al reviewer: in quel caso l'errore dice
+   `requester-trip-invalid`, cioè *"scegli un'altra trasferta"*, mentre il dato rotto è dell'offerta.
+   Stessa famiglia del `continue` di `findMatches` su un'offerta illeggibile, e stessa perdita
+   silenziosa.
+3. **Il commento sul `kind` unico diceva "quattro casi"** e con il quinto era falso: riscritto senza il
+   numero. È la regola sui commenti che promettono più del codice, applicata a un numero che invecchia.
+
+### Due sonde non eseguite, dichiarate
+
+- **Nessuna sonda di mutazione:** il predicato non è stato rotto per vedere i test diventare rossi. I
+  test sono costruiti per poter fallire — rifiuti, confini, precedenze, e il test di non-regressione
+  asserisce come **precondizione** che `findMatches` proponga davvero quell'offerta — ma la prova non è
+  stata fatta.
+- **Il rosso previsto non è stato osservato:** avevo previsto nel brief che il test su andata e ritorno
+  diventasse rosso con `returnAt: null`; il developer ha completato la fixture **prima** del primo
+  lancio, quindi quel rosso nessuno l'ha visto. L'aspettativa del test non è cambiata, solo il dato.
+
+### Due voci nuove in `IDEAS.md`, entrambe da dichiarazioni volontarie e non da `verify`
+
+- **Il vincolo non guarda il capo non richiesto.** Con **gli stessi plant e lo stesso giorno di
+  partenza**, una trasferta dichiarata di sei giorni contro una tratta di uno passa, e T06 accredita sei
+  giorni. Non è un difetto di T07d: il vincolo è per definizione quello dei vincoli duri di
+  `findMatches`, che **proporrebbe** quell'offerta. Le due vie sono confrontare anche il capo non
+  richiesto (rompe "ho chiesto solo l'andata") o limitare i giorni lato T06 (non toglie niente
+  all'utente). Il comportamento attuale è pinnato da un test, quindi cambiarlo richiede una decisione
+  scritta.
+- **Il giorno del confronto è UTC**, non il giorno nel fuso di chi viaggia: una partenza fra mezzanotte
+  e le due locali cade nel giorno UTC precedente, e due colleghi a due ore di distanza non si
+  incontrerebbero mai. Irraggiungibile con dati realistici — si parte alle 6 o alle 7 — quindi
+  registrato come asimmetria da decidere, non come allarme.
+
+**Non committato:** il commit avviene dopo il reviewer, che è il prossimo passo.
+
+---
+
+## 2026-10-23 — T07d · **BOCCIATO** al primo giro, e il difetto era nella verifica
+
+`verify` era verde, rifatto due volte — da me e dal reviewer. Il reviewer ha bocciato comunque: **quinta
+bocciatura del progetto con `verify` verde**, e la prima in cui il codice di produzione è corretto e il
+difetto è **tutto nei test**.
+
+### N1, bloccante: il capo dell'offerente non era pinnato da nessun test
+
+La causa radice è una fixture, non una riga di logica. Nel fake degli usecase
+(`request-test-fakes.ts:76-77`) l'offerente ha `departureAt` alle 07:00 e `returnAt` alle 17:00 **dello
+stesso giorno UTC**. Il predicato confronta il **giorno**, quindi in ogni test del file
+`offerente.departureAt` e `offerente.returnAt` sono **lo stesso valore**: si possono invertire i due
+rami del ternario `capoOfferente` in `trasfertaCompatibile` e tutti i 418 test restano verdi.
+
+Il reviewer ha enumerato otto mutanti del predicato: sei muoiono — quelli sui plant, quelli sul capo
+della **trasferta dichiarata**, e quello che stringe il confronto all'istante — e **due sopravvivono**,
+entrambi sul capo dell'**offerente**, in entrambe le direzioni. Quindi la simmetria per direzione, che è
+la ragione per cui i criteri sono stati riscritti stamattina, era verificata **su un lato solo**: quello
+della trasferta dichiarata. Il difetto si era spostato di un passo, non era stato chiuso.
+
+Conseguenza reale della mutazione sopravvissuta, se qualcuno un giorno "semplificasse" quella riga:
+offerente che parte il 3 e rientra il 5, passeggero che dichiara una trasferta che rientra il **3**,
+candidatura sul rientro → **accettata**. È il buco dei KPI che il task esiste per chiudere. E il caso
+multi-giorno è quello **realistico**: le fixture di T06 usano 11-03 → 11-05, l'andata-e-ritorno in
+giornata del fake è l'eccezione.
+
+Nota che aggrava il punto e che vale come regola: il test che dovrebbe coprire la proprietà si chiama
+*"il confronto è sul capo della direzione: il capo dell'altra direzione non conta"* — **un titolo che
+annuncia la proprietà su entrambi i lati mentre la verifica su uno**. La regola sui commenti che
+promettono più del codice vale anche per i nomi dei test.
+
+**La sonda che il developer aveva dichiarato di non aver fatto era esattamente questa.** Una sonda non
+fatta e **dichiarata** è recuperabile: è costata un giro di review. Non dichiarata, sarebbe stata un
+commit verde con metà del vincolo non verificato.
+
+### N2, minore: un limite mancante nel commento dei limiti
+
+`trasfertaCompatibile` dichiara tre limiti e ne ha quattro. Il quarto: un istante **illeggibile su un
+capo dell'offerente** produce `requester-trip-invalid`, cioè per T13 *"scegli un'altra trasferta"*,
+mentre il dato rotto è dell'**offerta**. Oggi irraggiungibile — `createTrip` rifiuta già `+01:00` — ma a
+**T09 largamente raggiungibile**, perché PostgREST serializza `+00:00` e `parseUtcInstant` lo rifiuta: in
+quel caso *ogni* candidatura verrebbe respinta con un messaggio che incolpa il richiedente. Il commento
+deve dichiararlo e nominare **T07f** come il task che ne rimuove la causa.
+
+### Quello che il reviewer ha confermato, e che quindi non si rifà
+
+Equivalenza del predicato **verificata sul codice dell'adapter** e non assunta dal brief: sostituendo la
+proiezione, per entrambe le direzioni resta la stessa condizione, quindi confrontare le due trasferte
+nello stesso ordine è lecito. T07c non è indebolito: `unaTrasfertaPropria` è **locale** al file, il
+`returnAt` aggiunto è un dato in più che nessun test preesistente legge, e il test che asserisce
+`findByIdCalls` a zero regge nonostante la seconda `findById`. La scelta `storage-failed` sul
+`not-found` dell'offerente è corretta e il suo commento onesto. E il test di non-regressione **non prova
+il vincolo contro sé stesso** sul lato offerta, perché la proiezione che ricostruisce a mano è pinnata
+come stringhe letterali dalla suite di contratto.
+
+### Un rilievo sul sistema, non sul task: il reviewer può scrivere
+
+`OFFICINA.md` dichiara *"l'indipendenza del reviewer è strutturale, non dichiarata: non ha strumenti di
+scrittura"*. **Non è vero come è scritto:** fra i suoi strumenti c'è la shell, e il rilievo N1 è nato
+proprio **eseguendo i mutanti**, cioè modificando il sorgente e ripristinandolo. Il lavoro è stato
+restituito pulito e l'ho verificato io sul working tree prima di proseguire — diff della dimensione
+attesa, entrambi i rami della riga mutata intatti — ma la rete era una convenzione, non una proprietà
+della macchina, e la regola *"non manipolare file di testo con comandi di shell"* è stata aggirata
+dall'agente che dovrebbe farla rispettare.
+
+Il punto delicato è che **la sonda era utile**: senza, N1 non sarebbe uscito. Quindi la domanda non è se
+vietarla ma **chi la esegue e con quali reti**, e la scelta è dell'umano perché toccare gli strumenti di
+un agente è un ⛔. Registrata in `IDEAS.md` con tre forme possibili.
+
+### Tre voci nuove in `IDEAS.md`, dalla review
+
+1. **L'indipendenza del reviewer non è strutturale** — qui sopra.
+2. **Una proiezione sola da `Trip` a `TripRequest`/`SeatOffer` in `core/domain`.** La faccia "offerta" è
+   pinnata dalla suite di contratto; la faccia "richiesta" **non esiste in produzione** e vive solo come
+   assunzione dentro un test. Se T13 costruisse `TripRequest` senza invertire i plant sul rientro, la
+   non-regressione di T07d svanirebbe **in silenzio**.
+3. **Un fake le cui fixture non distinguono due campi rende invisibile una classe di mutanti** — la
+   regola generale di N1, con il dato che la suite di contratto non ha il problema (date in giorni
+   diversi, pinnate come letterali) e i fake degli usecase sì.
+
+**Secondo giro in corso**, test-only più la riga di commento di N2, con la **sonda mirata obbligatoria**:
+invertire i due rami, vedere i test nuovi diventare rossi, ripristinare, e dichiarare l'esito con
+`git diff --numstat` a conferma del ripristino.
+
+---
+
+## 2026-10-23 — T07d · secondo giro: N1 e N2 chiusi, e **la sonda è stata eseguita**
+
+`verify` rifatto da me: **420 test unitari in 27 suite** (+2 sui 418), 1 di integrazione, 1 di smoke.
+Il predicato di produzione **non è cambiato**: ho controllato riga per riga che `request-seat.ts` differisca
+dal giro precedente **solo** per il quarto limite nel commento.
+
+### La sonda che mancava, eseguita e dichiarata
+
+Invertiti i due rami del ternario `capoOfferente` con lo strumento di modifica, non con la shell. Il
+punto si nomina, non si cita per numero di riga: il `request-seat.ts:119` scritto nella voce precedente
+era **già vecchio quando l'ho scritto**, perché il quarto limite di N2 ha spostato la riga di quattro
+posizioni. Rilievo del reviewer, e vale per ogni sonda futura. Risultato:
+**tre test rossi** su 43 del file — la non-regressione sull'offerente multi-giorno (che copre entrambe le
+direzioni), il rifiuto sul rientro dichiarato nel giorno di *partenza* dell'offerente, e il rifiuto
+speculare sulla partenza dichiarata nel giorno di *rientro*. Poi ripristino, `git diff --numstat`
+coincidente con quello di prima della sonda, e `verify` verde di nuovo.
+
+Quindi i due mutanti che sopravvivevano **adesso muoiono**, e la differenza non è un'opinione: è la
+stessa riga mutata che prima lasciava 418 test verdi e ora ne fa cadere tre.
+
+### Come è stata chiusa la causa radice
+
+`TripsOptions` guadagna `returnAt?: string`, **additiva**, con il default invariato
+(`2026-11-03T17:00:00.000Z`): chi non la passa vede lo stesso fake di prima, e gli altri file che lo
+importano non sono stati toccati — la suite completa resta a 27 suite verdi, che è la prova chiesta. Il
+commento sull'opzione dichiara **perché** esiste: col default i due capi cadono nello stesso giorno UTC e
+un confronto sul giorno non li separa. La lacuna di N1 è ora scritta dentro lo strumento, dove la
+troverà chi scriverà il prossimo test.
+
+Il developer ha aggiunto **un test non richiesto**, e l'ha dichiarato: il rifiuto speculare sull'andata.
+Costo quasi nullo, uccide la stessa mutazione dall'altro lato, e resta dentro lo scope del rilievo.
+
+Chiusi anche: il titolo del test che prometteva entrambi i lati (ora dice *"capo della direzione della
+trasferta DICHIARATA"* e rimanda al `describe` dell'offerente per l'altro), il commento che descriveva
+l'offerente mono-giorno, e il rifiuto `not-owned` che non asseriva le spie mentre l'intestazione del file
+dichiara che **ogni** rifiuto lo fa.
+
+**N2** chiuso: il quarto limite è nel commento di `trasfertaCompatibile`, dichiarato come **non gestito** e
+con il rimando a T07f prima di T09.
+
+### Una conseguenza del rilievo sul reviewer, applicata subito
+
+Nel brief di questo secondo giro di review ho chiesto al reviewer di **non mutare il sorgente da sé**: se
+gli serve una sonda, la chiede e la esegue il developer. Non è una modifica al sistema — è la regola di
+`CLAUDE.md` sulla manipolazione di file via shell applicata a lui come a tutti — e lascia all'umano la
+decisione durevole fra le tre forme registrate in `IDEAS.md`.
+
+### **APPROVATO** al secondo giro, e cosa ha verificato il reviewer
+
+Circuit breaker **non** scattato: una bocciatura, un punto, chiuso. Il reviewer ha rieseguito `verify`
+(verde, 420/27), ha controllato che non ci fossero `.skip`/`.only`/`xit`/`todo` nel file di test, e ha
+rispettato la regola nuova: **nessuna scrittura**, analisi dei mutanti per lettura.
+
+Tre cose della sua verifica che vale la pena tenere, perché non sono "ok, approvo":
+
+1. **Tre rossi su 43 è la firma precisa di quel mutante, non un rosso generico.** Nient'altro *poteva*
+   cadere: ogni altro test del file usa l'offerente di default, dove i due capi sono lo stesso giorno
+   UTC, e i casi con `returnAt: null` escono prima alla guardia. Il caso `in giornata` del `it.each`
+   resta verde **e deve restarlo**: serve a provare che l'estensione del fake non ha cambiato il
+   percorso di default.
+2. **Il test speculare che il developer ha aggiunto senza che fosse richiesto era necessario**, non
+   zelo: è il **solo** test che uccide il mutante *"il capo dell'offerente è sempre `returnAt`"*. Senza,
+   N1 sarebbe stato chiuso a metà — e con esso la simmetria per direzione, che è l'intero motivo per cui
+   i criteri sono stati riscritti.
+3. **Nessun mutante del predicato resta non toccato**, enumerati uno per uno: plant cancellati,
+   plant incrociati, ramo della trasferta dichiarata invertito, `.date` sostituito dall'istante intero,
+   `===` rilassato in `>=` e `<=`, istante illeggibile. Le **due sole** righe senza test sono le guardie
+   difensive sul capo dell'offerente, e non devono averne: cancellarle è un errore di **typecheck**, non
+   un mutante eseguibile. Annotato in `IDEAS.md` perché nessuno, cercando copertura, allenti quei tipi
+   per poterle testare.
+
+Il reviewer ha anche confermato il punto che più rischiava di essere un "test modificato per passare":
+il default di `unaTrasfertaPropria` che passa da `returnAt: null` a una data era **obbligato** da un test
+preesistente — quello sulle due righe distinte su andata e ritorno, che chiede una candidatura `return`.
+Il dato è diventato realistico, **l'asserzione è identica**, e il diff lo dimostra: 206 aggiunte e 2
+rimozioni, dove le due rimozioni sono la riga di import sostituita e quel `returnAt: null`. Nessun
+`expect` preesistente toccato. Il fake è importato da **sei** altri file e nessuno dei sei è nel diff.
+
+**Due note non bloccanti, chiuse subito in questo commit:** la nota sul compilatore in `IDEAS.md`, e il
+riferimento per nome invece che per riga qui sopra.

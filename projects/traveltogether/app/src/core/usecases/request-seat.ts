@@ -14,11 +14,13 @@ import {
   type ProfileId,
   type ResolvedBy,
   type Result,
+  type Trip,
   type TripId,
   type TripStatus,
   err,
   makeMatchRequest,
   ok,
+  parseUtcInstant,
 } from '../domain';
 import type { MatchRequestRepository, RepositoryError, TripRepository } from '../ports';
 
@@ -53,8 +55,8 @@ export type RequestSeatError =
   | { readonly kind: 'request-invalid'; readonly violation: MatchRequestError }
   /**
    * `requesterTripId` non e' una trasferta con cui ci si puo' candidare. UN solo
-   * `kind` con un `reason` che discrimina, e non tre (o quattro) `kind`: per T13 i
-   * quattro casi sono lo stesso evento di schermata ("scegli un'altra trasferta") e
+   * `kind` con un `reason` che discrimina, e non un `kind` per caso: per T13 i
+   * casi sono lo stesso evento di schermata ("scegli un'altra trasferta") e
    * cambia solo la frase, che e' una tabella reason -> testo. Con `kind` distinti
    * ogni chiamante dovrebbe elencarli tutti per dare la stessa risposta; il
    * `switch` esaustivo sul `reason` resta, e il compilatore lo impone ugualmente.
@@ -85,7 +87,49 @@ export type RequestSeatError =
  * stabilisce se e' DEL richiedente, poi cosa e'. A chi indica la trasferta di un
  * altro non si dice se ha l'auto o in che stato e': sarebbero dettagli altrui.
  */
-export type RequesterTripRejection = 'not-found' | 'not-owned' | 'has-car' | 'not-published';
+export type RequesterTripRejection =
+  | 'not-found'
+  | 'not-owned'
+  | 'has-car'
+  | 'not-published'
+  | 'leg-incompatible';
+
+/**
+ * La trasferta dichiarata ha a che vedere con la tratta richiesta?
+ *
+ * Si confronta con la trasferta che OFFRE, non con la proiezione della tratta:
+ * `listOpenOffers` proietta il rientro invertendo i plant dell'offerente e
+ * prendendo `returnAt`, quindi per entrambe le direzioni il predicato e' lo stesso
+ * - plant nello stesso ordine, stesso GIORNO del capo corrispondente
+ * (`departureAt` per l'andata, `returnAt` per il rientro).
+ *
+ * LIMITI, da leggere prima di allentarlo:
+ * - esclude le TAPPE INTERMEDIE, che il modello oggi non esprime: se un domani
+ *   serviranno, e' questo vincolo da allentare;
+ * - confronta il giorno (UTC) senza la finestra di tolleranza di `findMatches`,
+ *   perche' `requestSeat` non ha `MatchConfig`: e' piu' lasco dei vincoli duri del
+ *   matching, non piu' stretto, e non verifica l'orario;
+ * - non verifica che la candidatura sia stata davvero proposta dall'app;
+ * - un istante illeggibile su un capo dell'OFFERENTE da' `leg-incompatible`, cioe' un
+ *   messaggio che incolpa il richiedente per un dato rotto dell'offerta. NON e' gestito:
+ *   e' un limite, da rimuovere in T07f (la causa) prima di T09, dove PostgREST
+ *   serializza `+00:00` e `parseUtcInstant` lo rifiuta.
+ */
+function trasfertaCompatibile(dichiarata: Trip, offerente: Trip, direction: LegDirection): boolean {
+  if (dichiarata.fromPlantId !== offerente.fromPlantId) return false;
+  if (dichiarata.toPlantId !== offerente.toPlantId) return false;
+
+  const capoDichiarata = direction === 'outbound' ? dichiarata.departureAt : dichiarata.returnAt;
+  const capoOfferente = direction === 'outbound' ? offerente.departureAt : offerente.returnAt;
+  // Rientro chiesto senza averne dichiarato uno (o tratta senza rientro): nessun giorno da confrontare.
+  if (capoDichiarata === null || capoOfferente === null) return false;
+
+  const giornoDichiarata = parseUtcInstant(capoDichiarata);
+  const giornoOfferente = parseUtcInstant(capoOfferente);
+  // Un istante illeggibile non coincide con niente.
+  if (!giornoDichiarata || !giornoOfferente) return false;
+  return giornoDichiarata.date === giornoOfferente.date;
+}
 
 function rifiutoTrasferta(
   reason: Exclude<RequesterTripRejection, 'not-published'>,
@@ -185,6 +229,20 @@ export async function requestSeat(
       status: propria.value.status,
       requesterTripId: input.requesterTripId,
     });
+  }
+
+  // Compatibilita' con la tratta richiesta (T07d). Serve la trasferta che OFFRE:
+  // `TripLeg` non ha plant ne' date. Dopo `not-published` e prima di
+  // `already-requested`: riguarda la trasferta dichiarata, e a chi ne indica una
+  // non idonea non si dice nulla sullo stato della candidatura esistente.
+  const offerente = await deps.trips.findById(input.tripId);
+  if (!offerente.ok) {
+    // `findLeg` ha trovato la tratta ma la sua trasferta no: storage incoerente, non
+    // un errore di chi chiede. `leg-not-found` direbbe il falso su cio' che manca.
+    return err({ kind: 'storage-failed', cause: offerente.error });
+  }
+  if (!trasfertaCompatibile(propria.value, offerente.value, input.direction)) {
+    return rifiutoTrasferta('leg-incompatible', input.requesterTripId);
   }
 
   if (esistente.value !== null && esistente.value.status !== 'cancelled') {

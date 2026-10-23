@@ -520,33 +520,45 @@ sotto sarebbe nato rosso — cioè il task avrebbe prodotto codice verde e sbagl
 23 ottobre 2026 la **simmetria per direzione**.
 
 **Criteri di accettazione**
-- [ ] `requestSeat` rifiuta con errore tipizzato quando la trasferta dichiarata non è compatibile con
+- [x] `requestSeat` rifiuta con errore tipizzato quando la trasferta dichiarata non è compatibile con
       la **direzione** della tratta richiesta:
       - tratta `outbound` → i plant della trasferta dichiarata coincidono con quelli della tratta
         nello stesso ordine, e la data è quella del suo `departureAt`
       - tratta `return` → i plant coincidono **invertiti** (la tratta va dal `toPlantId` al
         `fromPlantId` della trasferta dichiarata), e la data è quella del suo `returnAt`
-- [ ] Una trasferta dichiarata **senza `returnAt`** non è compatibile con una tratta `return`: stesso
+- [x] Una trasferta dichiarata **senza `returnAt`** non è compatibile con una tratta `return`: stesso
       errore e stesso `reason`. Chiedere il rientro senza averne dichiarato uno è lo stesso buco con un
       campo in meno
-- [ ] Il confronto sulla data è sul **giorno** e **non** applica la finestra di tolleranza del
+- [x] Il confronto sulla data è sul **giorno** e **non** applica la finestra di tolleranza del
       matching: `requestSeat` non ha `MatchConfig` fra le dipendenze e prendersela sarebbe un cambio di
       firma fuori da questo task. Resta quindi più lasco dei vincoli duri di `findMatches` — non
       rifiuta nulla che l'app possa aver proposto — ed è sufficiente a chiudere il buco dei KPI, che si
       misura in giorni e in km
-- [ ] Il motivo entra nell'errore `requester-trip-invalid` **già esistente**, come quinto `reason`: non
+- [x] Il motivo entra nell'errore `requester-trip-invalid` **già esistente**, come quinto `reason`: non
       un `kind` nuovo, perché per T13 resta lo stesso evento di schermata
-- [ ] Un test dimostra il caso dei numeri qui sopra: tratta di un giorno, trasferta dichiarata di sei,
+- [x] Un test dimostra il caso dei numeri qui sopra: tratta di un giorno, trasferta dichiarata di sei,
       → rifiutata. È il caso che gonfia la slide
-- [ ] **Nessun percorso legittimo viene rifiutato:** un test parte da un'offerta che `findMatches`
+- [x] **Nessun percorso legittimo viene rifiutato:** un test parte da un'offerta che `findMatches`
       avrebbe proposto e dimostra che la candidatura passa, **su entrambe le direzioni** — una tratta
       `outbound` e una `return`. Il caso `return` è quello per cui i criteri sono stati riscritti: se
       manca, la simmetria resta non verificata e il task torna verde e sbagliato. Se questo test
       diventa rosso, il vincolo è più stretto dei vincoli duri del matching e il difetto è nel vincolo,
       non nel test
-- [ ] Ogni rifiuto asserisce **zero scritture**, contando le chiamate sullo spia
-- [ ] Limite dichiarato nel commento: il vincolo esclude le **tappe intermedie**, che oggi il modello
+- [x] Ogni rifiuto asserisce **zero scritture**, contando le chiamate sullo spia
+- [x] Limite dichiarato nel commento: il vincolo esclude le **tappe intermedie**, che oggi il modello
       non esprime. Se un domani serviranno, è questo vincolo da allentare — e va scritto dove si trova
+
+**Chiuso il 23 ottobre 2026**, `verify` verde (420 test unitari in 27 suite) e reviewer approvato al
+secondo giro. Bocciato al primo con `verify` verde: il predicato era corretto, ma nel fake degli usecase
+andata e rientro dell'offerente cadevano nello stesso giorno UTC, quindi i due capi erano
+indistinguibili e **due mutanti del predicato sopravvivevano** — la simmetria per direzione era
+verificata su un lato solo. Chiuso dove stava la causa, nelle fixture del fake.
+
+Limiti che restano, dichiarati nel commento di `trasfertaCompatibile` e non chiusi da questo task: le
+tappe intermedie, l'assenza della finestra di tolleranza, il giorno **UTC** e non quello del fuso di chi
+viaggia, e l'istante illeggibile dell'**offerente** che produce un messaggio rivolto al richiedente —
+causa da rimuovere in **T07f**, prima di T09. Due voci di `IDEAS.md` raccolgono ciò che il vincolo non
+copre: il capo non richiesto della trasferta e il giorno UTC.
 
 ## T07e Massimo storico delle metriche, perché un badge non si ritiri
 
