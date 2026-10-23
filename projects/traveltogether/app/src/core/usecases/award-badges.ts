@@ -9,8 +9,9 @@
 // con gli stessi input danno lo stesso insieme per costruzione, e un duplicato non
 // e' rappresentabile (si itera il catalogo, non si accumula). Conseguenza da sapere:
 // il badge non e' un fatto memorizzato, quindi se le statistiche scendono (una
-// trasferta annullata a posteriori) il badge sparisce. Memorizzare i badge "per
-// sempre" e' una scelta di persistenza, fuori da questo task.
+// trasferta annullata a posteriori) il badge sparisce, ma solo se chi chiama passa le
+// statistiche correnti. Il percorso di prodotto passa i massimi (refreshPersonalBests,
+// T07e): la persistenza scelta e' quella dei massimi, non dei badge.
 //
 // SOGLIA = "almeno": il badge si assegna quando la metrica raggiunge la soglia. Con
 // la metrica a soglia-1 non c'e', a soglia c'e', a soglia+1 c'e' ancora (una volta).

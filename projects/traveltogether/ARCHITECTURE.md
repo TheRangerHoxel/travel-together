@@ -96,12 +96,13 @@ I due progetti free sono: **staging** (test di integrazione) e **prod** (la demo
 ```
 app/src/
   core/
-    domain/      # Plant, Trip, TripLeg, SeatOffer, MatchRequest, Profile, Badge
+    domain/      # Plant, Trip, TripLeg, SeatOffer, MatchRequest, Profile, Badge, PersonalBests
                  # entità e regole pure — zero I/O, zero dipendenze esterne
     ports/       # interfacce: TripRepository, MatchRequestRepository,
-                 # ProfileRepository, SessionGateway, Clock
+                 # ProfileRepository, PersonalBestsRepository, SessionGateway, Clock
     usecases/    # createTrip, findMatches, requestSeat, acceptRequest,
-                 # rejectRequest, computeCompanyKpi, computePersonalStats, awardBadges
+                 # rejectRequest, computeCompanyKpi, computePersonalStats, awardBadges,
+                 # refreshPersonalBests
                  # dipende SOLO da domain/ e ports/
   adapters/
     memory/      # implementa i port in RAM → test veloci, offline, deterministici
@@ -236,6 +237,10 @@ Vincoli duri e punteggio morbido sono elencati in [PRD.md](PRD.md).
   (`owner` / `requester` / `system`; nota e `resolved_by` insieme o nessuno dei due). Foreign key
   composta `(trip_id, direction) → trip_legs`, che rende impossibile una candidatura sul rientro di una
   trasferta senza rientro. Il limite di lunghezza delle note è in `config/`, misurato in code point
+- `personal_bests` — **bozza (T07e)**: una riga per profilo con le quattro metriche
+  (`shared_trips`, `shared_legs`, `transported_colleagues`, `shared_km`), il massimo storico di
+  ciascuna. L'alzata è un unico `INSERT ... ON CONFLICT DO UPDATE ... RETURNING *` con `GREATEST` per
+  colonna; RLS: ciascuno legge e aggiorna solo la propria riga. Non è uno schema approvato (⛔ T08)
 - `invite_codes` — codice, attivo
 
 **Questo modello resta una bozza in attesa di T08**: `trip_legs` e le colonne di nota sono la forma

@@ -22,6 +22,14 @@ export type {
 export { computePersonalStats } from './compute-personal-stats';
 export type { AwardBadgesError, BadgeFamily } from './award-badges';
 export { awardBadges, BADGE_CATALOG } from './award-badges';
+export type {
+  RefreshPersonalBestsConfig,
+  RefreshPersonalBestsDeps,
+  RefreshPersonalBestsError,
+  RefreshPersonalBestsInput,
+  RefreshPersonalBestsOutcome,
+} from './refresh-personal-bests';
+export { refreshPersonalBests } from './refresh-personal-bests';
 export type { CreateTripConfig } from './create-trip-config';
 export type { CreateTripInput, CreateTripDeps, CreateTripError } from './create-trip';
 export { createTrip } from './create-trip';

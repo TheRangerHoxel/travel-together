@@ -586,11 +586,11 @@ T15 (il criterio sul badge che non si ritira sarebbe stato dimostrato su una fun
 chiama**, cioè la stessa forma del difetto che il task nasce per evitare).
 
 **Criteri di accettazione**
-- [ ] Esiste un port per leggere e aggiornare il **massimo** di ogni metrica per profilo, con adapter
+- [x] Esiste un port per leggere e aggiornare il **massimo** di ogni metrica per profilo, con adapter
       memory, e la suite di contratto condivisa lo copre
-- [ ] L'aggiornamento è **monotono**: scrivere un valore più basso del massimo memorizzato non lo
+- [x] L'aggiornamento è **monotono**: scrivere un valore più basso del massimo memorizzato non lo
       abbassa. Un test lo dimostra, ed è l'invariante su cui poggia tutto il task
-- [ ] La **definizione** della monotonia vive in `core/domain` come funzione pura e ha un test proprio.
+- [x] La **definizione** della monotonia vive in `core/domain` come funzione pura e ha un test proprio.
       L'adapter memory la **invoca** — niente `Math.max` scritto nell'adapter — e questo lo verifica il
       **reviewer per lettura**. Ogni altro adapter che la esprima nel proprio linguaggio è provato
       **equivalente** dalla stessa suite di contratto, che su due tecnologie diverse è l'unica forma di
@@ -604,7 +604,7 @@ chiama**, cioè la stessa forma del difetto che il task nasce per evitare).
       TypeScript, riscrivi — che reintroduce la corsa per cui `adjustLegSeats` è stata definita
       relativa, e che può **abbassare un massimo**. Cioè avrebbe chiesto a T09 la cosa che il task
       vieta. Rilievo del planner, non trovato da nessun test perché nessun test può trovarlo
-- [ ] **Una riga per profilo con le quattro metriche**, non una riga per (profilo, metrica). Deciso
+- [x] **Una riga per profilo con le quattro metriche**, non una riga per (profilo, metrica). Deciso
       perché rende il *"massimo scritto a metà"* **non rappresentabile** invece di evitarlo: con quattro
       righe l'alzata sono quattro scritture indipendenti e la terza che fallisce lascia applicate le
       prime due — è la voce di `IDEAS.md` *"La cascata e il reintegro scrivono N righe una alla volta"*,
@@ -612,26 +612,30 @@ chiama**, cioè la stessa forma del difetto che il task nasce per evitare).
       nel DB**, cioè un secondo posto dove vive l'elenco, da tenere d'accordo con la union TypeScript.
       Prezzo accettato e dichiarato: una quinta metrica diventa una migrazione di colonna — e lo è già
       oggi un cambio di `PersonalStats`, del catalogo dei badge e di `config/`
-- [ ] Un **usecase nuovo** compone il percorso: legge trasferte e candidature, calcola le statistiche
+- [x] Un **usecase nuovo** compone il percorso: legge trasferte e candidature, calcola le statistiche
       correnti con `computePersonalStats`, alza i massimi dove sono saliti, e ritorna i badge calcolati
       **sui massimi**. È il percorso che T15 userà, quindi è quello su cui i criteri seguenti si
       dimostrano
-- [ ] Il massimo è un tipo con un **nome proprio** (stesse quattro metriche di `PersonalStats`,
+- [x] Il massimo è un tipo con un **nome proprio** (stesse quattro metriche di `PersonalStats`,
       significato diverso: un pelo d'acqua, non una statistica). Un campo che si chiama statistica e
       contiene un massimo mentirebbe sul proprio nome, ed è la classe di difetto che questo progetto
       rifiuta
-- [ ] `awardBadges` **non cambia firma** e resta una funzione pura: riceve il massimo al posto delle
+- [x] `awardBadges` **non cambia firma** e resta una funzione pura: riceve il massimo al posto delle
       statistiche correnti
-- [ ] Un test dimostra il caso che il task esiste per impedire: statistiche che **scendono** (una
+- [x] Un test dimostra il caso che il task esiste per impedire: statistiche che **scendono** (una
       trasferta annullata) → i badge **restano**. Sul percorso dell'usecase, non su una funzione isolata
-- [ ] I duplicati restano **non rappresentabili**: il criterio di T07 non si indebolisce, e un test lo
-      riafferma sul percorso nuovo
-- [ ] Un errore di `computePersonalStats` **non lascia i massimi a metà**: si legge e si calcola prima,
+- [x] I duplicati restano **non rappresentabili**: il criterio di T07 non si indebolisce, e un test lo
+      riafferma sul percorso nuovo — soddisfatto **in composizione**, e il reviewer ha dichiarato il
+      limite: il test sul percorso nuovo esercita i tre badge da passeggero, non tutti e sei. Voce in
+      `IDEAS.md`, perché nessun test **si legge come il criterio**
+- [x] Un errore di `computePersonalStats` **non lascia i massimi a metà**: si legge e si calcola prima,
       si scrive dopo, come fa `requestSeat` con la sua unica `save`. Un test lo asserisce contando le
       scritture sulla spia
-- [ ] **T15 dichiara in schermata** che le statistiche mostrate e quelle che assegnano i badge possono
-      essere due numeri diversi, con la stessa onestà con cui dichiara che saving e CO₂ sono stime
-- [ ] Criterio corrispondente su **T08**: la tabella dei massimi, con RLS che permette a ciascuno di
+- [x] **T15 dichiara in schermata** che le statistiche mostrate e quelle che assegnano i badge possono
+      essere due numeri diversi, con la stessa onestà con cui dichiara che saving e CO₂ sono stime —
+      spuntato come **criterio aggiunto a T15**, che è tutto ciò che T07e può fare: nessuna schermata
+      esiste ancora, e si chiude lì
+- [x] Criterio corrispondente su **T08**: la tabella dei massimi, con RLS che permette a ciascuno di
       leggere i propri **e di aggiornare i propri**. La metà in scrittura segue dalla decisione del
       23 ottobre: se aprire la dashboard aggiorna i massimi, una tabella leggibile e non aggiornabile
       renderebbe il percorso inutilizzabile — e una policy scritta solo in lettura è il genere di

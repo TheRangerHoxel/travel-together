@@ -28,6 +28,7 @@ import type {
   LegDirection,
   MatchRequest,
   MatchRequestId,
+  PersonalBests,
   PlantId,
   ProfileId,
   Trip,
@@ -35,6 +36,7 @@ import type {
 } from '../../core/domain';
 import type {
   MatchRequestRepository,
+  PersonalBestsRepository,
   ProfileRepository,
   SessionGateway,
   TripRepository,
@@ -45,6 +47,7 @@ export interface AmbienteDiContratto {
   readonly matchRequests: MatchRequestRepository;
   readonly profiles: ProfileRepository;
   readonly sessions: SessionGateway;
+  readonly personalBests: PersonalBestsRepository;
 
   /** Autentica le chiamate successive come quel profilo. No-op in RAM. */
   comeUtente(profileId: ProfileId): Promise<void>;
@@ -1002,6 +1005,94 @@ export function eseguiSuiteDiContratto(
           expect(esito.error.kind).toBe('invalid-record');
         }
       });    });
+
+    describe('PersonalBestsRepository', () => {
+      function massimi(
+        profileId: ProfileId,
+        sharedTrips: number,
+        sharedLegs: number,
+        transportedColleagues: number,
+        sharedKm: number
+      ): PersonalBests {
+        return { profileId, sharedTrips, sharedLegs, transportedColleagues, sharedKm };
+      }
+
+      /** Alza e pretende che sia andata bene: un setup fallito non deve passare per verde. */
+      async function alza(candidato: PersonalBests): Promise<PersonalBests> {
+        const esito = await amb.personalBests.raise(candidato);
+        if (!esito.ok) throw new Error(`raise fallita nel setup: ${esito.error.kind}`);
+        return esito.value;
+      }
+
+      async function leggi(profileId: ProfileId): Promise<PersonalBests> {
+        const esito = await amb.personalBests.findByProfile(profileId);
+        if (!esito.ok) throw new Error(`findByProfile fallita: ${esito.error.kind}`);
+        return esito.value;
+      }
+
+      it('mai scritto: ritorna zeri in ok, non not-found', async () => {
+        const esito = await amb.personalBests.findByProfile(owner);
+
+        expect(esito).toEqual({ ok: true, value: massimi(owner, 0, 0, 0, 0) });
+      });
+
+      it('dopo raise, una lettura SEPARATA vede i massimi (persistono davvero)', async () => {
+        await alza(massimi(owner, 5, 1, 9, 120));
+
+        expect(await leggi(owner)).toEqual(massimi(owner, 5, 1, 9, 120));
+      });
+
+      it('raise ritorna lo stato dopo l alzata', async () => {
+        const stato = await alza(massimi(owner, 5, 1, 9, 120));
+
+        expect(stato).toEqual(massimi(owner, 5, 1, 9, 120));
+      });
+
+      it('raise con valori piu bassi non abbassa niente', async () => {
+        await alza(massimi(owner, 5, 4, 9, 300));
+
+        await alza(massimi(owner, 1, 1, 1, 1));
+
+        expect(await leggi(owner)).toEqual(massimi(owner, 5, 4, 9, 300));
+      });
+
+      it('il massimo e per colonna e non per riga: una sale mentre le altre scendono', async () => {
+        await alza(massimi(owner, 5, 4, 9, 300));
+
+        await alza(massimi(owner, 7, 1, 2, 100));
+
+        expect(await leggi(owner)).toEqual(massimi(owner, 7, 4, 9, 300));
+      });
+
+      it('raise piu bassa ritorna il memorizzato, non l eco del candidato', async () => {
+        await alza(massimi(owner, 5, 4, 9, 300));
+
+        const stato = await alza(massimi(owner, 1, 1, 1, 1));
+
+        expect(stato).toEqual(massimi(owner, 5, 4, 9, 300));
+      });
+
+      it('due profili hanno massimi indipendenti', async () => {
+        const altro = await amb.creaProfilo({ displayName: 'Altro', plantId: 'foggia' });
+        await alza(massimi(owner, 5, 4, 9, 300));
+        await amb.comeUtente(altro);
+        await alza(massimi(altro, 2, 3, 1, 50));
+        const dellAltro = await leggi(altro);
+        await amb.comeUtente(owner);
+
+        expect(await leggi(owner)).toEqual(massimi(owner, 5, 4, 9, 300));
+        expect(dellAltro).toEqual(massimi(altro, 2, 3, 1, 50));
+      });
+
+      it('raise di zeri dopo un massimo non nullo lo lascia invariato (zero non e assente)', async () => {
+        await alza(massimi(owner, 5, 4, 9, 300));
+
+        const stato = await alza(massimi(owner, 0, 0, 0, 0));
+
+        expect(stato).toEqual(massimi(owner, 5, 4, 9, 300));
+        expect(await leggi(owner)).toEqual(massimi(owner, 5, 4, 9, 300));
+      });
+    });
 
     describe('SessionGateway', () => {
       // Nessun test di questo blocco deve ereditare la sessione aperta dal

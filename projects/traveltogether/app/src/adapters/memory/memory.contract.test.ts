@@ -11,6 +11,7 @@ import { NOTE_CONFIG } from '../../config';
 import type { MatchRequest, ProfileId } from '../../core/domain';
 import { type AmbienteDiContratto, eseguiSuiteDiContratto } from '../contract/repository-contract';
 import { MemoryMatchRequestRepository } from './memory-match-request-repository';
+import { MemoryPersonalBestsRepository } from './memory-personal-bests-repository';
 import { MemoryProfileRepository } from './memory-profile-repository';
 import { MemorySessionGateway } from './memory-session-gateway';
 import { MemoryTripRepository } from './memory-trip-repository';
@@ -48,6 +49,7 @@ eseguiSuiteDiContratto('memory', async (): Promise<AmbienteDiContratto> => {
     matchRequests,
     profiles,
     sessions,
+    personalBests: new MemoryPersonalBestsRepository(),
 
     // In RAM non esistono RLS: l'autenticazione non cambia cosa si vede.
     // Su Supabase questo hook fara' un vero sign-in, ed e' il motivo per cui

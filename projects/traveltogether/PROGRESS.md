@@ -3329,3 +3329,203 @@ tre vie possibili **riapre il badge che si ritira**.
 
 **Prossimo passo:** developer sullo Step 1–2, con le sonde di mutazione **chieste nel brief** e non
 lasciate alla sua iniziativa.
+
+---
+
+## 2026-10-23 — T07e · cinque step implementati, `verify` verde, in attesa del reviewer
+
+`verify` rifatto da me: **448 test unitari in 30 suite** (da 420/27), 1 di integrazione, 1 di smoke.
+Sette file nuovi, otto modificati in modo additivo. Mutazioni **ripristinate** e verificate da me:
+`Math.max` quattro volte nel dominio, e l'adapter che **importa e invoca** `raisePersonalBests` senza
+nessun `Math.` proprio.
+
+### Le tre sonde, tutte eseguite — ed è la differenza con T07d
+
+Questa volta le sonde erano **nel brief**, non lasciate all'iniziativa del developer. Esito:
+
+- **Ponte di tipo:** aggiunta una metrica finta a `PersonalStats` → `typecheck` rosso, con l'errore sul
+  ponte (`TS2322 Type 'true' is not assignable to type 'false'`). Nello stesso run cadono anche altri
+  file che costruiscono `PersonalStats` a mano, ma il ponte è l'unico errore causato dalla **divergenza**
+  fra le due liste di metriche — cioè l'unico che resterebbe se qualcuno aggiornasse tutte le fixture e
+  si dimenticasse i massimi.
+- **`Math.max` → `Math.min` nel dominio:** cadono **14 test** in 3 suite (3 di dominio, 7 di contratto,
+  4 di usecase).
+- **`raise` dell'adapter sostituita da un upsert che sovrascrive:** cadono **4 test, tutti di
+  contratto** — il caso misto per colonna, l'alzata più bassa, i quattro zeri, e l'eco dell'input. **I
+  test di dominio non se ne accorgono, e non possono:** è esattamente il limite che il criterio corretto
+  oggi dichiara, cioè che "l'adapter la invoca e non la reimplementa" lo verifica il **reviewer per
+  lettura** e non la suite.
+
+Per entrambe le mutazioni: `git diff --numstat` identico a prima, e `verify` verde dopo il ripristino.
+
+### Una deviazione di conteggio, dichiarata, e vale la pena tenerla
+
+Il piano (e il mio brief) dicevano **sei** file che importano il fake condiviso. Sono **sette**: il
+settimo è `request-seat.test.ts`, cioè il file di T07d chiuso un'ora prima. Nessuno dei sette è stato
+modificato e tutti e sette sono verdi. Il numero sbagliato veniva dal mio brief, non dal developer: è un
+dato che avevo riportato dal piano senza ricontarlo.
+
+### Due decisioni del developer, dichiarate
+
+- **Il ponte di tipo sta in `core/usecases/`, non in `core/domain`.** `PersonalStats` vive negli usecase
+  e il dominio non può importarlo: metterlo nel dominio avrebbe richiesto di invertire quella
+  dipendenza. Il file dichiara che la prova vera è `typecheck` e che il suo `expect` a runtime è solo di
+  forma.
+- **Filtro `hasCar` nell'enumerazione delle tratte**, perché le tratte esistono solo con l'auto: le
+  letture sono quindi **al più** `1 + 2N`, e il commento dice "al più" invece di `1 + 2N` secco.
+
+E una correzione a un commento che **diceva il falso**: il doc di `storage-failed` ora dichiara che
+l'errore può venire **anche dalla `raise`** e non solo dalle letture.
+
+### Quello che il task non copre, dichiarato dal developer e non scoperto dopo
+
+L'adapter che *invoca* la funzione di dominio non è provato da nessun test (lo vede il reviewer, e la
+mutazione 2 mostra il perché); la **concorrenza reale** non è coperta, perché la memory è single-thread e
+l'atomicità della `raise` si dimostra solo a T09; **nessun chiamante dell'usecase esiste ancora**, lo
+creerà T15; il costo `1 + 2N` è dichiarato e non misurato; e non c'è un test che fissi il comportamento
+di `listByLeg` su una tratta inesistente — che è il motivo della duplicazione accettata.
+
+**Non committato:** il commit arriva dopo il reviewer.
+
+---
+
+## 2026-10-23 — T07e · **BOCCIATO** al primo giro: un test che a T09 sarebbe rosso
+
+`verify` verde, rifatto tre volte — dal developer, da me e dal reviewer. Bocciato comunque: **sesta
+bocciatura del progetto con `verify` verde**, e la seconda di fila in cui il codice di produzione è
+corretto e il difetto è nella **verifica**.
+
+Il reviewer ha chiuso la contabilità in due modi — per delta (420 + 28 = 448, 27 + 3 = 30) e per file
+nuovo (dominio 7 + usecase 12 + ponte 1 + contratto 8 = 28 esatti) — quindi nessun test preesistente è
+stato perso o riscritto per passare. Grep esaustivo su `src/`: zero `skip`, `only`, `xit`, `todo`,
+`@ts-`, `eslint-disable`, `as any`.
+
+### N1, bloccante: il test dei massimi scrive e legge la riga di un altro utente
+
+Il `beforeEach` della suite di contratto autentica `owner`. Il test *"due profili hanno massimi
+indipendenti"* crea `altro` e poi fa `raise` e `findByProfile` sulla **sua** riga **restando `owner`** —
+mai una `comeUtente`. Verificato da me riga per riga.
+
+**Perché costa caro, e perché solo a T09:** con la policy RLS scritta stamattina su T08 — ciascuno legge
+e aggiorna **i propri** massimi, **nessuno** quelli di un altro — su Supabase la `raise` viene respinta,
+e anche superandola la lettura non vede la riga e l'adapter sintetizza gli **zeri**, che è il contratto
+dichiarato. Rosso in **due punti indipendenti**. Ma T09 pretende *"la stessa suite di contratto, senza
+modifiche alla suite"*, e per `ARCHITECTURE.md` una suite che va adattata è il segnale che **il port è
+sbagliato**: qui il port è sano, è il test a essere scritto come se le RLS non esistessero. La
+discussione a T09 sarebbe su un port giusto — o peggio, qualcuno allenterebbe la policy dei massimi per
+far passare un test, e `CLAUDE.md` di progetto chiude quella via (*"RLS attiva su ogni tabella, anche
+nella demo"*).
+
+Due cose rendono il rilievo più forte di un'opinione. La **convenzione esiste già**: nello stesso file
+ogni operazione fatta per conto di un altro commuta identità prima, in una dozzina di punti. E
+`memory.contract.test.ts` lo dichiara a parole — in RAM non esistono RLS, su Supabase quell'hook farà un
+vero sign-in, ed **esiste già adesso perché aggiungerlo dopo imporrebbe di riscrivere la suite**. È
+letteralmente il danno che quel commento prevedeva, tre settimane prima.
+
+### N2: un commento che descrive come aperta una decisione già presa
+
+`award-badges.ts` dice ancora *"memorizzare i badge «per sempre» è una scelta di persistenza, fuori da
+questo task"*. Dopo T07e è una **previsione su un task futuro diventata falsa**: la scelta è stata fatta
+— si memorizzano i **massimi** — e sul percorso di prodotto il badge non sparisce più. Il danno non è
+l'imprecisione: la correzione "ovvia" che quel commento suggerisce — memorizzare i badge — è precisamente
+l'alternativa che l'umano ha **scartato** il 14 ottobre, perché riaprirebbe il criterio dei duplicati da
+*non rappresentabile* a *da verificare*. È la regola di `CLAUDE.md` sulle previsioni nei commenti, con il
+costo visibile.
+
+### Le sonde: il reviewer ha rifatto i conti per lettura, e tornano
+
+`Math.max → Math.min` = **14** (3 + 7 + 4), e per ciascuno dei tre blocchi ha spiegato **quali test non
+cadono e perché è giusto che non cadano** — chi non asserisce il verso del confronto, chi asserisce il
+candidato, chi confronta due esecuzioni fra loro. L'adapter con upsert = **4**, tutti di contratto.
+Mutanti cercati in più e **tutti morti**: campi incrociati nei due versi, `profileId` dal memorizzato,
+`findByProfile` che ritorna sempre zeri, `raise` che non persiste, riga unica globale, badge calcolati
+sulle statistiche correnti (ucciso **due volte**), `raise` saltata. E uno che **non è un mutante**: lo
+scambio degli argomenti di `raisePersonalBests`, perché `Math.max` è simmetrico e i due `profileId`
+coincidono per costruzione.
+
+### Il punto che costa più caro, verificato: la forma SQL di T09 regge
+
+Il contratto **è** esprimibile con un solo `INSERT … ON CONFLICT DO UPDATE … RETURNING *`: il caso misto
+vincola `GREATEST` **per colonna** (una monotonia di riga darebbe `(7,1,9,100)` o `(5,4,9,300)`, entrambi
+rossi), `RETURNING *` soddisfa *"ritorna lo stato dopo l'alzata"*, e la firma `raise(aggregato)` non
+espone nessuna lettura obbligatoria — quindi nessun adapter è spinto al leggi-modifica-scrivi che
+reintrodurrebbe la corsa. L'unica dipendenza implicita è sana: gli zeri per riga assente li sintetizza la
+**stessa** funzione di dominio su entrambi gli adapter.
+
+### Il giudizio di forma, messo a verbale perché non torni
+
+Avevo chiesto se `stored`/`candidate` in inglese fossero un rilievo, dato che il resto del core usa
+locali italiani. Risposta: **niente, nemmeno un nit**. Il dominio ha già questa divisione —
+**parametri in inglese** (`civilDayNumber(date)`, `inclusiveDaysBetween(startDate, endDate)`,
+`parseUtcInstant(value)`) e **locali in italiano** (`inizio`, `fine`, `campi`) — e i file nuovi la
+rispettano esattamente. Uniformare all'italiano **romperebbe** la coerenza con `core/domain`, non la
+creerebbe.
+
+### Due riserve diventate voci di `IDEAS.md`
+
+**Una lettura negata dalle RLS sarà indistinguibile da "nessun massimo"**: a T09 un errore di
+autorizzazione si presenterebbe come un dato legittimo, perché il contratto dice *"riga assente → zeri in
+`ok`"*. E **il test dei duplicati copre tre badge su sei**: la catena è completa e la proprietà è
+conservata per costruzione, ma nessun test **si legge come il criterio** — stessa famiglia della voce su
+*"primo viaggio"*.
+
+**Secondo giro in corso:** N1, N2, più due riserve che si chiudono perché i file si riaprono comunque —
+una coincidenza di fixture nel caso misto (`transportedColleagues` a 9 su entrambi i lati, nel test il
+cui scopo è distinguere colonna per colonna) e un'intestazione che si contraddice col codice. Vincolo
+dato al developer: **il conteggio deve restare 448/30**, perché è una modifica di identità e non di
+copertura. E una sonda in più: dimostrare che `comeUtente` sull'adapter memory è davvero un **no-op**,
+altrimenti il test corretto proverebbe una cosa diversa da quella che credo.
+
+---
+
+## 2026-10-23 — T07e · **APPROVATO** al secondo giro, e chiuso
+
+`verify` verde, 448 test in 30 suite — **conteggio invariato**, perché la correzione era di identità e
+non di copertura. Toccati tre soli file nel secondo giro; il reviewer l'ha verificato **sui timestamp**,
+non sulla parola del developer, e ha constatato che gli altri tredici sono bit per bit quelli che aveva
+già approvato nel merito.
+
+### La risposta alle due domande che avevo posto
+
+**La forma della correzione di N1 è quella giusta, e preferita anche a parità.** Leggere la riga di
+`altro` **dentro** la finestra di identità e asserire fuori è equivalente, perché sotto le RLS conta
+**chi esegue la query** e non chi valuta l'`expect`. In più la diagnosi resta buona in entrambi i modi di
+fallire a T09: se la scrittura viene respinta, l'helper solleva *"raise fallita nel setup"* dentro la
+finestra; se fosse la lettura a essere negata, il contratto *"riga assente → zeri"* la farebbe tornare
+`ok(zeri)` e l'asserzione finale cadrebbe. **Nessuno dei due casi passa in silenzio.** E la forma
+coincide con il pattern già stabilito nello stesso file: un file in cui due test fanno la stessa cosa in
+due modi diversi è peggio.
+
+**Sulla sonda, la risposta è più interessante della domanda.** La lettura basta, e pretendere la
+mutazione sarebbe stato **chiedere una verifica che non può fallire**: `comeUtente` in RAM è un no-op con
+il corpo vuoto, l'ambiente memory non ha alcun concetto di identità, quindi nessuna mutazione di quella
+funzione può cambiare un risultato su `memory` — l'esito della sonda era noto a priori, zero test
+caduti. L'unica cosa misurabile su memory era che la correzione non cambiasse la copertura, e il
+conteggio invariato la misura. Il valore sta a T09, dove `comeUtente` farà un sign-in vero, e lì lo
+misura la suite stessa. **Avevo chiesto una sonda nel posto in cui una sonda non può dire niente**, ed è
+il complemento della lezione di T07d: lì mancava la sonda che serviva, qui ne chiedevo una innocua.
+
+### Un carattere che ha comprato un mutante
+
+La riserva 3 — `transportedColleagues` a 9 su entrambi i lati nel caso misto — era un carattere, e dopo
+la correzione (candidato a 2) **le quattro colonne sono tutte distinte e vanno in direzioni diverse**:
+una sale, tre scendono. Il reviewer ha rifatto l'analisi e ora quel test uccide anche il mutante
+*"prendi sempre il memorizzato"*, che prima su quella colonna non avrebbe distinto. Le due firme
+dichiarate restano esatte: **14** per `Math.max → Math.min` e **4** per l'upsert nell'adapter.
+
+### Una proposta che nasce dal difetto di oggi, ed è strutturale
+
+**Su `memory` niente impedisce a un test di contratto di agire con l'identità sbagliata.** N1 era verde
+a 448 test e l'ha trovato una lettura. La via è far sì che l'ambiente in RAM **registri** l'identità e
+che gli adapter memory rifiutino le operazioni altrui dove le RLS di T08 le rifiuteranno: così quella
+classe di difetto cade **su `memory`**, prima di arrivare a Supabase. Tocca solo file di test e l'adapter
+memory, si lega a **T07g**, ed è il presidio strutturale di una regola che oggi è convenzione più
+reviewer. Scritta in `IDEAS.md`; la decisione è dell'umano.
+
+### T07e chiuso
+
+Commit unico, criteri spuntati. Due criteri sono spuntati con una **dichiarazione invece che con una
+pretesa**: quello su T15 vale come *criterio aggiunto a T15*, perché nessuna schermata esiste ancora; e
+quello sui duplicati è soddisfatto **in composizione**, con il limite dichiarato — il test sul percorso
+nuovo esercita tre badge su sei. Entrambi i limiti sono scritti accanto alla spunta, così chi li rilegge
+non li prende per garanzie piene.

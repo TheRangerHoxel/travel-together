@@ -445,6 +445,27 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Costo** — XS come regola, S se si vuole un test di conformità sul fake.
 - **Stato** — proposta
 
+### Su `memory` niente impedisce a un test di contratto di agire con l'identità sbagliata
+- **Cosa** — far sì che `AmbienteDiContratto` in RAM **registri** l'identità corrente e che gli adapter memory **rifiutino** le scritture e le letture altrui dove le RLS di T08 le rifiuteranno. Così un test di contratto scritto come se le RLS non esistessero diventa **rosso su `memory`**, non a T09.
+- **Perché** — rilievo del reviewer dopo la review di T07e, dove questa classe di difetto si è manifestata: un test dei massimi scriveva e leggeva la riga di un altro profilo restando autenticato come il primo, ed era **verde a 448 test**. L'ha trovato una lettura, non `verify`. Su Supabase quel test sarebbe rosso in due punti, e la diagnosi arriverebbe nel momento peggiore — a T09, con l'apparenza di un port sbagliato quando il port è sano, o peggio con la tentazione di allentare la policy per far passare un test. Oggi la rete è **convenzione più reviewer**: la convenzione è rispettata in una dozzina di punti del file di contratto, ma niente la impone.
+- **Impatto** — `adapters/contract` e l'ambiente dell'adapter memory, più gli adapter in RAM per i controlli di appartenenza. Solo file di test e adapter memory: **nessun effetto sul codice di produzione**. Si lega a **T07g**, che alza lo standard della suite di contratto, ed è il presidio strutturale di `memory.contract.test.ts`, che già dichiara che l'hook di identità esiste *"perché aggiungerlo dopo imporrebbe di riscrivere la suite"*.
+- **Costo** — M.
+- **Stato** — proposta
+
+### Una lettura negata dalle RLS sarà indistinguibile da "nessun massimo"
+- **Cosa** — decidere, a T08 o T09, se una lettura **negata** dei massimi debba essere distinguibile da una riga assente, oppure se il contratto *"riga assente → zeri in `ok`"* valga anche per il rifiuto.
+- **Perché** — rilievo del reviewer su T07e. La scelta *"riga assente = zeri in `ok`"* è sana in RAM e dichiarata nel doc del port, con un argomento vero per costruzione: gli zeri non assegnano badge, perché `awardBadges` rifiuta una soglia `< 1`. Ma a T09, sotto le RLS di T08, una lettura **negata** produrrà anch'essa `ok(zeri)`: un errore di **autorizzazione** si presenterebbe come un **dato legittimo**. Oggi irrilevante — l'usecase legge solo il proprio profilo, e in realtà non legge affatto — ed è proprio per questo che va deciso prima che qualcuno costruisca una schermata sopra quel silenzio. Non è coperta dalla voce *"Se la scrittura dei massimi fallisce, la dashboard personale perde i badge"*, che riguarda la scrittura.
+- **Impatto** — doc del port, adapter Supabase, criteri di T08/T09. Nessun cambio di firma se la decisione è *"resta così e lo si dichiara"*.
+- **Costo** — XS per decidere, S se la negata deve diventare un errore tipizzato.
+- **Stato** — proposta
+
+### Il test dei duplicati sul percorso nuovo copre tre badge su sei
+- **Cosa** — portare la fixture del test dei duplicati di `refresh-personal-bests.test.ts` a **tutti e sei** i badge, su due esecuzioni, così un test solo si legge come il criterio.
+- **Perché** — rilievo del reviewer su T07e, e **non è un buco**: la proprietà forte è conservata per costruzione (si itera il catalogo, non si accumula), l'accumulo fra due esecuzioni è escluso da un test, e il ramo conducente è coperto dal test di T07 sulla funzione. Il criterio è quindi soddisfatto **in composizione**. Ma il test che dovrebbe leggersi come *"i duplicati restano non rappresentabili"* esercita solo i tre badge da passeggero: un id ripetuto nel ramo **conducente** del catalogo non lo vedrebbe. Stessa famiglia della voce *"Un test diretto del criterio «primo viaggio» con la config di produzione"*: la catena è completa, ma nessun test somiglia alla frase che deve garantire.
+- **Impatto** — una fixture in `refresh-personal-bests.test.ts`. Nessun codice di produzione.
+- **Costo** — XS.
+- **Stato** — proposta
+
 ### Il giorno del confronto è quello UTC, non il giorno nel fuso di chi viaggia
 - **Cosa** — decidere se *"stesso giorno"* significhi stesso giorno **UTC** (oggi) o stesso giorno nel fuso di chi viaggia, in `findMatches` e nel vincolo di T07d che lo rispecchia.
 - **Perché** — dichiarato dal developer di T07d. `parseUtcInstant` espone `date` come giorno UTC, `calendar.ts` conta i giorni su quella stessa stringa, e i vincoli duri di `findMatches` confrontano quella. In Italia (UTC+1/+2) una partenza fra mezzanotte e le due locali cade nel giorno UTC **precedente**: due colleghi che partono alle 01:00 e alle 03:00 locali dello stesso giorno stanno in due giorni UTC diversi e **non si incontrano mai**, qualunque sia la tolleranza oraria.

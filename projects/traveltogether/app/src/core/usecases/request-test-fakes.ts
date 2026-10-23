@@ -16,14 +16,22 @@ import {
   type LegDirection,
   type MatchRequest,
   type MatchRequestId,
+  type PersonalBests,
   type ProfileId,
   type Result,
   type Trip,
   type TripId,
   type TripLeg,
   legKey,
+  raisePersonalBests,
+  zeroPersonalBests,
 } from '../domain';
-import type { MatchRequestRepository, RepositoryError, TripRepository } from '../ports';
+import type {
+  MatchRequestRepository,
+  PersonalBestsRepository,
+  RepositoryError,
+  TripRepository,
+} from '../ports';
 
 export const OWNER: ProfileId = 'owner';
 export const RICHIEDENTE: ProfileId = 'richiedente';
@@ -70,6 +78,11 @@ export interface TripsOptions {
    * candida). Additivo: non hanno tratte e `findLeg`/`adjustLegSeats` non le vedono.
    */
   readonly otherTrips?: readonly Trip[];
+  /**
+   * Errore di `listByOwner` (che altrimenti ritorna la trasferta offerta e le
+   * `otherTrips` del proprietario chiesto). Additivo: assente, nessun test esistente cambia.
+   */
+  readonly failListByOwner?: RepositoryError;
 }
 
 export function unTripsSpia(opzioni: TripsOptions = {}): TripsSpia {
@@ -145,8 +158,13 @@ export function unTripsSpia(opzioni: TripsOptions = {}): TripsSpia {
       tratte.set(chiave, aggiornata);
       return { ok: true, value: aggiornata };
     },
+    async listByOwner(ownerId) {
+      await Promise.resolve();
+      if (opzioni.failListByOwner) return { ok: false, error: opzioni.failListByOwner };
+      const tutte = [trip, ...(opzioni.otherTrips ?? [])];
+      return { ok: true, value: tutte.filter((t) => t.ownerId === ownerId) };
+    },
     save: nonUsato,
-    listByOwner: nonUsato,
     listOpenOffers: nonUsato,
   };
 }
@@ -163,6 +181,9 @@ export interface RequestsOptions {
   readonly failSave?: RepositoryError;
   /** Numero (1-based) della chiamata a save che fallisce; le altre riescono. */
   readonly failSaveOnCall?: number;
+  /** Errore di `listByLeg` / `listByRequester`. Additivi: assenti, nessun test esistente cambia. */
+  readonly failListByLeg?: RepositoryError;
+  readonly failListByRequester?: RepositoryError;
 }
 
 export function unRequestsSpia(opzioni: RequestsOptions = {}): RequestsSpia {
@@ -191,18 +212,71 @@ export function unRequestsSpia(opzioni: RequestsOptions = {}): RequestsSpia {
     },
     async listByLeg(tripId, direction) {
       await Promise.resolve();
+      if (opzioni.failListByLeg) return { ok: false, error: opzioni.failListByLeg };
       return {
         ok: true,
         value: [...righe.values()].filter((r) => r.tripId === tripId && r.direction === direction),
       };
     },
-    listByRequester: nonUsato,
+    async listByRequester(requesterId) {
+      await Promise.resolve();
+      if (opzioni.failListByRequester) return { ok: false, error: opzioni.failListByRequester };
+      return { ok: true, value: [...righe.values()].filter((r) => r.requesterId === requesterId) };
+    },
     async findByLegAndRequester(tripId, direction, requesterId) {
       await Promise.resolve();
       const trovata = [...righe.values()].find(
         (r) => r.tripId === tripId && r.direction === direction && r.requesterId === requesterId
       );
       return { ok: true, value: trovata ?? null };
+    },
+  };
+}
+
+export interface BestsSpia extends PersonalBestsRepository {
+  /** Ogni `raise` ricevuta, anche se poi fallita: e' il candidato come l'usecase l'ha costruito. */
+  readonly raiseCalls: PersonalBests[];
+  /** I massimi come sono ora nello storage del fake. */
+  stored(profileId: ProfileId): PersonalBests;
+}
+
+export interface BestsOptions {
+  /** Massimi gia' memorizzati. */
+  readonly initial?: readonly PersonalBests[];
+  readonly failRaise?: RepositoryError;
+  /**
+   * Valore che `raise` ritorna al posto dell'alzata vera (lo storage non cambia).
+   * Serve a provare che i badge si calcolano sul valore RITORNATO e non sul candidato,
+   * con un valore piu' alto di quello che il candidato produrrebbe.
+   */
+  readonly forcedResult?: PersonalBests;
+}
+
+/**
+ * Spia dei massimi. La monotonia e' quella del dominio (`raisePersonalBests`): il
+ * fake non ne scrive una propria.
+ */
+export function unBestsSpia(opzioni: BestsOptions = {}): BestsSpia {
+  const righe = new Map<ProfileId, PersonalBests>();
+  for (const riga of opzioni.initial ?? []) righe.set(riga.profileId, riga);
+  const raiseCalls: PersonalBests[] = [];
+  const attuale = (profileId: ProfileId): PersonalBests =>
+    righe.get(profileId) ?? zeroPersonalBests(profileId);
+
+  return {
+    raiseCalls,
+    stored: attuale,
+    async findByProfile(profileId) {
+      await Promise.resolve();
+      return { ok: true, value: attuale(profileId) };
+    },
+    async raise(candidate) {
+      raiseCalls.push(candidate);
+      await Promise.resolve();
+      if (opzioni.failRaise) return { ok: false, error: opzioni.failRaise };
+      const alzata = raisePersonalBests(attuale(candidate.profileId), candidate);
+      righe.set(candidate.profileId, alzata);
+      return { ok: true, value: opzioni.forcedResult ?? alzata };
     },
   };
 }

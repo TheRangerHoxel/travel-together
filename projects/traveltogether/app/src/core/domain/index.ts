@@ -37,5 +37,8 @@ export type { NoteConfig } from './note-config';
 export type { Badge, BadgeId } from './badge';
 export { BADGE_IDS } from './badge';
 
+export type { PersonalBests } from './personal-bests';
+export { raisePersonalBests, zeroPersonalBests } from './personal-bests';
+
 export type { Result, Ok, Err } from './result';
 export { ok, err } from './result';
