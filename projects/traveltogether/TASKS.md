@@ -723,6 +723,20 @@ l'unica via d'uscita sarebbe **adattare la suite** — che per `ARCHITECTURE.md`
       chiuderà (il port di osservabilità). **Nessun commento dichiara l'omissione osservabile**, perché
       oggi non lo è: un commento che promette più del codice è un difetto
 
+**Criterio aggiunto il 23 ottobre 2026, dalla bocciatura di T07e** (decisione dell'umano: qui e non in
+un task a sé, perché tocca gli stessi file e alza lo stesso standard — porta il task da S/M a M)
+- [ ] **L'ambiente di contratto in RAM registra l'identità corrente**, e gli adapter memory **rifiutano**
+      le operazioni su dati altrui dove le RLS di T08 le rifiuteranno. Così un test di contratto scritto
+      come se le RLS non esistessero diventa **rosso su `memory`**, non a T09.
+      Il difetto che lo motiva è reale e di oggi: un test dei massimi scriveva e leggeva la riga di un
+      altro profilo restando autenticato come il primo, ed era **verde a 448 test**. L'ha trovato una
+      lettura del reviewer, non `verify`. A T09 sarebbe stato rosso in due punti, e la diagnosi sarebbe
+      arrivata nel momento peggiore: con l'apparenza di un port sbagliato quando il port è sano, o con
+      la tentazione di allentare la policy per far passare un test. Oggi la rete è **convenzione più
+      reviewer** — rispettata in una dozzina di punti del file di contratto, imposta da niente.
+      `memory.contract.test.ts` dichiara già che l'hook di identità esiste *"perché aggiungerlo dopo
+      imporrebbe di riscrivere la suite"*: questo criterio gli dà i denti
+
 ## T07h Igiene di lint e identità
 
 Tre voci di `IDEAS.md` portate dentro il 23 ottobre 2026. **Collocato dopo T07g e prima di T07b:** T07b

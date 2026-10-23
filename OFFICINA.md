@@ -45,8 +45,22 @@ nessuno scope fuori da `TASKS.md`.
 - **developer** — implementa un task per volta, dentro lo scope. Modello economico.
 - **reviewer** — indipendente dal developer, **ha potere di bocciare**. Modello forte.
 
-L'indipendenza del reviewer è strutturale, non dichiarata: non ha strumenti di scrittura. Non può
-aggiustare ciò che boccia, quindi non ha modo di scivolare nel ruolo di chi ha scritto il codice.
+Il reviewer **non modifica il codice**: non può aggiustare ciò che boccia, quindi non ha modo di
+scivolare nel ruolo di chi ha scritto il codice.
+
+**Questa frase diceva "non ha strumenti di scrittura", e non era vera.** Fra i suoi strumenti c'è la
+shell, e con la shell si scrive: il 23 ottobre 2026 il reviewer ha prodotto il suo rilievo più
+importante su T07d **eseguendo i mutanti**, cioè modificando il sorgente e ripristinandolo. Il rilievo
+era giusto e il working tree è stato restituito pulito, ma la rete era una **convenzione**, non una
+proprietà della macchina — e la regola di `CLAUDE.md` sul non manipolare testo via shell è stata
+aggirata dall'agente che dovrebbe farla rispettare.
+
+Regola scelta dall'umano, perché la sonda era utile e il problema era **chi la esegue**: se al reviewer
+serve una sonda, **la chiede nel verdetto e la esegue il developer**, e il reviewer ne legge l'esito. Un
+giro in più quando serve, e l'indipendenza torna a essere ciò che il sistema dichiara. Il dato che ha
+deciso: su T07e il contributo migliore del reviewer è arrivato **ragionando** sui mutanti senza eseguirne
+nessuno — ha enumerato quali test cadono e quali no, e ha riconosciuto una sonda il cui esito era noto a
+priori come una verifica che non può fallire.
 
 ## Le tre reti su git
 

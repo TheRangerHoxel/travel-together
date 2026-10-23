@@ -3529,3 +3529,90 @@ pretesa**: quello su T15 vale come *criterio aggiunto a T15*, perché nessuna sc
 quello sui duplicati è soddisfatto **in composizione**, con il limite dichiarato — il test sul percorso
 nuovo esercita tre badge su sei. Entrambi i limiti sono scritti accanto alla spunta, così chi li rilegge
 non li prende per garanzie piene.
+
+---
+
+## 2026-10-23 — Fine sessione · stato, decisioni, e quattro lezioni sui criteri
+
+Scritto per la sessione successiva. **Working tree pulito, `origin/auto/build` allineato, nessun commit
+in attesa di push.** `main` fermo dove l'ha lasciato l'umano: lo mergia lui.
+
+### Stato vero
+
+Fase 0 e Fase 1 complete. **Fase 2: chiusi T01, T02, T03, T04, T04b, T05, T06, T07, T07c, T07d, T07e** —
+ognuno con `verify` verde, reviewer approvato e **un commit solo**. `npm run verify` → **448 test unitari
+in 30 suite**, 1 di integrazione, 1 di smoke (erano 402/27 a inizio sessione).
+
+Quattro commit, in ordine: `20f7e07` (backlog), `45eb0cd` (T07d), `19a16d5` (pianificazione T07e),
+`ecec9c5` (T07e).
+
+Il reviewer ha bocciato **due volte su due task**, sempre con `verify` verde, e in **entrambi i casi il
+codice di produzione era corretto**: il difetto era nella verifica. È un cambio di natura rispetto alle
+bocciature precedenti, che riguardavano il codice.
+
+### Prossimi passi, in ordine — il prossimo è un ⛔
+
+1. **T07f ⛔** — l'istante normalizzato al confine. Rompe le firme di `Trip`, `SeatOffer`, `TripRequest`
+   e di ogni adapter che le materializza. **Serve il via libera dell'umano**, che oggi ha scelto di
+   fermarsi prima: la domanda è già posta e aspetta solo la risposta. È la voce più urgente del registro
+   — senza, a T09 **ogni** offerta da Supabase sparisce in silenzio e il motore torna `ok([])`.
+2. **T07g** — la suite di contratto prova il guasto, **più il criterio aggiunto oggi** sull'identità in
+   RAM. Nessun ⛔. Il costo è passato da S/M a M.
+3. **T07h** — igiene di lint e identità. Nessun ⛔.
+4. **T07b ⛔** — parametri da tabella. Inverte una decisione di T03 e introduce un port nuovo.
+5. **T08 ⛔** — schema, migrazioni e RLS. Ha accumulato **quattro criteri nuovi** in questa sessione.
+
+**Non si aprono senza riscriverne prima i criteri: T13, T14** (precedono le note, le due tratte, le
+offerte grigie e rosse, la cascata e il reintegro) **e adesso anche T15**, con il riquadro ⚠️ sopra il
+task.
+
+### Decisioni dell'umano in questa sessione
+
+Simmetria per direzione su T07d; quattro gruppi di `IDEAS.md` portati dentro come T07f, T07g, T07h più
+criteri su T08 e T16; l'ordine `T07d → T07e → T07f → T07g → T07b → T08`; il trigger di T07e come
+**usecase nuovo letto-poi-scritto**, con la metà in scrittura delle RLS che ne segue; l'identità in RAM
+come **criterio di T07g**; e sugli strumenti del reviewer la forma **(a)** — se gli serve una sonda, la
+chiede e la esegue il developer.
+
+### Aperto, e da decidere quando servirà
+
+- **T07d ha ristretto il buco dei KPI, non l'ha chiuso.** Con gli **stessi plant e lo stesso giorno di
+  partenza**, una trasferta dichiarata di sei giorni contro una tratta di uno passa, e T06 accredita sei
+  giorni. Due vie in `IDEAS.md`, con prezzi diversi: confrontare anche il capo non richiesto (rompe "ho
+  chiesto solo l'andata") o limitare i giorni lato T06 (non toglie niente all'utente).
+- **La sonda di mutazione come step di `verify`** resta la forma (c) non scelta: sarebbe la rete più
+  forte e non dipenderebbe da chi si ricorda di chiedere.
+- **Il giorno dei confronti è UTC**, non quello del fuso di chi viaggia. Irraggiungibile con dati
+  realistici, da decidere prima che lo incontri un seed notturno.
+- **I massimi non hanno una via di correzione:** la monotonia rende permanente anche un massimo
+  sbagliato, da seed o da un'accettazione per errore.
+- **A T09 una lettura negata dalle RLS sarà indistinguibile da "nessun massimo"**: un errore di
+  autorizzazione che si presenta come un dato legittimo.
+- **I due task che non esistono nel backlog** — modifica trasferta e annullamento trasferta — restano
+  inesistenti, e con loro la cascata sulle candidature quando una trasferta scompare.
+- **Il blocco UI** (note validate solo sui campi scritti, errori accumulati, tetto di digitazione,
+  `Trip.seatsAvailable` che mente dopo le tratte, candidature lette per owner, bonus "stessa persona su
+  entrambe le tratte") resta non schedulato, da decidere con la riscrittura dei criteri di T13–T15.
+
+### Le quattro lezioni, che riguardano tutte i **criteri** e non il codice
+
+1. **Un criterio può essere sbagliato il giorno in cui lo scrivi.** La regola nota diceva che i criteri
+   **invecchiano** col modello; oggi due erano sbagliati **appena scritti**: quello di T07d letto alla
+   lettera rifiutava ogni rientro legittimo, e quello mio sulla monotonia prometteva una verifica che
+   non esiste e a T09 avrebbe imposto la cosa che il task vieta.
+2. **Un criterio che nomina il proprio metodo di verifica va letto anche su quel piano.** Non l'ha
+   trovato una rilettura contro il codice: l'ha trovato il planner chiedendosi **come** si sarebbe
+   verificato. *"La suite di contratto lo verifica"* era falso perché una suite comportamentale non vede
+   gli import.
+3. **Una verifica può mancare, ma può anche essere innocua per costruzione.** T07d è stato bocciato per
+   una sonda **mancante**; su T07e ne ho chiesta una il cui esito era **noto a priori** — mutare un
+   no-op in un ambiente senza identità non può far cadere niente. Prima di chiedere una sonda, chiedersi
+   se **può** fallire.
+4. **La causa di un test che non distingue sta quasi sempre in una fixture, non nel predicato.** Due
+   volte oggi: andata e rientro dell'offerente nello stesso giorno UTC, e una colonna con lo stesso
+   valore sui due lati nel test il cui scopo era distinguere colonna per colonna. In entrambi i casi il
+   codice di produzione era giusto.
+
+Le tre regole operative nuove sono in `CLAUDE.md` e in `OFFICINA.md`, non solo qui: il testo multilinea
+ai comandi nativi passa per un file, al reviewer non si chiede di mutare il sorgente, e la frase
+sull'indipendenza del reviewer non dichiara più una proprietà che il sistema non ha.

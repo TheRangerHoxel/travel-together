@@ -428,7 +428,12 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Il punto delicato è che la sonda era utile.** Senza eseguire i mutanti, N1 non sarebbe uscito: due mutanti sopravvissuti su otto sono precisamente la differenza fra un task verde e un task verificato. Quindi la via non è togliere la sonda, è decidere **chi la esegue e con quali reti**. Tre forme: (a) il reviewer **chiede** la sonda e la esegue il developer, con il reviewer che ne legge l'esito — costa un giro e conserva l'indipendenza; (b) il reviewer la esegue, e l'orchestratore **verifica il working tree dopo ogni review** come ho fatto qui, trasformando la convenzione in un controllo; (c) una sonda di mutazione diventa uno **step di `verify`** su un insieme dichiarato di mutanti, e allora non la esegue nessun agente a mano.
 - **Impatto** — `OFFICINA.md` (l'enunciato sull'indipendenza, che oggi promette più di quello che il sistema ottiene), `CLAUDE.md` (la regola sulla shell), e `.claude/agents/reviewer.md`. **Nessun effetto sul codice applicativo.** Una modifica alle deny rules o agli strumenti del reviewer è un ⛔: la decide l'umano.
 - **Costo** — XS per (a), S per (b), M per (c).
-- **Stato** — proposta
+- **Stato** — **decisa dall'umano il 23 ottobre 2026: forma (a)** — se al reviewer serve una sonda, la
+  chiede nel verdetto e la esegue il developer. `OFFICINA.md` e `CLAUDE.md` sono stati corretti nello
+  stesso giro: la frase sull'indipendenza non dice più *"non ha strumenti di scrittura"*, che era falsa,
+  ma *"non modifica il codice"*, con l'episodio e la regola scritti sotto. La forma (c) — una sonda di
+  mutazione come step di `verify` — **resta aperta** come proposta: sarebbe la rete più forte e non
+  dipenderebbe da chi si ricorda di chiedere.
 
 ### Una proiezione sola da `Trip` a `TripRequest` e `SeatOffer`, in `core/domain`
 - **Cosa** — una funzione pura condivisa che, data una trasferta e una direzione, produca la faccia "richiesta" (`TripRequest`) e la faccia "offerta" (`SeatOffer`), più un criterio su T12/T13 che imponga di passare da lì.
@@ -450,7 +455,8 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Perché** — rilievo del reviewer dopo la review di T07e, dove questa classe di difetto si è manifestata: un test dei massimi scriveva e leggeva la riga di un altro profilo restando autenticato come il primo, ed era **verde a 448 test**. L'ha trovato una lettura, non `verify`. Su Supabase quel test sarebbe rosso in due punti, e la diagnosi arriverebbe nel momento peggiore — a T09, con l'apparenza di un port sbagliato quando il port è sano, o peggio con la tentazione di allentare la policy per far passare un test. Oggi la rete è **convenzione più reviewer**: la convenzione è rispettata in una dozzina di punti del file di contratto, ma niente la impone.
 - **Impatto** — `adapters/contract` e l'ambiente dell'adapter memory, più gli adapter in RAM per i controlli di appartenenza. Solo file di test e adapter memory: **nessun effetto sul codice di produzione**. Si lega a **T07g**, che alza lo standard della suite di contratto, ed è il presidio strutturale di `memory.contract.test.ts`, che già dichiara che l'hook di identità esiste *"perché aggiungerlo dopo imporrebbe di riscrivere la suite"*.
 - **Costo** — M.
-- **Stato** — proposta
+- **Stato** — **accettata e schedulata dall'umano il 23 ottobre 2026: è un criterio di `T07g`**, non un
+  task a sé, perché tocca gli stessi file e alza lo stesso standard. Porta T07g da S/M a M.
 
 ### Una lettura negata dalle RLS sarà indistinguibile da "nessun massimo"
 - **Cosa** — decidere, a T08 o T09, se una lettura **negata** dei massimi debba essere distinguibile da una riga assente, oppure se il contratto *"riga assente → zeri in `ok`"* valga anche per il rifiuto.

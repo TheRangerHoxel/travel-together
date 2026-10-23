@@ -112,6 +112,12 @@ prese restano in `PROGRESS.md`.
   riempito un `.md` di mojibake, un BOM in un `.ts`. Usa gli strumenti di modifica; per una
   trasformazione, Python con l'encoding esplicito; e **controlla che il diff sia della dimensione
   prevista** — un diff più grande del previsto è il segnale.
+- **Un testo multilinea o con virgolette non si passa come argomento a un comando nativo: si scrive un
+  file e si passa il percorso.** PowerShell 5.1 sgualcisce le virgolette doppie, e il comando riceve il
+  testo **spezzato sugli spazi**: un `git commit -m` così è fallito con ogni parola del messaggio
+  interpretata come un pathspec. È stato innocuo solo perché git si rifiuta di fare le cose a metà.
+- **Al reviewer non si chiede di mutare il sorgente.** Se gli serve una sonda, la chiede nel verdetto e
+  la esegue il developer: il motivo è in [OFFICINA.md](OFFICINA.md), sotto i tre agenti.
 
 ## Interruzioni e ripresa
 
