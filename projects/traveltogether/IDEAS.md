@@ -452,3 +452,31 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — `core/domain/instant.ts` (o un fuso dichiarato in `config/`), `findMatches`, il vincolo di T07d, e i criteri di T13 che ordinano e filtrano per data. Nessun cambio di firma se la decisione è *"resta UTC e lo si dichiara in schermata"*. Si lega a `T07f`, che è il punto in cui la forma dell'istante viene toccata.
 - **Costo** — XS se la decisione è dichiarare, M se il giorno diventa locale.
 - **Stato** — proposta
+
+### La suite di contratto non pinna `listByLeg` su una tratta inesistente
+- **Cosa** — un test nella suite di contratto che fissi cosa risponde `listByLeg` quando la tratta non esiste (per esempio il rientro di una trasferta senza rientro): lista vuota in `ok`, non `not-found`, e lo stesso su entrambi gli adapter.
+- **Perché** — scoperto pianificando T07e. Il doc del port descrive *quali* candidature `listByLeg` restituisce, ma non dice niente sulla tratta assente, e nessuno dei test di contratto la interroga: in RAM il filtro su una `Map` dà `[]`, su PostgREST una `select` con due `eq` dà zero righe, quindi **oggi i due adapter concordano per caso, non per contratto**. Chi scrive un usecase che enumera le tratte di una trasferta (T07e lo fa per leggere le candidature ricevute, T14 lo farà per la schermata) deve scegliere fra fidarsi di un comportamento non pinnato o duplicare la regola *"il ritorno esiste solo se `returnAt` non è nullo"* — che è esattamente la regola che vive già in `TripRepository.save` e in `listOpenOffers`. Si lega a **T07g**, che alza lo standard della suite.
+- **Impatto** — `adapters/contract/repository-contract.ts` (test additivo, nessuna asserzione esistente toccata) e il doc di `MatchRequestRepository.listByLeg`. Nessun cambio di firma.
+- **Costo** — S.
+- **Stato** — proposta
+
+### `PersonalBests` è strutturalmente identico a `PersonalStats`, e il compilatore non li distingue
+- **Cosa** — rendere il tipo dei massimi **distinguibile** dal tipo delle statistiche correnti (brand, tipo opaco, o un campo marcatore), e far sì che `awardBadges` accetti solo ciò che è dichiarato come massimo.
+- **Perché** — conseguenza dichiarata della pianificazione di T07e. Il criterio chiede un tipo con un **nome proprio** e che `awardBadges` **non cambi firma**: le due cose insieme obbligano i massimi a restare strutturalmente assegnabili a `PersonalStats` (stesse quattro metriche più `profileId`). Il nome protegge chi legge, non chi scrive: passare le statistiche correnti dove serve il massimo — cioè il difetto che il task esiste per impedire — **compila**. Oggi il rischio è contenuto perché l'unico punto di composizione è un usecase solo; diventa reale quando T15 avrà in mano entrambi i valori nella stessa schermata. Stessa famiglia di *"Istante normalizzato UTC come tipo brandizzato"* e di *"`Trip` come tipo opaco"*, su un tipo nuovo.
+- **Impatto** — `core/domain/personal-bests.ts`, la firma di `awardBadges` (quindi **rompe un'interfaccia**: è un ⛔), `refreshPersonalBests` e i test di T07. Reversibile.
+- **Costo** — S se fatto subito dopo T07e, M dopo che T15 esiste.
+- **Stato** — proposta
+
+### I massimi storici non hanno una via di correzione
+- **Cosa** — decidere se esista un modo di **abbassare o azzerare** un massimo (operazione di amministrazione, migrazione dichiarata, o niente affatto), e scriverlo dove lo troverà chi se lo chiederà.
+- **Perché** — scoperto pianificando T07e. La monotonia è l'invariante del task: per costruzione nessun percorso dell'app può far scendere un massimo. Il rovescio è che un massimo **sbagliato** è permanente — un seed dimostrativo generoso (T17), una candidatura accettata per errore, un bug di `computePersonalStats` corretto dopo — e con lui il badge che ne deriva. Non è un difetto del task: è il prezzo della proprietà che il task compra, e va reso visibile prima che qualcuno lo scopra con dati in mano. Si lega alla decisione dell'umano su T08 (*"la monotonia è anche lato DB?"*): se lo è, la correzione richiede comunque credenziali di servizio.
+- **Impatto** — nessun codice applicativo se la decisione è *"non si corregge, e lo si dichiara"*; una procedura di migrazione in T08 e una nota in T17 altrimenti. Nessun cambio di firma.
+- **Costo** — XS per dichiarare, S per una procedura.
+- **Stato** — proposta
+
+### Se la scrittura dei massimi fallisce, la dashboard personale perde i badge
+- **Cosa** — decidere cosa mostra T15 quando `refreshPersonalBests` ritorna `storage-failed`: niente badge, i badge calcolati sulle statistiche correnti (degrado dichiarato in schermata), o l'ultimo massimo letto senza alzarlo.
+- **Perché** — conseguenza della decisione dell'umano del 23 ottobre 2026 sul trigger: i massimi li alza il percorso di **lettura** della dashboard, quindi un guasto in scrittura rende indisponibile anche la **lettura** dei badge. Le tre vie non sono equivalenti: calcolare i badge sulle statistiche correnti riapre esattamente il buco del badge che si ritira (per una volta sola, e senza che nessuno lo sappia); una sezione vuota è onesta ma in demo sembra *"non hai badge"*; mostrare il massimo letto senza alzarlo è il degrado migliore ma richiede che il port abbia una lettura separata dalla scrittura — che con la forma pianificata in T07e **ce l'ha** (`findByProfile`). Va deciso prima che T15 scriva la schermata, non durante.
+- **Impatto** — criteri di T15 e il contratto di `refreshPersonalBests` (un errore in più o un esito degradato nel tipo di ritorno). Additivo se deciso prima di T15.
+- **Costo** — S.
+- **Stato** — proposta

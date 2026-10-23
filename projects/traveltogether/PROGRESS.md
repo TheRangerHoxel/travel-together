@@ -3188,3 +3188,144 @@ rimozioni, dove le due rimozioni sono la riga di import sostituita e quel `retur
 
 **Due note non bloccanti, chiuse subito in questo commit:** la nota sul compilatore in `IDEAS.md`, e il
 riferimento per nome invece che per riga qui sopra.
+
+**Commit `45eb0cd`**, uno solo per il task, criteri spuntati con i limiti residui scritti sotto, pushato
+su `auto/build`.
+
+---
+
+## 2026-10-23 — T07e · i criteri non avevano soggetto, e la decisione dell'umano sul trigger
+
+Nessun codice. Rilettura dei criteri contro il modello **prima** di aprire il task, come per T07d — e
+anche qui ha trovato qualcosa, con una differenza che vale la pena notare: i criteri di T07d erano
+**sbagliati**, questi erano **incompleti**.
+
+### Il buco
+
+Il criterio *"`awardBadges` non cambia firma: chi la chiama le passa il massimo invece delle statistiche
+correnti"* **non ha soggetto**. In produzione nessuno compone `computePersonalStats` con `awardBadges`:
+l'unico posto dove le due funzioni si incontrano è nei test. Quindi "chi la chiama" non esiste, e i
+criteri non dicevano da nessuna parte **quando** il massimo si aggiorna — che è la decisione da cui
+dipendono il port, la forma del codice e una policy RLS di T08.
+
+Secondo buco, conseguenza del primo: il criterio su T08 diceva *"RLS che permette a ciascuno di leggere
+i propri"*, **solo lettura**. Se i massimi li aggiorna l'app, una tabella leggibile e non aggiornabile
+rende il percorso inutilizzabile, e una policy scritta a metà è il genere di omissione che si scopre in
+demo.
+
+### La decisione dell'umano: un usecase nuovo, letto-poi-scritto
+
+Legge trasferte e candidature, calcola le statistiche correnti, alza i massimi dove sono saliti, ritorna
+i badge calcolati **sui massimi**. È il percorso che T15 userà davvero, quindi è quello su cui i criteri
+si dimostrano.
+
+Le altre due vie e il loro prezzo, registrati perché la scelta si capisca fra sei mesi: aggiornare i
+massimi **dentro i quattro usecase di scrittura** già chiusi sarebbe più onesto sul piano causale — il
+massimo sale quando il fatto accade — ma costerebbe più letture e più scritture per ogni accettazione e
+un criterio di T05 da riaprire; **fermarsi al port** lasciando la composizione a T15 avrebbe dimostrato
+il criterio del badge che non si ritira su una funzione **che nessuno chiama**, cioè la stessa forma del
+difetto che il task nasce per evitare.
+
+Conseguenza applicata subito: **criterio aggiunto a T08** per la metà in scrittura, con la domanda
+aperta se la monotonia debba essere **anche** lato DB (`UPDATE … WHERE nuovo > corrente`, dove "zero
+righe toccate" non è un errore ma il caso normale), come già si fa per il decremento atomico dei posti.
+
+### Due decisioni mie, dichiarate
+
+- **I massimi sono un tipo con un nome proprio**, non un `PersonalStats` riempito di massimi: stesse
+  quattro metriche, significato diverso. Un campo che si chiama statistica e contiene un pelo d'acqua
+  mentirebbe sul proprio nome, ed è la classe di difetto che questo progetto rifiuta. Così `awardBadges`
+  non cambia firma e nessun nome diventa falso.
+- **La monotonia vive nel dominio come funzione pura**, non nell'adapter: è l'invariante su cui poggia
+  tutto il task, quindi deve valere su ogni adapter presente e futuro e non su quello che se lo ricorda.
+
+Aggiunti due criteri che i criteri originali non avevano: l'usecase nuovo come percorso su cui si
+dimostrano gli altri, e **nessun massimo scritto a metà** se `computePersonalStats` fallisce — si legge e
+si calcola prima, si scrive dopo, come fa `requestSeat` con la sua unica `save`.
+
+**Prossimo passo:** planner su T07e (il task attraversa dominio, port, adapter, suite di contratto e un
+usecase nuovo: è il caso in cui serve davvero), poi developer, `verify`, reviewer.
+
+---
+
+## 2026-10-23 — T07e · **PIANIFICATO** in cinque step, e un criterio mio era sbagliato
+
+Nessun codice. Il planner ha toccato **solo** `IDEAS.md` (quattro voci nuove): `TASKS.md` e
+`PROGRESS.md` li ho tenuti io, come da brief, così resta tracciabile chi ha deciso cosa.
+
+### Il criterio che ho scritto stamattina ed era sbagliato
+
+L'avevo scritto così: *"la monotonia vive in `core/domain` come funzione pura… l'adapter la usa, non la
+reimplementa, **e la suite di contratto lo verifica su entrambi**"*. Sbagliato due volte, e nessun test
+avrebbe potuto dirlo:
+
+1. Una suite **comportamentale** non può vedere se un adapter *importa* una funzione. Il criterio
+   prometteva una verifica **che non esiste**: è un commento che promette più di quello che il codice
+   ottiene, nella forma di un criterio di accettazione.
+2. A T09 la forma giusta su Postgres è `GREATEST` per colonna in un unico `UPDATE` — cioè una
+   **riespressione** della monotonia in un altro linguaggio. Preso alla lettera, il criterio avrebbe
+   imposto l'unica alternativa possibile (leggi, calcola in TypeScript, riscrivi), che reintroduce la
+   corsa per cui `adjustLegSeats` è stata definita **relativa** e che può **abbassare un massimo**.
+   Avrebbe chiesto a T09 esattamente la cosa che il task vieta.
+
+Riscritto: la **definizione** sta nel dominio con un test proprio, l'adapter memory la **invoca** e
+quello lo verifica il **reviewer per lettura**, ogni altro adapter è provato **equivalente** dalla suite
+— che su due tecnologie diverse è l'unica verifica disponibile. Rilievo del planner.
+
+**La lezione è nuova e vale oltre questo task:** *"criteri obsoleti si riscrivono prima di aprire il
+task"* finora ha riguardato criteri invecchiati con il modello. Questo era **sbagliato il giorno in cui
+l'ho scritto**, e il modo in cui è stato trovato non è la rilettura contro il codice: è stato il planner
+a chiedersi *come* si sarebbe verificato. Un criterio che nomina il proprio metodo di verifica va letto
+anche su quel piano, non solo sul merito.
+
+### Una decisione mia, con il motivo che la regge
+
+**Una riga per profilo con le quattro metriche**, non una riga per (profilo, metrica). Non è una
+preferenza: con quattro righe l'alzata sono quattro scritture indipendenti, e la terza che fallisce
+lascia applicate le prime due — è la voce di `IDEAS.md` sulla cascata che scrive N righe, già registrata
+come difetto. Con l'aggregato il *"massimo scritto a metà"* diventa **non rappresentabile** invece di
+evitato, che è la gerarchia di questo progetto. La forma per metrica avrebbe richiesto anche un **enum
+delle metriche nel DB**, cioè un secondo posto dove vive l'elenco. Prezzo dichiarato nel criterio: una
+quinta metrica diventa una migrazione di colonna.
+
+### Un terzo criterio falso, trovato scrivendo questo, e **non** riscritto in silenzio
+
+**T15 dice *"i numeri coincidono con quelli calcolati da T06 e T07 sugli stessi dati"***. Era vero
+quando i badge si calcolavano sulle statistiche correnti; con T07e i badge vengono dai **massimi
+storici** e i due numeri **possono differire per costruzione** — è il punto del task. Preso alla lettera
+quel criterio chiede a T15 di dimostrare un'uguaglianza che T07e ha reso falsa. Marcato con un riquadro
+⚠️ sopra T15, come già si fa per T13 e T14, e **non** riscritto da me: è un criterio di prodotto, e la
+riscrittura è dell'umano quando aprirà il task. Aggiunto invece il criterio corrispondente che T07e
+pretendeva: la schermata dichiara che le statistiche sono correnti e i badge sui massimi.
+
+### Il piano, in breve
+
+Cinque step, ognuno chiudibile con `verify` verde: (1) la monotonia come funzione pura del dominio, con
+un **ponte di tipo** che fa fallire `typecheck` se una metrica nuova entra in `PersonalStats` e non nei
+massimi; (2) port additivo, adapter memory, suite di contratto; (3) l'usecase che compone il percorso con
+**una sola** scrittura; (4) i due invarianti per cui il task esiste e i percorsi d'errore; (5) i limiti
+scritti nel codice dove si trovano. Stima ~21 test in più, dichiarata come stima.
+
+**Tre cose del piano che vale la pena tenere qui**, perché sono decisioni e non dettagli:
+
+- **Il port ha anche la lettura, che l'usecase non usa**, ed è la lettura che rende la scrittura
+  *dimostrabile*: senza, un adapter che calcola il massimo e non lo persiste passerebbe la suite.
+- **`raise` prende l'aggregato e ritorna lo stato dopo l'alzata**, invece di leggi-modifica-scrivi: un
+  merge fatto nel client fra una lettura e una scrittura perderebbe un'alzata concorrente, cioè
+  **abbasserebbe un massimo**. È lo stesso argomento per cui `adjustLegSeats` è relativa.
+- **Una duplicazione accettata e dichiarata:** l'usecase deve enumerare le tratte proprie (*andata
+  sempre, ritorno se `returnAt`*), regola che vive già in `save` e in `listOpenOffers`. Le alternative
+  erano un metodo nuovo sul port (⛔, e per sole prestazioni) o fidarsi di un comportamento di
+  `listByLeg` su tratta inesistente **che nessun test di contratto pinna** — e fidarsi di un
+  comportamento non pinnato è peggio della duplicazione. Va nel commento dell'usecase.
+
+### Quattro voci nuove in `IDEAS.md`, dal planner
+
+`listByLeg` su tratta inesistente non pinnato dalla suite; `PersonalBests` strutturalmente identico a
+`PersonalStats` (il nome protegge chi legge, **non** il compilatore, e brandizzarlo è un ⛔); **i massimi
+non hanno una via di correzione** — la monotonia rende permanente anche un massimo sbagliato, da seed o
+da un'accettazione per errore; e il degrado di T15 se la scrittura dei massimi fallisce, dove una delle
+tre vie possibili **riapre il badge che si ritira**.
+
+**Prossimo passo:** developer sullo Step 1–2, con le sonde di mutazione **chieste nel brief** e non
+lasciate alla sua iniziativa.

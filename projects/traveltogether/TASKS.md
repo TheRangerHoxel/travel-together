@@ -575,21 +575,71 @@ riaperto il criterio dei duplicati, riportandolo da *non rappresentabile* a *da 
 
 **Da fare prima di T15**, la dashboard personale che mostra badge e statistiche.
 
+**Criteri integrati il 23 ottobre 2026, prima di aprire il task, e il motivo va letto.** Il criterio
+*"chi la chiama le passa il massimo"* **non aveva soggetto**: in produzione nessuno compone
+`computePersonalStats` con `awardBadges` — l'unico accoppiamento vive nei test — e i criteri non dicevano
+**quando** il massimo si aggiorna, che è la decisione da cui dipendono il port, la forma del codice e una
+policy RLS di T08. Scelta dell'umano, fra tre vie: **un usecase nuovo, letto-poi-scritto.** Le altre due
+erano aggiornare i massimi dentro i quattro usecase di scrittura già chiusi (più letture e più scritture
+per ogni accettazione, e un criterio di T05 da riaprire) e fermarsi al port lasciando la composizione a
+T15 (il criterio sul badge che non si ritira sarebbe stato dimostrato su una funzione **che nessuno
+chiama**, cioè la stessa forma del difetto che il task nasce per evitare).
+
 **Criteri di accettazione**
 - [ ] Esiste un port per leggere e aggiornare il **massimo** di ogni metrica per profilo, con adapter
       memory, e la suite di contratto condivisa lo copre
 - [ ] L'aggiornamento è **monotono**: scrivere un valore più basso del massimo memorizzato non lo
       abbassa. Un test lo dimostra, ed è l'invariante su cui poggia tutto il task
-- [ ] `awardBadges` **non cambia firma**: resta una funzione pura su `PersonalStats` e config. Chi la
-      chiama le passa il massimo invece delle statistiche correnti
+- [ ] La **definizione** della monotonia vive in `core/domain` come funzione pura e ha un test proprio.
+      L'adapter memory la **invoca** — niente `Math.max` scritto nell'adapter — e questo lo verifica il
+      **reviewer per lettura**. Ogni altro adapter che la esprima nel proprio linguaggio è provato
+      **equivalente** dalla stessa suite di contratto, che su due tecnologie diverse è l'unica forma di
+      verifica disponibile.
+      **Criterio corretto il 23 ottobre 2026, e l'errore era mio.** L'avevo scritto come *"l'adapter la
+      usa, non la reimplementa, e la suite di contratto lo verifica su entrambi"*: sbagliato due volte.
+      Una suite **comportamentale** non può vedere se un adapter *importa* una funzione, quindi
+      prometteva una verifica che non esiste. E a T09 la forma giusta su Postgres è `GREATEST` per
+      colonna in un unico `UPDATE`, cioè una **riespressione** della monotonia in un altro linguaggio:
+      preso alla lettera, il criterio avrebbe imposto l'unica alternativa — leggi, calcola in
+      TypeScript, riscrivi — che reintroduce la corsa per cui `adjustLegSeats` è stata definita
+      relativa, e che può **abbassare un massimo**. Cioè avrebbe chiesto a T09 la cosa che il task
+      vieta. Rilievo del planner, non trovato da nessun test perché nessun test può trovarlo
+- [ ] **Una riga per profilo con le quattro metriche**, non una riga per (profilo, metrica). Deciso
+      perché rende il *"massimo scritto a metà"* **non rappresentabile** invece di evitarlo: con quattro
+      righe l'alzata sono quattro scritture indipendenti e la terza che fallisce lascia applicate le
+      prime due — è la voce di `IDEAS.md` *"La cascata e il reintegro scrivono N righe una alla volta"*,
+      già registrata come difetto. In più la forma per metrica richiederebbe un **enum delle metriche
+      nel DB**, cioè un secondo posto dove vive l'elenco, da tenere d'accordo con la union TypeScript.
+      Prezzo accettato e dichiarato: una quinta metrica diventa una migrazione di colonna — e lo è già
+      oggi un cambio di `PersonalStats`, del catalogo dei badge e di `config/`
+- [ ] Un **usecase nuovo** compone il percorso: legge trasferte e candidature, calcola le statistiche
+      correnti con `computePersonalStats`, alza i massimi dove sono saliti, e ritorna i badge calcolati
+      **sui massimi**. È il percorso che T15 userà, quindi è quello su cui i criteri seguenti si
+      dimostrano
+- [ ] Il massimo è un tipo con un **nome proprio** (stesse quattro metriche di `PersonalStats`,
+      significato diverso: un pelo d'acqua, non una statistica). Un campo che si chiama statistica e
+      contiene un massimo mentirebbe sul proprio nome, ed è la classe di difetto che questo progetto
+      rifiuta
+- [ ] `awardBadges` **non cambia firma** e resta una funzione pura: riceve il massimo al posto delle
+      statistiche correnti
 - [ ] Un test dimostra il caso che il task esiste per impedire: statistiche che **scendono** (una
-      trasferta annullata) → i badge **restano**
+      trasferta annullata) → i badge **restano**. Sul percorso dell'usecase, non su una funzione isolata
 - [ ] I duplicati restano **non rappresentabili**: il criterio di T07 non si indebolisce, e un test lo
       riafferma sul percorso nuovo
+- [ ] Un errore di `computePersonalStats` **non lascia i massimi a metà**: si legge e si calcola prima,
+      si scrive dopo, come fa `requestSeat` con la sua unica `save`. Un test lo asserisce contando le
+      scritture sulla spia
 - [ ] **T15 dichiara in schermata** che le statistiche mostrate e quelle che assegnano i badge possono
       essere due numeri diversi, con la stessa onestà con cui dichiara che saving e CO₂ sono stime
 - [ ] Criterio corrispondente su **T08**: la tabella dei massimi, con RLS che permette a ciascuno di
-      leggere i propri
+      leggere i propri **e di aggiornare i propri**. La metà in scrittura segue dalla decisione del
+      23 ottobre: se aprire la dashboard aggiorna i massimi, una tabella leggibile e non aggiornabile
+      renderebbe il percorso inutilizzabile — e una policy scritta solo in lettura è il genere di
+      omissione che si scopre in demo. La forma che soddisfa la suite di contratto è **`GREATEST` per
+      colonna** in un unico `INSERT … ON CONFLICT DO UPDATE … RETURNING *`: una monotonia imposta
+      **sulla riga** (`WHERE nuovo > corrente` sull'intera riga) farebbe fallire il test di contratto
+      del caso misto — una metrica che sale mentre le altre scendono — e in quel caso il difetto sarebbe
+      nella SQL, non nella suite
 
 ## T07f ⛔ L'istante normalizzato al confine
 
@@ -823,6 +873,16 @@ Tabelle da `ARCHITECTURE.md`, come SQL versionato nel repo.
       esplicita delle righe chiuse prima di eliminare la tratta — la seconda è logica di business,
       quindi del task di **modifica trasferta**, che non esiste ancora nel backlog
 
+**Criterio aggiunto il 23 ottobre 2026, dalla decisione sul trigger di T07e**
+- [ ] La tabella dei **massimi** delle metriche ha RLS che permette a ciascuno di leggere **e
+      aggiornare i propri**, e a nessuno quelli di un altro. La metà in scrittura non è un dettaglio:
+      l'umano ha deciso che i massimi li alza un usecase sul percorso di lettura della dashboard, quindi
+      una policy scritta solo in lettura renderebbe il percorso inutilizzabile. Resta da decidere qui se
+      il vincolo di monotonia è anche **lato DB** (un `UPDATE … WHERE nuovo > corrente`, dove "zero
+      righe toccate" non è un errore ma il caso normale di un valore più basso), come per il decremento
+      atomico dei posti: in RAM la monotonia è una funzione pura del dominio, e su Postgres sarebbe la
+      seconda rete
+
 ⛔ Checkpoint obbligatorio: cambio di schema DB.
 
 ## T09 Adapter Supabase
@@ -888,10 +948,26 @@ Implementazione dei port con `@supabase/supabase-js`.
 - [ ] Esauriti i posti, l'offerta non accetta più candidature e lo dichiara in schermata
 
 ## T15 UI dashboard personale e badge
+
+> ⚠️ **Un criterio qui sotto è diventato falso con T07e, e va riscritto prima di aprire il task.**
+> *"I numeri coincidono con quelli calcolati da T06 e **T07** sugli stessi dati"* era vero quando i badge
+> si calcolavano sulle statistiche correnti. Da T07e i badge si assegnano sui **massimi storici**, quindi
+> i due numeri **possono differire per costruzione** — è il punto del task, non un difetto. Preso alla
+> lettera, quel criterio chiederebbe a T15 di dimostrare un'uguaglianza che T07e ha reso falsa: un
+> criterio che produce codice **verde e sbagliato**, o un test che non può passare. Riscriverlo **prima**,
+> non durante.
+
 - [ ] Mostra viaggi condivisi, CO₂ evitata, saving generato, badge ottenuti
-- [ ] I numeri coincidono con quelli calcolati da T06 e T07 sugli stessi dati (test)
+- [ ] I numeri coincidono con quelli calcolati da T06 e T07 sugli stessi dati (test) — ⚠️ **da riscrivere**
+      prima di aprire il task, vedi il riquadro sopra
 - [ ] I valori stimati sono **dichiarati come stime** in schermata
 - [ ] Utente senza viaggi → stato vuoto con zeri, nessun errore
+
+**Criterio aggiunto il 23 ottobre 2026, dal criterio corrispondente di T07e**
+- [ ] La schermata **dichiara** che le statistiche mostrate sono quelle **correnti** mentre i badge sono
+      assegnati sui **massimi storici**, quindi i due numeri possono differire: stessa onestà con cui
+      dichiara che saving e CO₂ sono stime. Un test ispeziona il testo. Senza questa riga, un collega
+      vedrebbe "1 viaggio condiviso" accanto a un badge che ne richiede cinque e penserebbe a un errore
 
 > **Vincolo deciso dall'umano il 14 ottobre 2026:** i **parametri** di `config/` non si mostrano alla
 > platea. La dashboard mostra i **KPI**, eventualmente come gauge, mai i valori da cui derivano. Il
