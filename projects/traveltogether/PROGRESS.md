@@ -2854,3 +2854,110 @@ shell.** Tre episodi in due giorni — un alias di una lettera che ha cancellato
 di encoding che ha riempito `TASKS.md` di mojibake, un BOM in un `.ts`. In tutti e tre il danno è stato
 recuperabile **solo perché il lavoro precedente era committato**, e in due su tre è stato scoperto
 guardando il **diff**, non da `verify`.
+
+---
+
+## 2026-10-23 — Ripresa · baseline, quattro decisioni, e i criteri di T07d riscritti prima di aprirlo
+
+**Nessun codice applicativo.** Solo backlog e registro, che è il lavoro che la regola sui criteri
+obsoleti pretende **prima** di aprire un task.
+
+**Ripresa fatta nell'ordine di `CLAUDE.md`**, e lo stato trovato coincide con quello dichiarato a fine
+sessione: `3c20968`, `auto/build` allineato a `origin/auto/build`, working tree pulito. **Baseline
+`verify` verde** prima di toccare qualunque cosa: 402 test unitari in 27 suite, 1 di integrazione, 1 di
+smoke. Serve a non attribuire a un task nuovo un rosso che c'era già.
+
+### Il difetto trovato leggendo i criteri di T07d contro il modello, ed è esattamente la classe prevista
+
+I due criteri originali di T07d dicevano *"i plant della trasferta dichiarata non coincidono con quelli
+della tratta"* e *"la data di partenza non coincide con quella della tratta"*. Erano scritti pensando
+all'andata. Ma `listOpenOffers` proietta la tratta di **rientro** con i plant **invertiti** e
+`departureAt = returnAt` (`memory-trip-repository.ts`, ramo `direction === 'return'`): presi alla
+lettera, quei criteri avrebbero rifiutato **ogni** candidatura legittima sul rientro, e il criterio di
+non-regressione dello stesso task — *"un percorso che `findMatches` avrebbe proposto deve passare"* —
+**sarebbe nato rosso**.
+
+Vale la pena registrare *come* è emerso, perché è la lezione n.4 della sessione precedente che si paga
+da sola al primo giro: non da `verify`, che era verde, e non dal reviewer, che non avrebbe visto il
+task; dalla rilettura dei criteri contro il codice attuale, obbligatoria prima di aprire un task.
+
+**Decisione dell'umano: simmetria per direzione.** Andata → plant nello stesso ordine e data di
+`departureAt`; rientro → plant invertiti e data di `returnAt` della trasferta dichiarata. Da cui due
+criteri nuovi: una trasferta **senza `returnAt`** non è compatibile con una tratta `return` (stesso
+errore, stesso `reason`), e il test di non-regressione deve coprire **entrambe** le direzioni — se
+coprisse solo l'andata, la simmetria resterebbe non verificata e il task tornerebbe verde e sbagliato.
+
+### Le quattro decisioni dell'umano di oggi
+
+1. **Autonomia accesa su T07d e T07e**, di fila, con ciclo completo e commit a ogni approvazione, e
+   **stop a T07b**. Si interrompe prima solo per: reviewer che boccia due volte sullo stesso punto, un
+   ⛔ non previsto, un criterio che si rivela obsoleto, una dipendenza nuova.
+2. **Simmetria per direzione** su T07d, qui sopra.
+3. **Quattro gruppi di `IDEAS.md` portati dentro**, tutti e quattro.
+4. **Ordine:** `T07d → T07e → T07f → T07g → T07b ⛔ → T08 ⛔`.
+
+### Cosa è entrato nel backlog, e perché in quel punto
+
+- **T07f ⛔ — l'istante normalizzato al confine.** Unisce le due voci sull'istante e la nota sulla
+  validità di calendario: sono lo stesso lavoro, un parser unico al confine. È la voce che il registro
+  chiamava la più urgente e la ragione è meccanica: PostgREST serializza `timestamptz` con offset
+  `+00:00` e precisione al microsecondo, `parseUtcInstant` rifiuta entrambe le forme, e `findMatches`
+  risponde a un istante illeggibile con `continue` — quindi a T09 **ogni** offerta da Supabase
+  sparirebbe in silenzio e il motore tornerebbe `ok([])`, indistinguibile da "nessun collega
+  compatibile". Collocata **prima di T08** e non dentro T09 perché qui si decide la forma canonica, da
+  cui dipendono le colonne, i tipi generati e il seed di T17 — e la voce stessa si dà *"S dentro, M
+  scoperta dopo"*.
+- **T07g — la suite di contratto prova il guasto.** Hook `guasta()`/`ripristina()`, liste che omettono
+  le righe invalide, unicità dell'identità di tratta e della coppia (tratta, richiedente). Prima di T09
+  perché il criterio di T09 *"passa la stessa suite senza modifiche"* vale quanto vale la suite, e oggi
+  il ramo d'errore dei repository è l'unico comportamento del port che nessun test tocca. Il gemello su
+  `supabase` resta a T09, dove l'adapter esisterà.
+- **T07h — igiene di lint e identità.** Lint su `config/` e su `Date.parse`/`Date.UTC`,
+  `src/__tests__/` dentro il grafo dei confini, `PlantId` e `BadgeId` derivati dagli array.
+- **Criteri aggiunti a T08** (tre) e **a T16** (uno), nessun codice: il `CHECK`
+  `has_car = false ⇒ seats_total = 0`, la corsa fra cascata e candidatura concorrente nei test di
+  integrazione, il residuo della FK composta che blocca **anche le righe chiuse**, e su T16 il vincolo
+  "i parametri non si mostrano alla platea".
+- In `IDEAS.md`, **dodici voci annotate** come schedulate, con il task o il criterio di destinazione.
+  Le righe `Stato` cambiate sono solo quelle che l'umano ha approvato oggi.
+
+**Collocazione di T07h dichiarata da me, non chiesta:** dopo T07g e prima di T07b. L'ordine scelto
+dall'umano non la nominava, e il motivo per cui T07h è stato portato dentro è che T07b lascia nel codice
+le identità *"che il compilatore controlla"* — garanzia che oggi ha un buco in una direzione (aggiungere
+un membro alla union senza aggiungerlo all'array non produce alcun errore). Chiuderlo dopo averci
+costruito una tabella sopra sarebbe il contrario dell'ordine utile.
+
+### Due decisioni prese da me e dichiarate, invece di chiederle
+
+- **Planner solo su T07e.** T07d è un vincolo in un usecase solo con criteri già atomici: developer
+  diretto. T07e attraversa port, adapter memory, suite di contratto e chiamante di `awardBadges`.
+- **T07d non applica la finestra di tolleranza del matching**, solo plant e giorno. `requestSeat` non ha
+  `MatchConfig` fra le dipendenze e prendersela sarebbe un cambio di firma fuori scope. Resta quindi
+  **più lasco** dei vincoli duri di `findMatches` — non rifiuta nulla che l'app possa aver proposto — ed
+  è sufficiente a chiudere il buco, che si misura in giorni e km. Scritto nei criteri, così chi
+  rileggerà non lo prenderà per una dimenticanza.
+
+### Cosa resta fuori, dichiarato per non farlo riscoprire
+
+- **Port di osservabilità (`Logger`/`Telemetry`)**, con la voce XS *"`storage-failed` deve dire quale
+  lettura è fallita"*: non schedulato. Serve **dopo** T09, quando i guasti diventano reali. T07g lascia
+  nei commenti il nome del canale mancante, e **nessun commento dichiara osservabile un degrado che non
+  lo è**.
+- **Il blocco UI** (note validate solo sui campi scritti, errori accumulati, classificazione
+  dell'errore auto+capienza, tetto di digitazione, `Trip.seatsAvailable` che mente dopo le tratte,
+  candidature lette per owner, bonus "stessa persona su entrambe le tratte", cascata e reintegro in
+  blocco): non schedulato. Va deciso insieme alla riscrittura dei criteri di T13 e T14, che non si
+  aprono senza.
+- **I due task che non esistono nel backlog** — modifica trasferta e annullamento trasferta — restano
+  inesistenti, e con loro la voce *"Annullare una trasferta deve chiudere le candidature"*.
+- **Deny rules sui `.claude/` annidati:** fuori da T07h. Toccherebbe `.claude/settings.json`, che
+  `CLAUDE.md` vieta di modificare senza chiedere, e non è un freno di questo progetto ma dell'officina.
+- **Preferenza per genere, distanze su mappa, notifiche push, repo separati:** restano `accettata` e non
+  schedulate. Le notifiche sono separabili per il pitch e necessarie per un pilota.
+
+**Il commit non contiene codice applicativo:** nessun file sotto `app/` è toccato, quindi la baseline
+verde di stamattina è ancora lo stato di `verify`. Diff controllato prima di committare — 191 righe
+aggiunte e 16 rimosse su `TASKS.md` e `IDEAS.md`, nessun mojibake e nessun BOM: è la dimensione prevista
+per tre task nuovi, un blocco di criteri riscritti e dodici annotazioni.
+
+**Prossimo passo:** T07d, developer diretto senza planner, poi `verify`, poi reviewer.

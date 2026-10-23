@@ -35,7 +35,9 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Perché** — rilievo del reviewer su T03, ed è il più urgente dell'elenco. PostgREST serializza un `timestamptz` come `2026-11-03T06:00:00+00:00` (offset, non `Z`) e con precisione al **microsecondo**. Entrambe le forme vengono rifiutate dal parser, e `findMatches` risponde a un istante illeggibile omettendo l'offerta: a T09 **ogni** offerta proveniente da Supabase sparirebbe in silenzio e il motore tornerebbe `ok([])` — "nessun collega compatibile", indistinguibile da un risultato legittimo. È esattamente lo scenario che il `Result` è stato introdotto per evitare, aggirato dal lato dell'offerta.
 - **Impatto** — `adapters/supabase` e la suite di contratto. Il buco si chiude dove va chiuso, nell'adapter, e `findMatches` resta pura. Estende la voce "Istante normalizzato UTC come tipo brandizzato": va scritta come sua continuazione, non come doppione.
 - **Costo** — S se affrontata dentro T09, M se scoperta dopo.
-- **Stato** — `accettata`
+- **Stato** — `accettata` — **schedulata dall'umano il 23 ottobre 2026: è `T07f`**, insieme alla voce
+  *"Istante normalizzato UTC come tipo brandizzato"*, perché sono lo stesso lavoro. Collocata **prima di
+  T08**, non dentro T09, così la forma canonica è decisa prima dello schema e del seed.
 
 ### Rendere l'unicità dei `tripId` una garanzia della macchina
 - **Cosa** — o `findMatches` ritorna un `MatchError` `duplicate-offer-id`, o il port dichiara l'unicità e la suite di contratto la verifica.
@@ -43,14 +45,17 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — `core/usecases/find-matches.ts` oppure `adapters/contract`. Reversibile.
 - **Nota (13 ottobre 2026, dalla pianificazione di T04b) — la precondizione si sposta e se ne aggiunge una seconda.** Con le tratte il `tripId` **non è più unico fra le offerte** (due tratte della stessa trasferta lo condividono), quindi l'ultima chiave dell'ordine totale diventa l'identità di tratta e la garanzia da verificare è su quella, non su `tripId`. Inoltre, caduta l'esclusione per candidatura esistente, `findMatches` non cerca più *se esiste* una candidatura bloccante ma *quale* stato attaccare al risultato: se per la stessa coppia (tratta, richiedente) arrivassero due righe con stati diversi, lo stato mostrato dipenderebbe dall'ordine dell'array in ingresso — lo stesso difetto di questa voce, su un altro input. L'unicità è garantita dall'upsert documentato in `MatchRequestRepository.save`, e come sopra **non è verificata da nessun test**.
 - **Costo** — S.
-- **Stato** — `accettata`
+- **Stato** — `accettata` — **schedulata dall'umano il 23 ottobre 2026: è un criterio di `T07g`**, nella
+  forma della nota del 13 ottobre (identità di tratta, non `tripId`) e con la seconda precondizione, la
+  coppia (tratta, richiedente).
 
 ### Stringere il lint su `config/` e sull'orologio
 - **Cosa** — due regole: togliere `'config'` da `GRAFO.usecases` riammettendolo solo per `src/core/**/*.test.ts`; ed estendere il selettore anti-orologio a `MemberExpression[object.name='Date']`.
 - **Perché** — rilievo del reviewer su T03. La prima: la regola "il core di produzione non importa `config/`" è oggi affidata al giudizio di chi rivede, ma `CLAUDE.md` dice che dove è esprimibile come lint deve imporla il lint — e qui lo è. La seconda: il selettore attuale cattura `new Date()` e `Date.now()`, ma lascia passare `Date.parse` e `Date.UTC`; sono deterministici, però `Date.parse` su forme non-ISO è *implementation-defined* e Hermes e V8 non si comportano allo stesso modo — cioè proprio la scorciatoia che `instant.ts` esiste per evitare.
 - **Impatto** — `app/eslint.config.js`. Reversibile. Da provare violando entrambe le regole, come per F1.4.
 - **Costo** — S.
-- **Stato** — `accettata`
+- **Stato** — `accettata` — **schedulata dall'umano il 23 ottobre 2026: è un criterio di `T07h`**,
+  entrambe le regole, entrambe da provare violandole.
 
 ### Preferenza di matching per genere
 - **Cosa** — filtro opzionale per condividere l'auto solo con colleghi dello stesso genere.
@@ -92,7 +97,9 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Perché** — rilievo del reviewer su T02. Oggi `findById` valida ma le liste no, quindi l'enunciato "un `Trip` che arriva da un port è valido" è vero per una lettura e falso per l'altra. Il caso concreto che lo rende serio: `listOpenOffers` proietta senza validare, quindi una riga corrotta con `seatsTotal: 2` e `seatsAvailable: 5` diventa **un'offerta pubblicata con cinque posti**, entra in `findMatches` e ci resta — e il collega scopre il problema quando si candida. Omettere tiene insieme il degrado proporzionato e la garanzia che ciò che attraversa il port è valido.
 - **Impatto** — `adapters/*`. Nessun cambio di interfaccia. Il costo è la perdita silenziosa, cioè lo stesso problema di osservabilità della voce qui sotto.
 - **Costo** — S.
-- **Stato** — `accettata`
+- **Stato** — `accettata` — **schedulata dall'umano il 23 ottobre 2026: è un criterio di `T07g`**. La
+  perdita silenziosa che questa voce accetta come costo resta aperta: la chiude il port di osservabilità
+  qui sotto, che **non** è schedulato.
 
 ### Port di osservabilità (`Logger` / `Telemetry`)
 - **Cosa** — un port per registrare i degradi silenziosi, con adapter console in sviluppo.
@@ -106,14 +113,17 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Perché** — rilievo del reviewer su T02: oggi quegli invarianti vivono solo in `makeTrip`, cioè nel client. Nel DB nulla impedisce la riga che li viola — una migrazione, uno script di seed o una query eseguita a mano la inserirebbero senza resistenza. T05 ha già un criterio su due accettazioni concorrenti che non devono portare i posti sotto zero: la difesa definitiva su quello è lato DB, non lato client.
 - **Impatto** — migrazioni SQL di T08. Reversibile. Nessun effetto sul codice TypeScript.
 - **Costo** — S, e va deciso dentro T08 che è già un checkpoint ⛔.
-- **Stato** — proposta
+- **Stato** — **accettata e schedulata dall'umano il 23 ottobre 2026: è un criterio di T08.** Il
+  `BETWEEN` c'era già fra i criteri di T08 dal modello a tratte; quello che si aggiunge è
+  `has_car = false ⇒ seats_total = 0`, che viveva solo in `makeTrip`.
 
 ### Hook di guasto nella suite di contratto
 - **Cosa** — aggiungere `guasta()` / `ripristina()` ad `AmbienteDiContratto` e un test di contratto che verifichi il ramo `storage-unavailable` su entrambi gli adapter.
 - **Perché** — rilievo del reviewer su T02: il percorso d'errore dei repository è **l'unico comportamento del port che nessun test tocca**. Oggi `storage-unavailable` è dichiarato nel tipo ma non prodotto né asserito da nessuna parte, quindi non sappiamo se i due adapter lo tratterebbero allo stesso modo — ed è proprio il caso che si manifesterà in demo, con il proxy aziendale di mezzo.
 - **Impatto** — `adapters/contract` e l'ambiente di ciascun adapter. Reversibile, non rompe interfacce.
 - **Costo** — S su memory, M su supabase (serve un modo di simulare il guasto).
-- **Stato** — `accettata`
+- **Stato** — `accettata` — **schedulata dall'umano il 23 ottobre 2026: è `T07g`**, dove porta la metà
+  `memory`. La metà `supabase` resta un criterio di T09, perché lì l'adapter esisterà.
 
 ### `Trip` come tipo opaco, per rendere il costruttore inaggirabile
 - **Cosa** — separare `TripFields` (campi grezzi, input) da `Trip` (tipo brandizzato, output di `makeTrip`), così il compilatore impedisce di costruire un `Trip` saltando la validazione.
@@ -127,7 +137,8 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Perché** — rilievo del reviewer su T01: oggi l'annotazione `readonly PlantId[]` protegge una direzione sola. Un valore sbagliato nell'array non compila, ma **aggiungere un membro alla union senza aggiungerlo all'array non produce alcun errore**: l'array diventa silenziosamente incompleto, e un futuro ciclo su `PLANT_IDS` (seed T17, KPI per stabilimento T06) salterebbe una sede senza fallire. Nota: `as const` non ricade nel divieto di `as` delle convenzioni, che riguarda l'assertion usata per zittire il compilatore — qui restringe i letterali e *aumenta* il controllo.
 - **Impatto** — `core/domain/plant.ts` e `badge.ts`. Reversibile, non rompe interfacce.
 - **Costo** — S.
-- **Stato** — `accettata`
+- **Stato** — `accettata` — **schedulata dall'umano il 23 ottobre 2026: è un criterio di `T07h`**,
+  collocato prima di T07b perché quel task tiene le identità nel codice proprio per questa garanzia.
 
 ### Classificazione dell'errore quando mancano sia auto sia capienza
 - **Cosa** — decidere quale errore vince quando più invarianti di `Trip` sono violati insieme.
@@ -165,7 +176,9 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Nota (13 ottobre 2026, da T04) — la forma canonica non è unica, e questo rende il problema più grave di come era scritto sopra.** `parseUtcInstant` accetta i millisecondi come **opzionali**: `...T06:00:00Z` e `...T06:00:00.000Z` sono entrambi canonici e sono lo stesso istante, ma come stringhe sono diversi e l'ordine è **invertito** (`Z` è `0x5A`, `.` è `0x2E`, quindi `"06:00:00.000Z"` risulta *minore* di `"06:00:00Z"`). Quindi l'enunciato su cui si fonda tutto — "fra istanti canonici il confronto lessicografico coincide con quello cronologico" — è vero **solo a forma dei millisecondi uguale**, e il dominio non la garantisce. Nessun bug attuale: `createTrip` confronta gli `Instant` e non le stringhe, e `findMatches` passa sempre da `parseUtcInstant`. È però una trappola per T13 (ordinare i "prossimi viaggi", filtrare `departureAt >= clock.now()`: sbagliano sui pareggi, perché `clock.now()` ha sempre i millisecondi e un `Trip` salvato può non averli). Delimitazione, per non propagare un allarme sbagliato: su Postgres la colonna è `timestamptz`, quindi `ORDER BY` e i confronti SQL sono semantici e non ne soffrono — il rischio è solo lato JS. **La decisione da prendere qui è una fra due:** stringere il parser a millisecondi obbligatori (rompe le fixture scritte a mano e il seed di T17), oppure normalizzare in un punto solo, che è esattamente ciò che questa voce propone.
 - **Nota (13 ottobre 2026, dal reviewer di T04) — validità di calendario.** `parseUtcInstant` accetta date impossibili (`2026-02-31`, il 29 febbraio di un anno non bisestile): è una scelta dichiarata di T03, legittima perché lì nessun conto attraversava i giorni. Ma **T04 è il primo punto che le persiste**: fino a ieri una data impossibile attraversava solo una funzione pura, da adesso finisce nello storage. A T09 Postgres rifiuterebbe l'INSERT con un errore grezzo lato adapter, invece che con un errore tipizzato lato core — l'esatto contrario di dove questo progetto vuole la validazione. Il rimedio vive qui, nel parser unico al confine.
 - **Costo** — M.
-- **Stato** — `accettata`
+- **Stato** — `accettata` — **schedulata dall'umano il 23 ottobre 2026: è `T07f`**, insieme alla voce
+  *"Normalizzare l'istante al confine dell'adapter"*. Lì finiscono anche le due note qui sopra: la forma
+  canonica unica e la validità di calendario.
 
 ### Escludere dai match le offerte già partite
 - **Cosa** — far sparire dalle proposte le offerte il cui `departureAt` è nel passato, decidendo **dove**: un vincolo in più in `findMatches` con l'istante passato come dato, oppure un filtro nell'orchestratore che legge il `Clock`.
@@ -250,7 +263,8 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Compatibile con il criterio di T16 già scritto** (*"è visibile che saving e CO₂ sono stime da parametri configurabili"*): dichiarare che sono stime derivate da parametri **non** richiede di mostrare i parametri. Le due cose convivono, e la seconda è anzi ciò che rende la prima credibile senza aprire il cofano in sede di pitch.
 - **Impatto** — criteri di T16, e un vincolo negativo su T15/T16. Nessun codice oggi.
 - **Costo** — XS come vincolo, M se un giorno servirà davvero il gate admin.
-- **Stato** — `accettata`
+- **Stato** — `accettata` — **schedulata dall'umano il 23 ottobre 2026: è un criterio di T16**, come
+  vincolo su cosa non costruire. Nessun codice oggi.
 
 ### `storage-failed` di `requestSeat` deve dire quale lettura è fallita
 - **Cosa** — aggiungere a `RequestSeatError.storage-failed` un campo che nomina il punto: `'leg' | 'existing-request' | 'requester-trip'`.
@@ -313,7 +327,7 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Perché** — rilievo del reviewer su T05. Fra la lettura di `listByLeg` nella cascata e una `requestSeat` concorrente non c'è alcun lock. **Non è una decisione di prodotto di nessuno:** segue dal fatto che `requestSeat` non rifiuta per posti a zero — scelta fatta perché `findMatches` omette le tratte esaurite e il prodotto gestisce l'auto piena con la cascata. Sul piano del prodotto è accettabile e **non** produce uno stato bloccato: chi offre l'auto la vede in `listByLeg`, se prova ad accettarla ottiene `no-seats-available`, e la chiude con un rifiuto motivato — che è esattamente ciò per cui la nota obbligatoria esiste. Ma è un percorso in cui l'utente si candida e **poi** scopre che non c'era posto, e oggi vive solo in un commento di `request-seat.ts` e in `PROGRESS.md`. Su Postgres la corsa è **reale**, non intercalata in un event loop.
 - **Impatto** — criteri di T08. Nessun codice.
 - **Costo** — S.
-- **Stato** — proposta
+- **Stato** — **accettata e schedulata dall'umano il 23 ottobre 2026: è un criterio di T08.**
 
 ### Decidere cosa accade alle candidature quando una tratta scompare
 - **Cosa** — fissare, **prima** della migrazione di T08, il comportamento della coppia (tratta eliminata, candidature esistenti su di essa): `ON DELETE CASCADE`, oppure `save` che rifiuta la nuova forma se esistono candidature aperte, oppure annullamento a cascata con `resolvedBy: 'system'` (che sarebbe comportamento di T05).
@@ -323,6 +337,9 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Stato** — `accettata` — **deciso il 13 ottobre 2026: annullamento a cascata** con `resolvedBy: 'system'` e nota automatica, non `ON DELETE CASCADE` né un rifiuto secco.
 - **Nota (13 ottobre 2026, dalla pianificazione di T05) — la foreign key blocca *ogni* candidatura, non solo quelle aperte.** Il criterio portato in T05 dice che `save` rifiuta se la nuova forma eliminerebbe una tratta con candidature **aperte**. Su Postgres, senza `ON DELETE CASCADE` (scartato), la FK composta rifiuta la cancellazione della tratta finché esiste **una qualsiasi** riga che la referenzia, comprese quelle `rejected` e `cancelled`. Quindi il guard sugli stati aperti chiude la divergenza fra i due adapter solo in parte: con sole righe chiuse, `memory` eliminerebbe la tratta e Postgres no. Da decidere insieme al criterio: guard su qualunque candidatura, oppure cancellazione esplicita delle righe chiuse prima di eliminare la tratta (che è di nuovo logica di business, quindi del task di modifica trasferta).
 - **Nota: la decisione non ha un innesco oggi, e questo ne determina la collocazione.** L'annullamento a cascata richiede un usecase di **modifica trasferta** che nessun task del backlog prevede: `save` è chiamato solo da `createTrip`, dove non esistono né tratte né candidature preesistenti. Non può stare nell'adapter, perché un `save` che annulla candidature è logica di business in un repository, vietata dal criterio di T09. Quindi: diventa un criterio del task di **modifica trasferta** quando quel task esisterà (annulla prima, salva dopo), e nel frattempo T05 porta il criterio che **`save` rifiuta** con errore tipizzato se la nuova forma eliminerebbe una tratta con candidature aperte — rete che rende impossibile dimenticare la cascata, e unico comportamento su cui i due adapter concordano, perché su Postgres la foreign key composta rifiuterebbe comunque.
+- **Il residuo è stato schedulato dall'umano il 23 ottobre 2026: è un criterio di T08** — le righe
+  **chiuse**, che la FK blocca comunque e che il guard di T05 sugli stati aperti non copre. La scelta fra
+  guard su qualunque candidatura e cancellazione esplicita delle righe chiuse si fa lì.
 
 ### Atomicità e idempotenza dell'accettazione, non solo del contatore
 - **Cosa** — a T05/T08, far avvenire in **una sola** operazione (funzione lato DB o transazione) la transizione di stato della candidatura **e** il delta sui posti; e far verificare da un test la protezione dal doppio decremento, invece di affidarla all'ordine delle chiamate.
@@ -388,7 +405,7 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Perché** — scoperto pianificando T05. I pattern di `boundaries/elements` coprono `src/core/**`, `src/adapters/**`, `src/ui/**` e `src/config/**`; `src/__tests__/harness.test.ts` non corrisponde a nessuno, e le due reti anti-adapter di `no-restricted-imports` sono applicate solo a `src/core/**` e `src/ui/**`. Quella cartella è quindi l'unico punto dell'albero in cui **qualunque** import è permesso: un test che vi finisse potrebbe cablare `ui/` con `adapters/` e il lint tacerebbe. Non è un difetto attuale (contiene un solo test dell'harness, senza import), ed è anche l'unico posto dove un test end-to-end in RAM sarebbe *lecito* — ragione in più per decidere la regola invece di scoprirla usandola.
 - **Impatto** — `app/eslint.config.js`. Reversibile, nessun effetto sul codice applicativo. Da provare violando la regola, come per F1.4.
 - **Costo** — S.
-- **Stato** — proposta
+- **Stato** — **accettata e schedulata dall'umano il 23 ottobre 2026: è un criterio di `T07h`.**
 
 ### RLS di scrittura su `trips` vincolate all'owner
 - **Cosa** — criterio di accettazione in più per T08: le policy di **INSERT e UPDATE** su `trips` devono imporre `owner_id = auth.uid()`.

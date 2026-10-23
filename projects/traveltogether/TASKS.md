@@ -511,17 +511,39 @@ via "scelgo a mano la trasferta che mi conviene dichiarare".
 
 **Da fare prima di T12**, che costruirà il form da cui la candidatura parte.
 
+**Criteri riscritti il 23 ottobre 2026, prima di aprire il task.** I due criteri originali dicevano
+*"i plant della trasferta dichiarata non coincidono con quelli della tratta"* e *"la data di partenza
+non coincide con quella della tratta"*. Erano scritti pensando all'andata, e `listOpenOffers` proietta
+la tratta di **rientro** con i plant **invertiti** e `departureAt = returnAt`: presi alla lettera
+avrebbero rifiutato **ogni** candidatura legittima sul rientro, e il criterio di non-regressione qui
+sotto sarebbe nato rosso — cioè il task avrebbe prodotto codice verde e sbagliato. L'umano ha scelto il
+23 ottobre 2026 la **simmetria per direzione**.
+
 **Criteri di accettazione**
-- [ ] `requestSeat` rifiuta con errore tipizzato se i **plant** della trasferta dichiarata non
-      coincidono con quelli della tratta su cui si chiede il posto
-- [ ] Rifiuta se la **data di partenza** della trasferta dichiarata non coincide con quella della tratta
+- [ ] `requestSeat` rifiuta con errore tipizzato quando la trasferta dichiarata non è compatibile con
+      la **direzione** della tratta richiesta:
+      - tratta `outbound` → i plant della trasferta dichiarata coincidono con quelli della tratta
+        nello stesso ordine, e la data è quella del suo `departureAt`
+      - tratta `return` → i plant coincidono **invertiti** (la tratta va dal `toPlantId` al
+        `fromPlantId` della trasferta dichiarata), e la data è quella del suo `returnAt`
+- [ ] Una trasferta dichiarata **senza `returnAt`** non è compatibile con una tratta `return`: stesso
+      errore e stesso `reason`. Chiedere il rientro senza averne dichiarato uno è lo stesso buco con un
+      campo in meno
+- [ ] Il confronto sulla data è sul **giorno** e **non** applica la finestra di tolleranza del
+      matching: `requestSeat` non ha `MatchConfig` fra le dipendenze e prendersela sarebbe un cambio di
+      firma fuori da questo task. Resta quindi più lasco dei vincoli duri di `findMatches` — non
+      rifiuta nulla che l'app possa aver proposto — ed è sufficiente a chiudere il buco dei KPI, che si
+      misura in giorni e in km
 - [ ] Il motivo entra nell'errore `requester-trip-invalid` **già esistente**, come quinto `reason`: non
       un `kind` nuovo, perché per T13 resta lo stesso evento di schermata
 - [ ] Un test dimostra il caso dei numeri qui sopra: tratta di un giorno, trasferta dichiarata di sei,
       → rifiutata. È il caso che gonfia la slide
 - [ ] **Nessun percorso legittimo viene rifiutato:** un test parte da un'offerta che `findMatches`
-      avrebbe proposto e dimostra che la candidatura passa. Se questo test diventa rosso, il vincolo è
-      più stretto dei vincoli duri del matching e il difetto è nel vincolo, non nel test
+      avrebbe proposto e dimostra che la candidatura passa, **su entrambe le direzioni** — una tratta
+      `outbound` e una `return`. Il caso `return` è quello per cui i criteri sono stati riscritti: se
+      manca, la simmetria resta non verificata e il task torna verde e sbagliato. Se questo test
+      diventa rosso, il vincolo è più stretto dei vincoli duri del matching e il difetto è nel vincolo,
+      non nel test
 - [ ] Ogni rifiuto asserisce **zero scritture**, contando le chiamate sullo spia
 - [ ] Limite dichiarato nel commento: il vincolo esclude le **tappe intermedie**, che oggi il modello
       non esprime. Se un domani serviranno, è questo vincolo da allentare — e va scritto dove si trova
@@ -556,6 +578,113 @@ riaperto il criterio dei duplicati, riportandolo da *non rappresentabile* a *da 
       essere due numeri diversi, con la stessa onestà con cui dichiara che saving e CO₂ sono stime
 - [ ] Criterio corrispondente su **T08**: la tabella dei massimi, con RLS che permette a ciascuno di
       leggere i propri
+
+## T07f ⛔ L'istante normalizzato al confine
+
+Due voci `accettata` di `IDEAS.md` portate dentro dall'umano il 23 ottobre 2026 — *"Normalizzare
+l'istante al confine dell'adapter"* e *"Istante normalizzato UTC come tipo brandizzato"* — più la nota
+sulla validità di calendario. Sono un task solo perché sono la stessa cosa: **un parser unico al
+confine**.
+
+**Perché è la voce più urgente dell'elenco.** PostgREST serializza un `timestamptz` come
+`2026-11-03T06:00:00+00:00` — offset, non `Z` — e con precisione al microsecondo. Entrambe le forme
+sono rifiutate da `parseUtcInstant`, e `findMatches` risponde a un istante illeggibile **omettendo
+l'offerta** (`if (!istanteOfferto) continue;`). Quindi a T09 **ogni** offerta proveniente da Supabase
+sparirebbe in silenzio e il motore tornerebbe `ok([])`: *"nessun collega compatibile"*, indistinguibile
+da un risultato legittimo. È lo scenario che il `Result` è stato introdotto per evitare, aggirato dal
+lato dell'offerta.
+
+**Perché prima di T08 e non dentro T09:** qui si decide la forma canonica, e da quella dipendono la
+semantica delle colonne, i tipi generati dallo schema e il seed di T17. Dopo, è una seconda migrazione
+su uno schema già applicato — e la voce stessa si dà **S dentro, M scoperta dopo**.
+
+**Criteri di accettazione**
+- [ ] Un punto solo normalizza e valida l'istante, in `core/domain`. Nessun consumatore ripete il
+      controllo: oggi lo fa T03 e ogni nuovo chiamante dovrebbe rifarlo
+- [ ] `Trip`, `SeatOffer` e `TripRequest` portano un tipo che il compilatore **distingue** da `string`:
+      una stringa non normalizzata non è assegnabile. Rompe le firme, ed è la ragione del ⛔
+- [ ] Il parser accetta le forme che PostgREST produce — offset `+00:00` e frazioni oltre il
+      millisecondo — e le riporta a una forma sola. Un test le pinna come **stringhe letterali**:
+      è il formato di un sistema esterno, non un dettaglio di gusto
+- [ ] **La forma canonica è unica**, e fra due istanti canonici il confronto lessicografico coincide
+      con quello cronologico **senza eccezioni**. Oggi non è così: `...T06:00:00Z` e `...T06:00:00.000Z`
+      sono entrambi canonici, sono lo stesso istante e si ordinano **al contrario** (`Z` è `0x5A`, `.`
+      è `0x2E`). Un test dimostra la coppia che oggi sbaglia, ed è la trappola che aspetta T13
+- [ ] Le date impossibili (`2026-02-31`, il 29 febbraio di un anno non bisestile) sono rifiutate al
+      confine con errore tipizzato. T04 è il primo punto che le **persiste**: senza questo, a T09 è
+      Postgres a rifiutare l'INSERT con un errore grezzo lato adapter, l'opposto di dove questo
+      progetto vuole la validazione
+- [ ] La suite di contratto verifica che gli istanti che **escono** dai port siano accettati dal parser.
+      È il criterio che la voce di `IDEAS.md` chiedeva per T09, pagato una volta per tutte
+- [ ] `test:unit` continua a girare **senza rete**
+- [ ] Le fixture scritte a mano e il seed si adeguano **in questo task**, non in T17: la voce dichiara
+      che stringere la forma le rompe, e lasciarle rotte sposterebbe il costo su un task che non lo sa
+
+⛔ Checkpoint: rompe le firme di `Trip`, `SeatOffer` e `TripRequest` e di ogni adapter che le
+materializza.
+
+## T07g La suite di contratto prova il guasto
+
+Tre voci `accettata` di `IDEAS.md` portate dentro il 23 ottobre 2026 — *"Hook di guasto nella suite di
+contratto"*, *"Le letture di lista omettono le righe invalide invece di passarle"*, *"Rendere l'unicità
+dei `tripId` una garanzia della macchina"*. Un task solo perché vivono nello stesso file.
+
+**Perché prima di T09.** Il criterio di T09 *"passa la stessa suite di contratto, senza modifiche alla
+suite"* vale quanto vale la suite, e oggi il **percorso d'errore** dei repository è l'unico
+comportamento del port che nessun test tocca: `storage-unavailable` è dichiarato nel tipo e non è
+prodotto né asserito da nessuna parte. Non sappiamo se i due adapter lo tratterebbero allo stesso
+modo, ed è proprio il caso che si manifesterà in demo, con il proxy aziendale di mezzo. Scoperto a T09,
+l'unica via d'uscita sarebbe **adattare la suite** — che per `ARCHITECTURE.md` è il segnale che il port
+è sbagliato.
+
+**Criteri di accettazione**
+- [ ] `AmbienteDiContratto` guadagna `guasta()` / `ripristina()`, **additivi**: i file che già lo usano
+      restano verdi **senza essere modificati**, ed è la prova da pretendere
+- [ ] Un test di contratto esercita `storage-unavailable` su ogni lettura e ogni scrittura dei port, e
+      passa su `memory`. Il gemello su `supabase` resta un criterio di T09, dove l'adapter esisterà
+- [ ] Le letture di **lista** omettono le righe che violano gli invarianti di dominio, come già fa
+      `listOpenOffers` per l'offerta con owner senza profilo. Il caso concreto: una riga con
+      `seatsTotal: 2` e `seatsAvailable: 5` diventa oggi **un'offerta pubblicata con cinque posti**,
+      entra in `findMatches` e ci resta — e il collega lo scopre quando si candida
+- [ ] L'enunciato *"ciò che attraversa un port è valido"* vale per **ogni** lettura e non solo per
+      `findById`: un test per ciascuna
+- [ ] L'unicità della coppia (`tripId`, `direction`) fra le offerte e quella della coppia (tratta,
+      richiedente) fra le candidature sono **verificate dalla suite**, non soltanto dichiarate nel doc.
+      Sono le due precondizioni su cui poggiano l'ordine totale di `findMatches` e lo stato che marca
+      ogni offerta: con due righe della stessa coppia e stati diversi, lo stato mostrato dipenderebbe
+      dall'ordine dell'array in ingresso
+- [ ] Ogni omissione lascia un commento che nomina il canale mancante e la voce di `IDEAS.md` che lo
+      chiuderà (il port di osservabilità). **Nessun commento dichiara l'omissione osservabile**, perché
+      oggi non lo è: un commento che promette più del codice è un difetto
+
+## T07h Igiene di lint e identità
+
+Tre voci di `IDEAS.md` portate dentro il 23 ottobre 2026. **Collocato dopo T07g e prima di T07b:** T07b
+lascia nel codice le identità *"che il compilatore controlla"*, e oggi quella garanzia ha un buco in una
+direzione — quindi va chiuso prima di costruirci sopra una tabella.
+
+Fuori da questo task, dichiarato per non farlo cercare: la voce *"Deny rules anche sui `.claude/`
+annidati"* resta non schedulata. Toccherebbe `.claude/settings.json`, che `CLAUDE.md` vieta di
+modificare senza chiedere, e non è un freno di questo progetto ma dell'officina.
+
+**Criteri di accettazione**
+- [ ] `'config'` esce da `GRAFO.usecases` e rientra solo per `src/core/**/*.test.ts`: la regola *"il
+      core di produzione non importa `config/`"* la impone il lint, non il giudizio di chi rivede
+- [ ] Il selettore anti-orologio copre anche `Date.parse` e `Date.UTC`. Sono deterministici, ma
+      `Date.parse` su forme non-ISO è *implementation-defined* e Hermes e V8 non si comportano allo
+      stesso modo: è esattamente la scorciatoia che `instant.ts` esiste per evitare
+- [ ] `src/__tests__/**` è un elemento dichiarato nel grafo dei confini, oppure
+      `boundaries/no-unknown-files` è attiva. Oggi è l'unico punto dell'albero in cui **qualunque**
+      import è permesso: un test che vi finisse potrebbe cablare `ui/` con `adapters/` e il lint
+      tacerebbe
+- [ ] `PlantId` e `BadgeId` sono **derivati** dai rispettivi array. Oggi l'annotazione protegge una
+      direzione sola: aggiungere un membro alla union senza aggiungerlo all'array **non produce alcun
+      errore**, e un ciclo su `PLANT_IDS` (KPI per stabilimento, seed di T17) salterebbe una sede senza
+      fallire
+- [ ] **Ogni regola nuova è provata violandola**, come in F1.4: una regola di lint che nessuno ha visto
+      scattare non è un freno. Le violazioni di prova non restano nel commit
+- [ ] Nessun comportamento a runtime cambia. Se `verify` diventa rosso su un file esistente, si
+      corregge il file: **la regola non si allenta**
 
 ## T07b ⛔ Parametri da tabella, niente valori compilati
 
@@ -663,6 +792,25 @@ Tabelle da `ARCHITECTURE.md`, come SQL versionato nel repo.
       esattamente la classe di difetto che questo progetto rifiuta. Oggi è un no-op — nessun dato
       esiste ancora — ma la procedura va scritta prima che ne esista
 
+**Criteri aggiunti il 23 ottobre 2026, da tre voci di `IDEAS.md` portate dentro dall'umano**
+- [ ] I `CHECK` coprono anche `has_car = false ⇒ seats_total = 0`, non solo
+      `seats_available BETWEEN 0 AND seats_total`. Oggi quell'invariante vive **solo in `makeTrip`**,
+      cioè nel client: nel DB nulla impedisce la riga che lo viola, e una migrazione, uno script di
+      seed o una query eseguita a mano la inserirebbero senza resistenza
+- [ ] Un test di integrazione riproduce la **corsa fra la cascata e una candidatura concorrente** e
+      pinna l'esito atteso: riga `pending` su una tratta a zero posti, chiudibile solo con un rifiuto
+      motivato. Fra la lettura di `listByLeg` nella cascata e una `requestSeat` concorrente non c'è
+      alcun lock, e su Postgres la corsa è **reale**, non intercalata in un event loop. Non è una
+      decisione di prodotto di nessuno: segue dal fatto che `requestSeat` non rifiuta per posti a zero,
+      e oggi vive solo in un commento di `request-seat.ts` e in `PROGRESS.md`
+- [ ] **Deciso cosa accade alle candidature già chiuse quando la tratta viene eliminata.** La foreign
+      key composta rifiuta la cancellazione finché esiste **una qualsiasi** riga che la referenzia,
+      comprese le `rejected` e le `cancelled`: il guard di T05 sugli stati **aperti** chiude la
+      divergenza fra i due adapter solo in parte, perché con sole righe chiuse `memory` elimina la
+      tratta e Postgres no. Da scegliere fra un guard su qualunque candidatura e la cancellazione
+      esplicita delle righe chiuse prima di eliminare la tratta — la seconda è logica di business,
+      quindi del task di **modifica trasferta**, che non esiste ancora nel backlog
+
 ⛔ Checkpoint obbligatorio: cambio di schema DB.
 
 ## T09 Adapter Supabase
@@ -746,6 +894,16 @@ Implementazione dei port con `@supabase/supabase-js`.
 - [ ] I numeri coincidono con T06 sugli stessi dati (test)
 - [ ] È visibile che saving e CO₂ sono stime da parametri configurabili
 - [ ] DB vuoto → tutti zeri, nessun crash e nessun `NaN`
+
+**Criterio aggiunto il 23 ottobre 2026** (voce `accettata` di `IDEAS.md`, *"I parametri di
+configurazione non si mostrano alla platea"*)
+- [ ] I valori di `config/` — costo noleggio al giorno, g CO₂/km, distanze fra plant, soglie dei badge —
+      **non compaiono** in nessuna schermata che vedrà la platea: la dashboard mostra i **KPI**, non i
+      parametri da cui derivano. Convive con il criterio qui sopra, e anzi lo regge: dichiarare che
+      saving e CO₂ sono stime derivate da parametri **non** richiede di mostrare i parametri, ed è ciò
+      che rende la dichiarazione credibile senza aprire il cofano in sede di pitch. Un "lato admin"
+      **non esiste nel modello** (`Profile` ha `id`, `displayName`, `plantId` e nessun ruolo) e per la
+      demo non serve: questo è un vincolo su cosa **non** costruire
 
 ## T17 Seed dimostrativo
 
