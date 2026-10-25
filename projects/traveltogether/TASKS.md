@@ -1507,6 +1507,13 @@ chiama, che non è più solo tabelle
 - [ ] `seminaCandidaturaGrezza` non esiste più nell'ambiente (T08, `CHECK` sulle candidature): non va
       implementata
 
+**Criterio aggiunto il 25 ottobre 2026, dalla review intermedia di T08**
+- [ ] **Anche la `save` di `MatchRequestRepository` è un upsert** (`INSERT … ON CONFLICT (id) DO UPDATE`),
+      non una `PATCH`: su una riga che la policy nega, l'upsert dà **42501** → `storage-unavailable`,
+      come in `memory`. Una `PATCH` toccherebbe **zero righe senza errore**, e la suite di contratto lo
+      leggerebbe come un successo falso. Lo stesso per ogni scrittura dell'adapter: zero righe toccate
+      dove ci si aspetta una riga è un errore, mai un `ok`
+
 ⛔ Nuova dipendenza: `@supabase/supabase-js` va approvata.
 
 ## T10 Accesso con codice invito

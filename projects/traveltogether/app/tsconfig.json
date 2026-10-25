@@ -4,5 +4,6 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "types": ["jest"]
-  }
+  },
+  "exclude": ["node_modules", "dist", "tests/integration", "scripts", "src/**/*.fs.test.ts"]
 }

@@ -8,7 +8,7 @@
 // XMLHttpRequest e WebSocket, quindi "senza rete" e' imposto, non promesso.
 
 import { SEED_PARAMETERS } from '../../config';
-import type { MatchRequest, ProfileId } from '../../core/domain';
+import type { ProfileId } from '../../core/domain';
 import { parseParameters } from '../../core/domain';
 import { type AmbienteDiContratto, eseguiSuiteDiContratto } from '../contract/repository-contract';
 import { nuoveCondizioni } from './memory-conditions';
@@ -56,6 +56,9 @@ eseguiSuiteDiContratto('memory', async (): Promise<AmbienteDiContratto> => {
   // modo di abbassare il limite dopo che le note sono state scritte.
   const limiteNote: { maxLength: number } = { maxLength: limiteNoteDelSeed() };
   const matchRequests = new MemoryMatchRequestRepository(limiteNote, { condizioni, trips });
+  // Il DB ha una foreign key RESTRICT sulle tratte e una funzione che autorizza il
+  // richiedente `accepted`: in RAM le trasferte guardano le candidature, tutte le righe.
+  trips.collegaCandidature(matchRequests);
   const sessions = new MemorySessionGateway();
   // Nessuna riga all'inizio: niente seed implicito, ogni test scrive quelle che vuole.
   const parameters = new MemoryParameterRepository(
@@ -101,10 +104,6 @@ eseguiSuiteDiContratto('memory', async (): Promise<AmbienteDiContratto> => {
 
     async abbassaLimiteNote(maxLength: number) {
       limiteNote.maxLength = maxLength;
-    },
-
-    async seminaCandidaturaGrezza(request: MatchRequest) {
-      matchRequests.seminaGrezzo(request);
     },
 
     async scriviParametriGrezzi(righe) {

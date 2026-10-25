@@ -13,6 +13,10 @@
 const RICHIESTE = [
   'EXPO_PUBLIC_SUPABASE_URL',
   'EXPO_PUBLIC_SUPABASE_ANON_KEY',
+  // Stringa di connessione al database di staging (Session pooler, porta 5432). SENZA il
+  // prefisso EXPO_PUBLIC_: quelle variabili finiscono nel bundle dell'app, e questa ha
+  // pieni poteri. La usano solo la CLI (db:push, db:status) e questi test.
+  'SUPABASE_DB_URL',
 ] as const;
 
 describe('credenziali del progetto Supabase di staging', () => {

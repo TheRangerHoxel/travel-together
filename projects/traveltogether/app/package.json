@@ -18,6 +18,7 @@
     "eslint-plugin-boundaries": "^7.2.0",
     "jest": "^30.5.2",
     "jest-expo": "^57.0.5",
+    "postgres": "^3.4.9",
     "test-renderer": "^1.3.1",
     "typescript": "~6.0.3"
   },
@@ -27,10 +28,13 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.int.json",
     "test:unit": "jest --config jest.unit.config.js --ci",
     "test:int": "jest --config jest.int.config.js --ci",
     "smoke": "expo export --platform android --output-dir dist && jest --config jest.smoke.config.js --ci",
+    "db:preflight": "node scripts/db-preflight.js",
+    "db:status": "node scripts/supabase-db.js status",
+    "db:push": "node scripts/supabase-db.js push",
     "verify": "node scripts/verify.js"
   },
   "private": true,

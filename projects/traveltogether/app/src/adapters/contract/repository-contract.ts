@@ -18,9 +18,10 @@
 //    autenticato vedrebbe ogni scrittura respinta. Anche gli adapter in RAM
 //    registrano l'identita' corrente e ne imitano le policy di scrittura (le
 //    trasferte sono del loro owner, le candidature le scrivono i due attori, i
-//    massimi sono propri) e di lettura (una candidatura la vedono il richiedente e
-//    l'owner): un test scritto come se le RLS non esistessero e' rosso gia' su
-//    memory, non a T09. Le scritture negate tornano `storage-unavailable`; le
+//    massimi sono propri, i posti di una tratta li cambia l'owner o il richiedente
+//    accettato) e di lettura (una candidatura la vedono il richiedente e l'owner;
+//    trasferte, tratte e profili ogni utente autenticato): un test scritto come se le
+//    RLS non esistessero e' rosso gia' su memory, non a T09. Le scritture negate tornano `storage-unavailable`; le
 //    letture negate non sono un errore, la riga semplicemente non c'e'.
 //  - guasto: lo storage che non risponde (rete giu', proxy aziendale). E' l'unico
 //    modo di esercitare il percorso d'errore dei repository.
@@ -111,13 +112,6 @@ export interface AmbienteDiContratto {
    * qui sarebbe sbagliato solo questo commento.
    */
   abbassaLimiteNote(maxLength: number): Promise<void>;
-
-  /**
-   * Scrive una candidatura SENZA validarla, bypassando `save`: riproduce uno storage
-   * che contiene gia' una riga invalida (migrazione, query a mano). Non e' un'
-   * operazione del port. Su Supabase sara' una insert con credenziali di servizio.
-   */
-  seminaCandidaturaGrezza(request: MatchRequest): Promise<void>;
 
   /**
    * Sostituisce l'insieme INTERO delle righe dei parametri con quelle date, grezze
@@ -802,6 +796,50 @@ export function eseguiSuiteDiContratto(
             expect(riletta.value.fromPlantId).toBe('pomigliano');
           }
         });
+
+        // adjustLegSeats: l'ordine dei controlli e' esistenza, identita', limiti. Chi non
+        // e' il proprietario ne' un richiedente accettato (quel caso e' nel blocco delle
+        // candidature) e' rifiutato come ogni altra scrittura negata.
+        it('adjustLegSeats di un estraneo e rifiutato e i posti restano invariati', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id));
+
+          await amb.comeUtente(altro);
+          const esito = await amb.trips.adjustLegSeats(id, 'outbound', -1);
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('storage-unavailable');
+          }
+          const andata = await amb.trips.findLeg(id, 'outbound');
+          expect(andata.ok && andata.value.seatsAvailable).toBe(3);
+        });
+
+        it('adjustLegSeats su una tratta inesistente e not-found anche per un estraneo: l esistenza viene prima', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id, { returnAt: null }));
+
+          await amb.comeUtente(altro);
+          const esito = await amb.trips.adjustLegSeats(id, 'return', -1);
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('not-found');
+          }
+        });
+
+        it('adjustLegSeats di un estraneo con un delta fuori limite e storage-unavailable: l identita viene prima dei limiti', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id));
+
+          await amb.comeUtente(altro);
+          const esito = await amb.trips.adjustLegSeats(id, 'outbound', -4);
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('storage-unavailable');
+          }
+        });
       });
     });
 
@@ -1210,105 +1248,73 @@ export function eseguiSuiteDiContratto(
         }
       });
 
-      it('una riga strutturalmente invalida nello storage da invalid-record in lettura', async () => {
-        const id = amb.nuovoMatchRequestId();
-        await amb.seminaCandidaturaGrezza(
-          unaCandidatura(richiedente, id, offerta, 'outbound', {
-            status: 'cancelled',
-            resolutionNote: 'Nota senza chi',
-            resolvedBy: null,
-          })
-        );
+      // Le righe di candidature strutturalmente invalide nello storage (lettura singola e
+      // liste) stanno in memory-match-request-repository.test.ts: con i CHECK di T08 su
+      // Postgres non si possono costruire, e non sono un comportamento che il port promette
+      // a ogni adapter. Stesso motivo delle righe invalide di trasferte e tratte, in
+      // memory-trip-repository.test.ts.
 
-        const esito = await amb.matchRequests.findById(id);
-
-        expect(esito.ok).toBe(false);
-        if (!esito.ok) {
-          expect(esito.error.kind).toBe('invalid-record');
-        }
-      });
-
-      // Le liste omettono le righe che il dominio rifiuta, come listOpenOffers omette
-      // l'offerta con owner senza profilo; la lettura SINGOLA no, perche' un null
-      // farebbe credere a requestSeat che il collega non si sia mai candidato.
-      // Ogni test legge con un'identita' che VEDE la riga (owner o richiedente) e ha
-      // accanto una riga valida seminata allo stesso modo: altrimenti l'omissione
-      // sarebbe indistinguibile dal filtro d'identita'. Le righe di trasferte e tratte
-      // invalide stanno in memory-trip-repository.test.ts: con i CHECK di T08 su
-      // Postgres non si possono costruire.
-      describe('letture di righe invalide', () => {
-        const NOTA_SENZA_CHI: Partial<MatchRequest> = {
-          status: 'cancelled',
-          resolutionNote: 'Nota senza chi',
-          resolvedBy: null,
-        };
-
-        it('listByLeg omette la riga invalida e restituisce la valida', async () => {
-          const altroRichiedente = await amb.creaProfilo({ displayName: 'Altro', plantId: 'foggia' });
-          await assicuraTrasfertaDi(altroRichiedente);
-          const rotta = amb.nuovoMatchRequestId();
-          const sana = amb.nuovoMatchRequestId();
-          await amb.seminaCandidaturaGrezza(
-            unaCandidatura(richiedente, rotta, offerta, 'outbound', NOTA_SENZA_CHI)
-          );
-          await amb.seminaCandidaturaGrezza(
-            unaCandidatura(altroRichiedente, sana, offerta, 'outbound')
-          );
-
+      // La foreign key (trip_id, direction) -> trip_legs e' RESTRICT: una tratta
+      // referenziata da QUALUNQUE candidatura non si toglie, nemmeno da una gia' chiusa.
+      // Il guard degli usecase sugli stati aperti non basta: con sole righe chiuse la RAM
+      // eliminerebbe la tratta e Postgres no. Il rifiuto e' `invalid-record`, e lo storage
+      // resta intatto (trasferta compresa).
+      describe('una tratta referenziata da una candidatura non si toglie', () => {
+        async function chiudiCome(id: MatchRequestId, direction: LegDirection): Promise<void> {
           await amb.comeUtente(owner);
-          const esito = await amb.matchRequests.listByLeg(offerta, 'outbound');
+          await salvaCandidatura(
+            unaCandidatura(richiedente, id, offerta, direction, {
+              status: 'rejected',
+              resolutionNote: 'Non ci sono posti',
+              resolvedBy: 'owner',
+            })
+          );
+        }
 
-          expect(esito.ok).toBe(true);
-          if (esito.ok) {
-            expect(esito.value.map((r) => r.id)).toEqual([sana]);
+        it('il rientro tolto con una candidatura CHIUSA sul ritorno e rifiutato e tutto resta intatto', async () => {
+          const id = amb.nuovoMatchRequestId();
+          await candidaturaDi(richiedente, id, offerta, 'return');
+          await chiudiCome(id, 'return');
+
+          const esito = await amb.trips.save(unaTrasferta(offerta, { returnAt: null }));
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('invalid-record');
           }
+          const trasferta = await amb.trips.findById(offerta);
+          expect(trasferta.ok && trasferta.value.returnAt).not.toBeNull();
+          expect((await amb.trips.findLeg(offerta, 'return')).ok).toBe(true);
+          expect((await amb.matchRequests.findById(id)).ok).toBe(true);
         });
 
-        it('listByRequester omette la riga invalida e restituisce la valida', async () => {
-          const rotta = amb.nuovoMatchRequestId();
-          const sana = amb.nuovoMatchRequestId();
-          await amb.seminaCandidaturaGrezza(
-            unaCandidatura(richiedente, rotta, offerta, 'outbound', NOTA_SENZA_CHI)
+        it('l auto tolta con una candidatura sul ritorno e rifiutata: nessuna tratta sparisce', async () => {
+          const id = amb.nuovoMatchRequestId();
+          await candidaturaDi(richiedente, id, offerta, 'return');
+          await amb.comeUtente(owner);
+
+          const esito = await amb.trips.save(
+            unaTrasferta(offerta, { hasCar: false, seatsTotal: 0, seatsAvailable: 0 })
           );
-          await amb.seminaCandidaturaGrezza(unaCandidatura(richiedente, sana, offerta, 'return'));
 
-          await amb.comeUtente(richiedente);
-          const esito = await amb.matchRequests.listByRequester(richiedente);
-
-          expect(esito.ok).toBe(true);
-          if (esito.ok) {
-            expect(esito.value.map((r) => r.id)).toEqual([sana]);
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('invalid-record');
           }
+          expect((await amb.trips.findLeg(offerta, 'outbound')).ok).toBe(true);
+          expect((await amb.trips.findLeg(offerta, 'return')).ok).toBe(true);
         });
 
-        it('findByLegAndRequester su una riga invalida da invalid-record, non null; la valida si legge', async () => {
-          const rotta = amb.nuovoMatchRequestId();
-          const sana = amb.nuovoMatchRequestId();
-          await amb.seminaCandidaturaGrezza(
-            unaCandidatura(richiedente, rotta, offerta, 'outbound', NOTA_SENZA_CHI)
-          );
-          await amb.seminaCandidaturaGrezza(unaCandidatura(richiedente, sana, offerta, 'return'));
+        it('controllo: la tratta senza candidature si toglie, anche se un altra della stessa trasferta ne ha', async () => {
+          // Candidatura sull'andata; il rientro, senza candidature, puo' sparire.
+          await candidaturaDi(richiedente, amb.nuovoMatchRequestId(), offerta, 'outbound');
+          await amb.comeUtente(owner);
 
-          await amb.comeUtente(richiedente);
-          const invalida = await amb.matchRequests.findByLegAndRequester(
-            offerta,
-            'outbound',
-            richiedente
-          );
-          const valida = await amb.matchRequests.findByLegAndRequester(
-            offerta,
-            'return',
-            richiedente
-          );
+          const esito = await amb.trips.save(unaTrasferta(offerta, { returnAt: null }));
 
-          expect(invalida.ok).toBe(false);
-          if (!invalida.ok) {
-            expect(invalida.error.kind).toBe('invalid-record');
-          }
-          expect(valida.ok).toBe(true);
-          if (valida.ok) {
-            expect(valida.value?.id).toBe(sana);
-          }
+          expect(esito.ok).toBe(true);
+          expect((await amb.trips.findLeg(offerta, 'return')).ok).toBe(false);
+          expect((await amb.trips.findLeg(offerta, 'outbound')).ok).toBe(true);
         });
       });
 
@@ -1528,6 +1534,78 @@ export function eseguiSuiteDiContratto(
           const intatta = await comeLaVedeIlRichiedente(id);
           expect(intatta.ok && intatta.value.tripId).toBe(offerta);
           expect(intatta.ok && intatta.value.status).toBe('pending');
+        });
+
+        // Chi cambia i posti di una tratta: il proprietario della trasferta, oppure il
+        // richiedente di una candidatura `accepted` su QUELLA tratta (cancelRequest
+        // restituisce il posto prima di scrivere `cancelled`, quindi la riga e' ancora
+        // accepted). Sul DB e' la funzione adjust_leg_seats, security definer.
+        async function accettataDalOwner(id: MatchRequestId): Promise<void> {
+          await candidaturaDi(richiedente, id);
+          await amb.comeUtente(owner);
+          await salvaCandidatura(
+            unaCandidatura(richiedente, id, offerta, 'outbound', { status: 'accepted' })
+          );
+          // Come fa acceptRequest: i posti li toglie l'owner.
+          const scalato = await amb.trips.adjustLegSeats(offerta, 'outbound', -1);
+          expect(scalato.ok && scalato.value.seatsAvailable).toBe(2);
+        }
+
+        it('il richiedente di una candidatura accepted restituisce il posto sulla propria tratta', async () => {
+          await accettataDalOwner(amb.nuovoMatchRequestId());
+
+          await amb.comeUtente(richiedente);
+          const restituito = await amb.trips.adjustLegSeats(offerta, 'outbound', 1);
+
+          expect(restituito.ok && restituito.value.seatsAvailable).toBe(3);
+        });
+
+        it('il richiedente accepted puo solo +1 o -1: un altro delta e rifiutato e i posti restano', async () => {
+          await accettataDalOwner(amb.nuovoMatchRequestId());
+
+          await amb.comeUtente(richiedente);
+          const azzera = await amb.trips.adjustLegSeats(offerta, 'outbound', -2);
+          const aggiunge = await amb.trips.adjustLegSeats(offerta, 'outbound', 2);
+
+          for (const esito of [azzera, aggiunge]) {
+            expect(esito.ok).toBe(false);
+            if (!esito.ok) {
+              expect(esito.error.kind).toBe('storage-unavailable');
+            }
+          }
+          const andata = await amb.trips.findLeg(offerta, 'outbound');
+          expect(andata.ok && andata.value.seatsAvailable).toBe(2);
+          // La compensazione -1 resta ammessa.
+          const compensa = await amb.trips.adjustLegSeats(offerta, 'outbound', -1);
+          expect(compensa.ok && compensa.value.seatsAvailable).toBe(1);
+        });
+
+        it('il richiedente accepted non cambia i posti dell altra tratta della stessa trasferta', async () => {
+          await accettataDalOwner(amb.nuovoMatchRequestId());
+
+          await amb.comeUtente(richiedente);
+          const esito = await amb.trips.adjustLegSeats(offerta, 'return', -1);
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('storage-unavailable');
+          }
+          const ritorno = await amb.trips.findLeg(offerta, 'return');
+          expect(ritorno.ok && ritorno.value.seatsAvailable).toBe(3);
+        });
+
+        it('il richiedente di una candidatura ancora pending non cambia i posti', async () => {
+          await candidaturaDi(richiedente, amb.nuovoMatchRequestId());
+
+          const esito = await amb.trips.adjustLegSeats(offerta, 'outbound', -1);
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('storage-unavailable');
+          }
+          await amb.comeUtente(owner);
+          const andata = await amb.trips.findLeg(offerta, 'outbound');
+          expect(andata.ok && andata.value.seatsAvailable).toBe(3);
         });
 
         it('un estraneo non vede la candidatura:findById not-found, liste vuote, findByLegAndRequester null', async () => {

@@ -33,6 +33,13 @@ export interface TripRepository {
    * `adjustLegSeats`. Se `seatsTotal` cambia, il contatore preservato deve
    * comunque stare in [0, nuovo totale]: altrimenti il salvataggio e' rifiutato
    * con `invalid-record` e non scrive nulla.
+   *
+   * **Non toglie una tratta referenziata da una candidatura**, in qualunque stato
+   * (anche `rejected` o `cancelled`): ritorna `invalid-record` e lascia lo storage
+   * intatto, trasferta compresa. Su Postgres e' la foreign key `RESTRICT` da
+   * `match_requests` a `trip_legs`; in RAM un controllo su tutte le candidature. Chi
+   * vuole togliere la tratta deve prima gestire le candidature (task di modifica
+   * trasferta, non ancora nel backlog).
    */
   save(trip: Trip): Promise<Result<Trip, RepositoryError>>;
 
@@ -121,6 +128,14 @@ export interface TripRepository {
    * `detail` e' il `kind` di `TripLegError`) e lo storage resta intatto: il
    * contatore non scende sotto zero ne' supera i totali. `not-found` se la tratta
    * non esiste.
+   *
+   * **Chi puo' chiamarlo:** il proprietario della trasferta, oppure il richiedente di
+   * una candidatura `accepted` su quella tratta (`cancelRequest` restituisce il posto
+   * prima di scrivere `cancelled`, quindi la riga e' ancora `accepted`). Il richiedente
+   * puo' solo `+1` o `-1` (la compensazione dopo una save fallita); l'owner e' libero entro
+   * i limiti. Chiunque altro, o un altro delta per il richiedente, e' rifiutato con
+   * `storage-unavailable`, come ogni scrittura negata. Ordine dei
+   * controlli: esistenza (`not-found`), identita', limiti (`invalid-record`).
    */
   adjustLegSeats(
     tripId: TripId,

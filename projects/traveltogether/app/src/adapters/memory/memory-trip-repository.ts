@@ -16,7 +16,13 @@ import type {
 } from '../../core/domain';
 import { err, legKey, makeTrip, makeTripLeg, ok } from '../../core/domain';
 import type { ProfileRepository, RepositoryError, TripRepository } from '../../core/ports';
-import { type CondizioniDiAmbiente, erroreDiGuasto, rifiutoDiPolicy } from './memory-conditions';
+import {
+  type CondizioniDiAmbiente,
+  type IndiceCandidature,
+  erroreDiGuasto,
+  lettureVuote,
+  rifiutoDiPolicy,
+} from './memory-conditions';
 
 export class MemoryTripRepository implements TripRepository {
   private readonly trips = new Map<TripId, Trip>();
@@ -31,16 +37,30 @@ export class MemoryTripRepository implements TripRepository {
    * stessa operazione e la suite di contratto puo' verificarla su entrambi.
    *
    * Le condizioni sono opzionali: assenti = nessuna policy e nessun guasto. Cablate,
-   * `save` rifiuta le trasferte altrui (la RLS di scrittura su `trips` di T08) e ogni
-   * metodo risponde `storage-unavailable` sotto guasto. Le LETTURE non filtrano per
-   * identita': le offerte pubblicate devono essere leggibili da tutti, e il resto
-   * T08 non l'ha deciso. `adjustLegSeats` non e' imposto: T08 non ha deciso chi lo
-   * esegue.
+   * `save` rifiuta le trasferte altrui (la RLS di scrittura su `trips` di T08),
+   * `adjustLegSeats` autorizza solo il proprietario o il richiedente di una candidatura
+   * `accepted` su quella tratta, e ogni metodo risponde `storage-unavailable` sotto
+   * guasto. Le LETTURE sono per qualunque identita' (le offerte pubblicate sono di
+   * tutti) e vuote senza identita', come `anon` sotto RLS.
    */
   constructor(
     private readonly profiles: ProfileRepository,
     private readonly condizioni?: CondizioniDiAmbiente
   ) {}
+
+  /** Le candidature, per la foreign key `RESTRICT` sulle tratte e per l'autorizzazione di `adjustLegSeats`. */
+  private candidature: IndiceCandidature | null = null;
+
+  /**
+   * Collega l'indice delle candidature. **Non e' nel port.** Senza, nessuna tratta e'
+   * referenziata e nessuno e' un richiedente `accepted`: il guard di `save` non scatta e
+   * `adjustLegSeats` autorizza solo il proprietario. Le due classi si costruiscono l'una
+   * con l'altra (le candidature leggono le trasferte), quindi il collegamento e' un passo
+   * a parte.
+   */
+  collegaCandidature(indice: IndiceCandidature): void {
+    this.candidature = indice;
+  }
 
   /**
    * Scrive **senza validare**. Non e' nel port, e non lo sara' mai.
@@ -101,8 +121,8 @@ export class MemoryTripRepository implements TripRepository {
       tratte.push(tratta.value);
     }
 
-    // Ordine dei controlli: validazione, guasto, identita'. A T09 la validazione e'
-    // locale e precede la rete; il resto lo decide il DB.
+    // Ordine dei controlli: validazione, guasto, identita', tratte referenziate. A T09 la
+    // validazione e' locale e precede la rete; il resto lo decide il DB.
     const guasto = erroreDiGuasto(this.condizioni);
     if (guasto) return err(guasto);
 
@@ -116,6 +136,25 @@ export class MemoryTripRepository implements TripRepository {
       const esistente = this.trips.get(trip.id);
       if (esistente && esistente.ownerId !== identita) {
         return err(rifiutoDiPolicy('l\'id esiste gia\' con un altro proprietario'));
+      }
+    }
+
+    // Una tratta che la nuova forma toglie non puo' essere referenziata da NESSUNA
+    // candidatura, in qualunque stato (foreign key RESTRICT). Guarda tutte le righe, come
+    // un indice: anche le chiuse, che il guard degli usecase sugli stati aperti non copre.
+    if (this.candidature) {
+      for (const direction of ['outbound', 'return'] as const) {
+        if (
+          !direzioni.includes(direction) &&
+          this.legs.has(legKey(trip.id, direction)) &&
+          this.candidature.esisteSuTratta(trip.id, direction)
+        ) {
+          return err({
+            kind: 'invalid-record',
+            id: trip.id,
+            detail: 'leg-referenced-by-requests',
+          });
+        }
       }
     }
 
@@ -137,7 +176,8 @@ export class MemoryTripRepository implements TripRepository {
     const guasto = erroreDiGuasto(this.condizioni);
     if (guasto) return err(guasto);
 
-    const trovato = this.trips.get(id);
+    // Senza identita' la riga non si vede: not-found, non un errore.
+    const trovato = lettureVuote(this.condizioni) ? undefined : this.trips.get(id);
     if (!trovato) {
       return err({ kind: 'not-found', id });
     }
@@ -160,7 +200,8 @@ export class MemoryTripRepository implements TripRepository {
     // voce, non l'intera schermata. Port di osservabilita': oggi l'omissione e'
     // SILENZIOSA, perche' il canale per segnalarla non esiste ancora. E' la voce
     // «Port di osservabilita'» di IDEAS.md, non schedulata.
-    const suoi = [...this.trips.values()]
+    if (lettureVuote(this.condizioni)) return ok([]);
+    const suoi =[...this.trips.values()]
       .filter((t) => t.ownerId === ownerId && makeTrip(t).ok)
       .map((t) => ({ ...t }));
     return ok(suoi);
@@ -169,6 +210,8 @@ export class MemoryTripRepository implements TripRepository {
   async listOpenOffers(): Promise<Result<readonly SeatOffer[], RepositoryError>> {
     const guasto = erroreDiGuasto(this.condizioni);
     if (guasto) return err(guasto);
+
+    if (lettureVuote(this.condizioni)) return ok([]);
 
     // Un'offerta e' una TRATTA con almeno un posto libero. I posti si leggono dal
     // contatore di tratta e non da Trip.seatsAvailable, che dopo un'accettazione
@@ -249,7 +292,7 @@ export class MemoryTripRepository implements TripRepository {
     if (guasto) return err(guasto);
 
     const chiave = legKey(tripId, direction);
-    const trovata = this.legs.get(chiave);
+    const trovata = lettureVuote(this.condizioni) ? undefined : this.legs.get(chiave);
     if (!trovata) {
       return err({ kind: 'not-found', id: chiave });
     }
@@ -273,6 +316,26 @@ export class MemoryTripRepository implements TripRepository {
     const attuale = this.legs.get(chiave);
     if (!attuale) {
       return err({ kind: 'not-found', id: chiave });
+    }
+
+    // Ordine dei controlli: guasto, esistenza, identita', limiti. L'esistenza si guarda
+    // su tutte le tratte, non solo su quelle visibili: la funzione del DB e' definer.
+    if (this.condizioni) {
+      const identita = this.condizioni.identita;
+      const owner = this.trips.get(tripId)?.ownerId;
+      const eOwner = identita !== null && owner === identita;
+      const eAccettato =
+        identita !== null && (this.candidature?.accettataDa(identita, tripId, direction) ?? false);
+      if (!eOwner && !eAccettato) {
+        return err(
+          rifiutoDiPolicy('i posti li cambia il proprietario o il richiedente accettato su quella tratta')
+        );
+      }
+      // Il richiedente accettato restituisce il proprio posto (+1) o compensa (-1): non azzera
+      // i posti altrui.
+      if (!eOwner && delta !== 1 && delta !== -1) {
+        return err(rifiutoDiPolicy('il richiedente accettato puo cambiare i posti solo di +1 o -1'));
+      }
     }
 
     // In RAM leggere e scrivere nello stesso tick e' atomico (nessun await in

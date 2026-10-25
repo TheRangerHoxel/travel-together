@@ -652,3 +652,39 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — lo script di seed e il suo test (uno per migrazione di seed, oppure un confronto con la sola ultima), `config/parameters.ts`. Nessun port. Reversibile.
 - **Costo** — S.
 - **Stato** — proposta
+
+
+### Le note non hanno un limite nel database
+- **Cosa** — un trigger su `match_requests` che rifiuti `request_note` / `resolution_note` oltre il parametro `notes.maxLength`, letto dalla tabella dei parametri.
+- **Perché** — dalla review intermedia di T08. Il limite oggi vive solo nel dominio (`makeMatchRequest`). Un client ostile può scrivere una nota più lunga; poi la riga non si può più accettare né rifiutare, perché ogni `save` rivalida la riga intera, e una cascata che la tocca fallisce: è lo stato *"inchiudibile"* che la decisione del 14/10 voleva evitare.
+- **Impatto** — una migrazione additiva; un test di integrazione. Si lega al trigger che già impedisce di abbassare `notes.maxLength`.
+- **Costo** — S.
+- **Stato** — proposta
+
+### Revocare ai ruoli dell'app i privilegi che non usano
+- **Cosa** — `REVOKE TRUNCATE, REFERENCES, TRIGGER` su tutte le tabelle di `public` per `anon` e `authenticated`.
+- **Perché** — dalla review intermedia di T08: i grant di default di Supabase li concedono. `TRUNCATE` scavalca le RLS; oggi nessuna via dall'app (PostgREST e GraphQL non lo espongono), quindi è difesa in profondità.
+- **Impatto** — una migrazione additiva, un test dal catalogo.
+- **Costo** — XS.
+- **Stato** — proposta
+
+### Indice su `trips(owner_id)`
+- **Cosa** — l'indice che `listByOwner` e le sottoquery delle policy di `match_requests` usano.
+- **Perché** — dalla review intermedia di T08. Prestazioni, non correttezza: con i volumi della demo è invisibile.
+- **Impatto** — una migrazione additiva.
+- **Costo** — XS.
+- **Stato** — proposta
+
+### L'owner può riassegnare una candidatura chiusa a un altro collega
+- **Cosa** — rendere immutabili `requester_id`, `trip_id` e `direction` di una candidatura per i ruoli dell'app (trigger, e la stessa regola in RAM).
+- **Perché** — dalla review intermedia di T08. La tabella delle policy di T07g lascia all'owner la scrittura di `accepted`/`rejected` sulla propria trasferta, e niente gli impedisce di cambiare il richiedente: un collega si ritroverebbe una candidatura che non ha fatto, e i suoi KPI cambierebbero. RAM e RLS lo permettono allo stesso modo, quindi non è una divergenza: è un buco della tabella.
+- **Impatto** — una migrazione additiva, `memory-match-request-repository.ts`, due test di contratto. Cambia la tabella delle policy di T07g: va deciso dall'umano.
+- **Costo** — S.
+- **Stato** — proposta
+
+### Cancellare un utente che ha trasferte fallisce
+- **Cosa** — documentare (o decidere) cosa accade cancellando dalla dashboard un utente con trasferte: `profiles → auth.users ON DELETE CASCADE` e `trips → profiles RESTRICT` fanno fallire la cancellazione.
+- **Perché** — dalla review intermedia di T08. È un comportamento sicuro, ma chi gestisce gli inviti in T10 lo scoprirebbe come un errore grezzo.
+- **Impatto** — una nota su T10, eventualmente una procedura.
+- **Costo** — XS.
+- **Stato** — proposta

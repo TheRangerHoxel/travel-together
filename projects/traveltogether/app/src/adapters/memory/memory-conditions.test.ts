@@ -1,8 +1,8 @@
 // Identita' nulla: il caso che la suite di contratto non puo' esprimere, perche'
 // l'hook `comeUtente` prende sempre un profilo e non ha modo di tornare a "nessuno".
 // Qui le condizioni sono cablate a mano. Con identita' nulla le policy IMPOSTE
-// rifiutano ogni scrittura e filtrano ogni lettura di massimi, candidature e parametri; restano
-// fuori, come dichiarato, `adjustLegSeats` e le letture di trasferte e profili.
+// rifiutano ogni scrittura (compresa `adjustLegSeats`) e filtrano ogni lettura: trasferte,
+// tratte, profili, massimi, candidature e parametri.
 
 import { SEED_PARAMETERS } from '../../config';
 import type { MatchRequest, Trip } from '../../core/domain';
@@ -131,6 +131,49 @@ describe('con identita nulla', () => {
     }
     const lista = await matchRequests.listByRequester(PROFILO);
     expect(lista.ok && lista.value).toEqual([]);
+  });
+
+  it('trasferte, tratte e profili non si vedono: not-found e liste vuote, e adjustLegSeats e rifiutato', async () => {
+    const condizioni = nuoveCondizioni();
+    const profiles = new MemoryProfileRepository(condizioni);
+    const trips = new MemoryTripRepository(profiles, condizioni);
+    profiles.semina({ id: PROFILO, displayName: 'Collega Fittizio', plantId: 'pomigliano' });
+    // Si scrive CON un'identita' e si controlla che le stesse righe si vedano: l'assenza
+    // che segue e' il filtro, non una scrittura fallita.
+    condizioni.identita = PROFILO;
+    expect((await trips.save(unaTrasferta())).ok).toBe(true);
+    expect((await trips.findById('trip-1')).ok).toBe(true);
+    expect((await trips.findLeg('trip-1', 'outbound')).ok).toBe(true);
+    expect((await profiles.findById(PROFILO)).ok).toBe(true);
+    const viste = await trips.listOpenOffers();
+    expect(viste.ok && viste.value).toHaveLength(1);
+
+    condizioni.identita = null;
+
+    const perId = await trips.findById('trip-1');
+    const tratta = await trips.findLeg('trip-1', 'outbound');
+    const profilo = await profiles.findById(PROFILO);
+    for (const esito of [perId, tratta, profilo]) {
+      expect(esito.ok).toBe(false);
+      if (!esito.ok) {
+        expect(esito.error.kind).toBe('not-found');
+      }
+    }
+    const perOwner = await trips.listByOwner(PROFILO);
+    const offerte = await trips.listOpenOffers();
+    const perIds = await profiles.listByIds([PROFILO]);
+    expect(perOwner).toEqual({ ok: true, value: [] });
+    expect(offerte).toEqual({ ok: true, value: [] });
+    expect(perIds).toEqual({ ok: true, value: [] });
+
+    const posti = await trips.adjustLegSeats('trip-1', 'outbound', -1);
+    expect(posti.ok).toBe(false);
+    if (!posti.ok) {
+      expect(posti.error.kind).toBe('storage-unavailable');
+    }
+    condizioni.identita = PROFILO;
+    const tratta2 = await trips.findLeg('trip-1', 'outbound');
+    expect(tratta2.ok && tratta2.value.seatsAvailable).toBe(3);
   });
 
   it('le righe dei parametri non si vedono: load risponde invalid-record sulla prima chiave mancante', async () => {

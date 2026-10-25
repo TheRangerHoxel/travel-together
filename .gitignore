@@ -32,8 +32,8 @@ coverage/
 .eslintcache
 
 # === Supabase ===
-supabase/.branches/
-supabase/.temp/
+**/supabase/.branches/
+**/supabase/.temp/
 
 # === Sistema operativo ===
 Thumbs.db

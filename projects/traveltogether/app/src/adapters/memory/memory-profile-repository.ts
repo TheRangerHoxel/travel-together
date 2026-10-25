@@ -3,12 +3,15 @@
 import type { Profile, ProfileId, Result } from '../../core/domain';
 import { err, ok } from '../../core/domain';
 import type { ProfileRepository, RepositoryError } from '../../core/ports';
-import { type CondizioniDiAmbiente, erroreDiGuasto } from './memory-conditions';
+import { type CondizioniDiAmbiente, erroreDiGuasto, lettureVuote } from './memory-conditions';
 
 export class MemoryProfileRepository implements ProfileRepository {
   private readonly profili = new Map<ProfileId, Profile>();
 
-  /** Le condizioni sono opzionali: assenti = storage sempre raggiungibile. */
+  /**
+   * Le condizioni sono opzionali: assenti = storage sempre raggiungibile e profili
+   * visibili a tutti. Cablate, senza identita' le letture sono vuote.
+   */
   constructor(private readonly condizioni?: CondizioniDiAmbiente) {}
 
   /**
@@ -25,7 +28,8 @@ export class MemoryProfileRepository implements ProfileRepository {
     const guasto = erroreDiGuasto(this.condizioni);
     if (guasto) return err(guasto);
 
-    const trovato = this.profili.get(id);
+    // Senza identita' la riga non si vede (RLS di lettura: `authenticated`).
+    const trovato = lettureVuote(this.condizioni) ? undefined : this.profili.get(id);
     if (!trovato) {
       return err({ kind: 'not-found', id });
     }
@@ -39,6 +43,7 @@ export class MemoryProfileRepository implements ProfileRepository {
     if (guasto) return err(guasto);
 
     const trovati: Profile[] = [];
+    if (lettureVuote(this.condizioni)) return ok(trovati);
     for (const id of ids) {
       const p = this.profili.get(id);
       if (p) trovati.push({ ...p });

@@ -5305,3 +5305,96 @@ idempotenza dell'accettazione"*). Verificato sui titoli e sul contenuto.
 - **Ordine di esecuzione:** il developer fa gli step 0–5, che non modificano staging; **review delle
   migrazioni prima di applicarle**; lo step 6 (`db:push`) lo esegue l'orchestratore, un passo per volta;
   poi il developer fa gli step 7–9 e c'è la review finale; commit subito dopo.
+
+
+---
+
+## 2026-10-25 — T08 · step 1–2 nel working tree, fermo sul certificato TLS
+
+**Stato per chi riprende:** gli step 1 e 2 di T08 sono nel working tree, **non committati**, perché
+`test:int` non può diventare verde. Lint, typecheck e **661 test unitari in 30 suite** sono verdi.
+**Nessun comando ha modificato staging.**
+
+**Il blocco.** postgres.js con la verifica TLS attiva rifiuta il pooler (*self-signed certificate in
+certificate chain*), anche con la CA di sistema di Windows. Il developer si è fermato invece di
+disattivare la verifica, come da brief. Diagnosi dell'orchestratore con `openssl s_client -starttls
+postgres`, senza credenziali: `*.pooler.supabase.com` ← *Supabase Intermediate 2021 CA* ← **Supabase
+Root 2021 CA**, autofirmata, SHA256 `80:70:25:AD:…:E6:CA:FA`. È la **CA privata di Supabase, non un
+proxy**. La CLI si connette perché la incorpora.
+
+**Decisione:** fidarsi di quella sola radice con `ssl: { ca }`, verifica attiva. Ma una radice letta
+dalla stessa connessione che deve verificare non prova niente: chiesto all'umano di scaricarla dalla
+dashboard (*Database → SSL Configuration*) in `app/supabase/prod-ca-2021.crt`, per confrontarne
+l'impronta su un **secondo canale**. Chiesta anche la riga `SUPABASE_DB_URL` con valori finti in
+`.env.example`, che le deny rules proteggono anche dall'agente.
+
+**Step 1 (harness):** dipendenza `postgres` 3.4.9 (aprile 2026), devDependency, installata con
+`--ignore-scripts`; nessuno script d'installazione, zero transitive, il lockfile cambia di una sola
+voce. `scripts/oscura.js` oscura URL, password, utente e host in ogni output; `scripts/supabase-db.js`
+avvolge la CLI (`db:status`, `db:push`); `tests/integration/support/db.ts` apre transazioni sempre
+annullate. **postgres.js con `sslmode=require` disattiva la verifica in silenzio**: `db.ts` passa
+`ssl` esplicito, che prevale sull'URL. `credenziali.test.ts` ora pretende anche `SUPABASE_DB_URL`.
+**Tipi di Node** in un `tsconfig.int.json` separato (decisione dell'orchestratore): non arrivano a
+`core/`. La sonda con `process.env` non distingue, perché `process` è già tipizzato da React Native;
+distinguono `node:fs` e `__dirname`, che in `core/` danno errore.
+
+**Step 2 (le regole di T08 in RAM, prima del SQL):** guard di `save` che rifiuta di togliere una tratta
+referenziata da **qualunque** candidatura (`leg-referenced-by-requests`); `adjustLegSeats` solo
+dall'owner o dal richiedente `accepted` su quella tratta; con identità nulla trasferte, tratte e
+profili si leggono vuoti. Nove test di contratto nuovi; i quattro test della riga invalida spostati,
+con `expect` identiche, in un file solo-memory, perché sotto i CHECK di T08 quella riga non si può
+costruire; `seminaCandidaturaGrezza` esce dall'ambiente. Sei sonde, tutte cadute dove dovevano.
+
+
+---
+
+## 2026-10-25, 20:11 — Ripresa automatica dopo il limite di sessione
+
+Il developer di T08 (step 3–5) è terminato sul limite di utilizzo, con reset alle 20:10. **Ripreso
+dall'heartbeat alle 20:11**, senza intervento dell'umano: è la prima ripresa che il meccanismo
+introdotto alle 15:17 fa da solo. Il developer ha l'istruzione di rileggere `git status` e di
+controllare che nessuna sonda sia rimasta applicata prima di continuare.
+
+
+---
+
+## 2026-10-25, 20:41 — T08 · step 3–6: migrazioni rivedute, applicate a staging
+
+**Review intermedia, prima del push: APPLICABILE**, in due giri. Al primo nessun bloccante, ma una
+scelta da fare **prima**, perché dopo il push costa una migrazione (D1): il richiedente `accepted`
+poteva chiamare `adjust_leg_seats` con **qualunque** delta, quindi azzerare l'offerta altrui, mentre
+piano e `IDEAS.md` dichiaravano solo *"può ripetere il +1"* — un documento che prometteva **meno rischio**
+di quello che il codice permetteva. Scelta (a), raccomandata: il richiedente solo ±1, l'owner libero entro
+[0, totale], **nell'SQL e in RAM**, con un test per lato. Chiusi nello stesso giro quattro test che
+mancavano (S1 ramo `elsif` del trigger di guardia, S2 `requester_trip_id` nella `WITH CHECK`
+dell'UPDATE, S3 upsert di un estraneo → 42501, S4 `lower_note_max_length(0)`) e tre commenti resi veri.
+S3 cade solo togliendo **quattro** strati insieme (USING dell'UPDATE, WITH CHECK, trigger, USING della
+SELECT): difesa in profondità, e il test fissa il comportamento che serve a T09. Secondo giro:
+APPLICABILE, `schema.sql` e seed verificati identici.
+
+**Le migrazioni:** `20261025120000_schema.sql` (schema `private`, 7 enum, 8 tabelle con RLS, CHECK, FK
+composte, UNIQUE, policy, trigger di guardia), `20261025120100_functions.sql` (`adjust_leg_seats` e
+`restore_system_rejected` definer, `raise_personal_bests` invoker, trigger delle tratte, della
+monotonia e di `notes.maxLength`, `private.lower_note_max_length`), `20261025120200_parameter_seed.sql`
+(generato da `SEED_PARAMETERS`, confrontato con il generatore da un test). Un solo revert,
+`rollback/20261025120000_revert.sql`, idempotente.
+
+**Step 6, eseguito dall'orchestratore alle 20:41:** `db:preflight` (staging vuoto) → `db:status` (tre
+locali, nessuna remota) → `db:push --dry-run` (tre da applicare) → **`db:push --yes`** → `db:status`
+(tre locali, tre remote). Exit 0. Poi `verify` completo **verde sullo schema applicato**: **679 unit in
+32 suite, 135 di integrazione in 9 suite**, 1 smoke.
+
+**Deviazione da "un task = un commit", dichiarata:** T08 si committa in **due parti**. Dopo il push
+staging ha uno schema i cui file esistevano solo nel working tree: un'interruzione avrebbe lasciato un
+database che il repo non conosce. La gerarchia di `CLAUDE.md` mette la reversibilità sopra la regola
+del commit unico, e le condizioni del commit ci sono — `verify` verde, migrazioni approvate dal
+reviewer. La seconda parte (step 7–9: concorrenza, tipi generati, documenti, review finale) chiude il
+task.
+
+**Da qui in poi le migrazioni applicate non si toccano:** ogni correzione è una migrazione nuova.
+
+**Due controlli di sicurezza prima del commit.** `.env.example` (modificato dall'umano, illeggibile per
+l'agente) verificato con soli sì/no: nessun valore vero del `.env` dentro, tranne il codice invito —
+che però nel `.env` è **esso stesso un segnaposto**. **Prima di T10 il codice invito va sostituito con uno
+vero e non indovinabile, solo nel `.env`.** E un buco nel `.gitignore`: `supabase/.temp/` era ancorato
+alla radice, quindi `app/supabase/.temp/` sarebbe entrato nel commit; ora è `**/supabase/.temp/`.

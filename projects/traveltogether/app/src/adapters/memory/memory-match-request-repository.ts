@@ -11,7 +11,12 @@ import type {
 } from '../../core/domain';
 import { err, makeMatchRequest, ok, validateMatchRequestStructure } from '../../core/domain';
 import type { MatchRequestRepository, RepositoryError, TripRepository } from '../../core/ports';
-import { type CondizioniDiAmbiente, erroreDiGuasto, rifiutoDiPolicy } from './memory-conditions';
+import {
+  type CondizioniDiAmbiente,
+  type IndiceCandidature,
+  erroreDiGuasto,
+  rifiutoDiPolicy,
+} from './memory-conditions';
 
 /**
  * Cio' che serve a questo adapter per comportarsi come lo storage vero: chi sta
@@ -24,7 +29,7 @@ export interface AmbienteDelloStorage {
   readonly trips: TripRepository;
 }
 
-export class MemoryMatchRequestRepository implements MatchRequestRepository {
+export class MemoryMatchRequestRepository implements MatchRequestRepository, IndiceCandidature {
   private readonly richieste = new Map<MatchRequestId, MatchRequest>();
 
   /**
@@ -94,6 +99,28 @@ export class MemoryMatchRequestRepository implements MatchRequestRepository {
 
     this.richieste.set(request.id, { ...request });
     return ok({ ...request });
+  }
+
+  /**
+   * Non e' nel port. Guarda TUTTE le righe, senza policy di lettura e senza validarle:
+   * e' il lavoro di una foreign key, che non passa dalla RLS. Lo usa
+   * `MemoryTripRepository` (vedi `IndiceCandidature`).
+   */
+  esisteSuTratta(tripId: TripId, direction: LegDirection): boolean {
+    return [...this.richieste.values()].some(
+      (r) => r.tripId === tripId && r.direction === direction
+    );
+  }
+
+  /** Non e' nel port. Come `esisteSuTratta`: tutte le righe, nessun filtro d'identita'. */
+  accettataDa(profileId: ProfileId, tripId: TripId, direction: LegDirection): boolean {
+    return [...this.richieste.values()].some(
+      (r) =>
+        r.requesterId === profileId &&
+        r.tripId === tripId &&
+        r.direction === direction &&
+        r.status === 'accepted'
+    );
   }
 
   async findById(id: MatchRequestId): Promise<Result<MatchRequest, RepositoryError>> {

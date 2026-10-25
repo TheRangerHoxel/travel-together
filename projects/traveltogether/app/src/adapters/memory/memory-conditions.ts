@@ -11,18 +11,31 @@
 // l'identita' non devono gestirla; i denti stanno nei test di contratto, che girano
 // sempre con le condizioni cablate.
 
-import type { ProfileId } from '../../core/domain';
+import type { LegDirection, ProfileId, TripId } from '../../core/domain';
 import type { RepositoryError } from '../../core/ports';
+
+/**
+ * Le interrogazioni sulle candidature che `MemoryTripRepository` deve poter fare per
+ * comportarsi come il DB, senza essere nel port. Valgono su TUTTE le righe, anche quelle
+ * che l'identita' corrente non vedrebbe: sono il lavoro di una foreign key e di una
+ * funzione `security definer`, che non passano dalle policy di lettura.
+ */
+export interface IndiceCandidature {
+  /** Esiste almeno una candidatura, in qualunque stato, su questa tratta? */
+  esisteSuTratta(tripId: TripId, direction: LegDirection): boolean;
+  /** Il profilo ha una candidatura `accepted` su questa tratta? */
+  accettataDa(profileId: ProfileId, tripId: TripId, direction: LegDirection): boolean;
+}
 
 export interface CondizioniDiAmbiente {
   /**
-   * Chi sta chiamando. `null` = nessuno: per le policy IMPOSTE (scrittura di
-   * trasferte, candidature e massimi; lettura di massimi e candidature) ogni
-   * scrittura e' rifiutata e ogni lettura filtrata, come una richiesta non
-   * autenticata sotto RLS. Restano fuori, e non guardano l'identita':
-   * `adjustLegSeats` (T08 non ha deciso chi lo esegue) e le letture di trasferte e
-   * profili. Fra le LETTURE filtrate ci sono anche i parametri: senza identita'
-   * `ParameterRepository.load` vede zero righe.
+   * Chi sta chiamando. `null` = nessuno: ogni scrittura imposta e' rifiutata e ogni
+   * lettura imposta filtrata, come una richiesta non autenticata sotto RLS. Le letture
+   * filtrate sono quelle di trasferte, tratte, profili, candidature, massimi e
+   * parametri: senza identita' `ParameterRepository.load` vede zero righe. Le scritture
+   * imposte sono quelle di trasferte, candidature e massimi, e `adjustLegSeats`, che
+   * autorizza il proprietario della trasferta o il richiedente di una candidatura
+   * `accepted` su quella tratta.
    */
   identita: ProfileId | null;
   /** Lo storage non risponde: ogni metodo di ogni repository ritorna `storage-unavailable`. */
@@ -31,6 +44,15 @@ export interface CondizioniDiAmbiente {
 
 export function nuoveCondizioni(): CondizioniDiAmbiente {
   return { identita: null, guasto: false };
+}
+
+/**
+ * Una LETTURA di trasferte, tratte o profili e' vuota senza identita': la RLS di
+ * lettura e' `authenticated`, e `anon` vede zero righe. Con identita' qualunque, o senza
+ * condizioni cablate, nessun filtro.
+ */
+export function lettureVuote(condizioni: CondizioniDiAmbiente | undefined): boolean {
+  return condizioni !== undefined && condizioni.identita === null;
 }
 
 /** L'errore di uno storage che non risponde, o `null` se risponde (o se non ci sono condizioni). */
