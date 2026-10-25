@@ -572,3 +572,24 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — una nota sui criteri di T09, eventualmente un test di contratto che pinni la combinazione.
 - **Costo** — XS.
 - **Stato** — proposta
+
+### `App.tsx`, `index.ts` e `tests/` sono fuori dal grafo dei confini
+- **Cosa** — dichiarare nel grafo di `boundaries` la radice di composizione (`App.tsx`, `index.ts`) e le cartelle `tests/integration`, `tests/smoke`, ognuna con i propri import permessi.
+- **Perché** — scoperto pianificando T07h: il blocco di `boundaries` copre solo `src/**`, quindi fuori da `src/` qualunque import è permesso. La radice **deve** poter cablare `ui/` con `adapters/` (è il suo mestiere), ma un test di integrazione che importasse `ui/` o un test smoke che importasse un adapter direttamente oggi non li ferma nessuno. T07h chiude solo il buco dentro `src/`.
+- **Impatto** — `app/eslint.config.js`. Reversibile, nessun effetto a runtime. Da provare violandola.
+- **Costo** — S.
+- **Stato** — proposta
+
+### Una seconda rete su `config/` nel core di produzione
+- **Cosa** — un `no-restricted-imports` sui pattern `**/config` per `src/core/**/*.ts` esclusi i test di `core/usecases`, accanto a `boundaries`, come già per `adapters/` e `ui/`.
+- **Perché** — scelta di pianificazione di T07h: la regola *"il core di produzione non importa `config/`"* la impone solo `boundaries`, mentre le altre due regole del core hanno una seconda rete che non dipende dalla risoluzione dei moduli. Farlo richiede un blocco per i test che ripeta i pattern anti-adapter, perché in flat config le opzioni di una regola si sostituiscono, non si sommano.
+- **Impatto** — `app/eslint.config.js`. Reversibile, nessun effetto a runtime.
+- **Costo** — XS.
+- **Stato** — proposta
+
+### Un alias di `Date` aggira il selettore anti-orologio
+- **Cosa** — vietare in `core/` anche `Date` usato come valore (`const D = Date`, `globalThis.Date`), non solo `new Date` e i suoi membri.
+- **Perché** — scoperto pianificando T07h: il selettore `MemberExpression[object.name='Date']` guarda il nome, quindi `const D = Date; D.parse(…)` passa. Oggi nessun file lo fa; è una scorciatoia possibile, non un difetto presente. Il selettore va scritto in modo da non colpire `Date` in posizione di tipo.
+- **Impatto** — `app/eslint.config.js`. Reversibile.
+- **Costo** — XS.
+- **Stato** — proposta

@@ -4252,3 +4252,90 @@ committare codice fuori dal perimetro rivisto.
 
 **Il primo giro del developer è stato pulito:** nessuna scrittura da shell, nessun worktree. Le due regole
 aggiunte al brief dopo T07f hanno tenuto.
+
+
+---
+
+## 2026-10-25 — T07h · pianificazione
+
+Nessun codice. Il planner ha toccato **solo** `TASKS.md` (criteri di T07h), `IDEAS.md` (tre voci) e
+questa voce. Letti: `eslint.config.js`, `src/config/*`, `plant.ts`, `badge.ts`, i consumatori di
+`PLANT_IDS` / `BADGE_IDS`, ogni import di `config/` in `src/`, ogni occorrenza di `Date` in `src/`,
+`harness.test.ts`, le tre config di jest, `ARCHITECTURE.md` § Modularità. Nessun ⛔.
+
+### I criteri, riletti contro il codice dopo T07f e T07g
+
+- **`config/`:** nessun file di produzione di `core/` lo importa. Lo importano sei test di conformità,
+  tutti in `core/usecases/`; fuori dal core, `memory-conditions.test.ts` e `memory.contract.test.ts`
+  (adapter: `config` resta nel loro grafo, non cambia niente). Il testo *"rientra per
+  `src/core/**/*.test.ts`"* avrebbe dato `config/` anche ai test di `domain/`, che oggi non l'hanno:
+  ristretto a `src/core/usecases/**/*.test.ts`. `request-test-fakes.ts` e `instant-fixture.ts` non
+  sono `.test.ts`, restano elementi di produzione e non importano `config/`.
+- **`Date`:** in `src/` nessun codice, test compresi, usa `Date.parse` o `Date.UTC`; `Date` compare
+  solo in commenti. Perimetro dichiarato: `src/core/**/*.ts`, test inclusi, come la regola di oggi.
+- **`src/__tests__/`:** è ancora l'unico buco **di `src/`** — ma non dell'albero, come diceva il testo:
+  `App.tsx`, `index.ts` e `tests/**` sono fuori dal blocco di `boundaries`. Corretto, e la radice
+  fuori dal grafo va in `IDEAS.md`. `no-unknown-files` oggi segnalerebbe solo `harness.test.ts`.
+- **Identità:** nessun consumatore esaustivo di `PlantId` (le distanze sono `Partial<Record<…>>`),
+  mentre `BADGE_CATALOG` e `BadgeConfig.thresholds` sono `Record<BadgeId, …>` completi: è lì che la
+  sonda può mordere. Il criterio diceva cosa, non come verificarlo: aggiunta la verifica.
+- **Runtime:** reso verificabile con il conteggio (548 / 31) e *"nessun file di test cambia"*.
+
+### Decisioni
+
+- **Elemento `usecases-test`** (pattern `src/core/usecases/**/*.test.ts`, per file, dichiarato **prima**
+  di `usecases`) con `[...GRAFO.usecases senza config, 'config']`. Alternativa: un elemento unico
+  `core-test` per tutto `core/`, scartata perché allarga i test di `domain/`.
+- **Nessuna seconda rete** `no-restricted-imports` su `config` nel blocco del core: per i test servirebbe
+  un blocco che ripete i pattern anti-adapter. Alternativa: farla adesso; annotata in `IDEAS.md`.
+- **Un selettore `MemberExpression[object.name='Date']` al posto di quello su `Date.now`**, che ne è un
+  caso. Alternativa: aggiungerlo accanto, scartata per non avere due errori sulla stessa riga. Resta
+  `NewExpression[callee.name='Date']`. L'alias (`const D = Date`) resta scoperto: voce in `IDEAS.md`.
+- **Entrambe le reti su `src/__tests__/`** (il criterio dice *oppure*): elemento `harness` con **nessun
+  import permesso** dentro `src/`, e `no-unknown-files` attiva. Alternativa: solo una delle due; scelta
+  entrambe perché l'elemento chiude il buco di oggi, `no-unknown-files` quello della prossima cartella.
+  Un test end-to-end in RAM lì richiederà di allargare `harness` con una decisione scritta.
+- **`PLANT_IDS` / `BADGE_IDS` esportati come tupla** (`as const`), non riannotati `readonly X[]`. Il
+  tipo pubblico si **restringe**: ogni uso di oggi resta valido, lo prova `typecheck`. Non lo leggo come
+  ⛔ su un'interfaccia: nessuna firma cambia, e nessun chiamante cambia. Alternativa: una seconda
+  costante annotata, scartata perché duplica il nome.
+
+### Il piano, in cinque step (un commit solo)
+
+**Step 1 — `config/` fuori dal core di produzione.** File: `app/eslint.config.js`,
+`ARCHITECTURE.md` (§ Modularità, paragrafo 127–136: lint e documento ora coincidono).
+- *Sonda 1a:* `import { MATCH_CONFIG } from '../../config';` in `core/usecases/find-matches.ts` →
+  `lint` rosso (`boundaries/dependencies`).
+- *Sonda 1b:* la stessa riga in `core/usecases/request-test-fakes.ts` (non è `.test.ts`) → rosso.
+- *Sonda 1c:* `import { NOTE_CONFIG } from '../../config';` in `core/domain/trip.test.ts` → rosso,
+  come oggi.
+- *Controllo positivo:* i sei test di conformità restano verdi a `lint`. Se fossero classificati
+  `usecases` invece di `usecases-test`, sarebbero rossi: è la prova che l'ordine degli elementi regge.
+
+**Step 2 — membri di `Date`.** File: `app/eslint.config.js`, `ARCHITECTURE.md` riga 121.
+- *Sonde 2a/2b/2c:* `Date.parse('2026-11-03')`, `Date.UTC(2026, 10, 3)` e `Date.now()` in
+  `core/domain/instant.ts` → `lint` rosso, ciascuna da sola.
+- *Sonda 2d:* `Date.parse('2026-11-03')` in `core/domain/instant.test.ts` → rosso (test inclusi).
+
+**Step 3 — `src/__tests__/` nel grafo, e niente file sconosciuti.** File: `app/eslint.config.js`.
+- *Sonda 3a:* in `src/__tests__/harness.test.ts`, `import '../adapters/memory';` → rosso.
+- *Sonda 3b:* nello stesso file `import '../ui';` → rosso.
+- *Sonda 3c:* un file nuovo `src/sonda/x.ts` con `export const x = 1;` → rosso
+  (`boundaries/no-unknown-files`), poi cancellato.
+
+**Step 4 — identità derivate.** File: `src/core/domain/plant.ts`, `src/core/domain/badge.ts`.
+`export const PLANT_IDS = [...] as const; export type PlantId = (typeof PLANT_IDS)[number];`, idem per
+i badge. I commenti in testa restano veri; si aggiorna solo quello che descrive l'annotazione.
+- *Verifica:* `rg -c "'pomigliano'" src/core/domain/plant.ts` e `rg -c "'primo-viaggio'"
+  src/core/domain/badge.ts` danno 1.
+- *Sonda 4:* aggiungere `'sonda'` a `BADGE_IDS` → `typecheck` rosso su `BADGE_CATALOG` (manca la
+  chiave). Prima di questo step la stessa aggiunta alla **union** compilava. Per `PlantId` nessuna sonda
+  morde, perché nessun consumatore è esaustivo: la verifica è il conteggio.
+
+**Step 5 — chiusura.** `npm run verify` verde; `test:unit` a 548 in 31; `git status` senza `src/sonda/`;
+`git diff --name-only` = `app/eslint.config.js`, `plant.ts`, `badge.ts`, `ARCHITECTURE.md`, più i diari.
+Per l'orchestratore, non per il developer: la riga *"`core/` non usa `Date.now()` né `new Date()`"* del
+`CLAUDE.md` di progetto va estesa ai membri di `Date`, come `ARCHITECTURE.md`.
+
+Ogni sonda si esegue **da sola**, si registra l'esito (regola che scatta, file, riga) e si ripristina
+prima della successiva. Niente worktree, niente scritture da shell: le regole del brief di T07f restano.
