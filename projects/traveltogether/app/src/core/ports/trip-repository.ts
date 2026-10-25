@@ -42,7 +42,10 @@ export interface TripRepository {
    */
   findById(id: TripId): Promise<Result<Trip, RepositoryError>>;
 
-  /** Non valida riga per riga: vedi la nota su `invalid-record`. */
+  /**
+   * Le trasferte di un collega. **Omette** le righe che `makeTrip` rifiuta, invece di
+   * far fallire la lista: vedi la nota su `invalid-record`.
+   */
   listByOwner(ownerId: ProfileId): Promise<Result<readonly Trip[], RepositoryError>>;
 
   /**
@@ -73,6 +76,15 @@ export interface TripRepository {
    * un dato inventato ma plausibile falserebbe la classifica senza farsi notare.
    * Omettere una sola offerta e' anche il degrado giusto: far fallire tutta la
    * ricerca per una riga incoerente lascerebbe la demo con una schermata vuota.
+   *
+   * Per lo stesso motivo **omette** la trasferta che `makeTrip` rifiuta e la tratta
+   * che `makeTripLeg` rifiuta (vedi la nota su `invalid-record`): una tratta con 2
+   * posti totali e 5 liberi non diventa un'offerta con cinque posti.
+   *
+   * Ogni coppia (`tripId`, `direction`) compare **una sola volta**: e' la
+   * precondizione dell'ordine totale di `findMatches` e dello stato che marca ogni
+   * offerta. Un adapter su Postgres che la ottenesse da una join deve evitare che
+   * la join la duplichi.
    *
    * Vincoli per T08, entrambi necessari:
    * - le RLS su `trips` devono permettere la lettura delle offerte pubblicate di

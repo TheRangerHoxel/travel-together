@@ -4180,3 +4180,75 @@ sono criteri di T08 dello step 5, perché la policy che li rende visibili la scr
 
 **Prossimo passo:** review del piano, poi developer sullo Step 1, con le sonde **scritte nel brief**,
 comprese quelle da non chiedere e il perché.
+
+
+---
+
+## 2026-10-25 — T07g · **APPROVATO** al secondo giro, e chiuso
+
+`verify` completo **verde**: **548 test unitari in 31 suite** (erano 488 in 30, +60), 1 di integrazione,
+1 di smoke. I tre ⛔ emersi in pianificazione erano sciolti per delega dell'umano.
+
+### Cosa c'è adesso
+
+**L'ambiente in RAM ha un'identità e un guasto.** `adapters/memory/memory-conditions.ts` tiene lo stato
+condiviso `{identita, guasto}`, iniettato come parametro opzionale nei quattro adapter memory (assente =
+il comportamento di prima, usato solo dai test di memory che non sono contratto). `comeUtente`, che fino
+a T07e era un no-op, ora scrive l'identità; `guasta()` / `ripristina()` sono **obbligatori**
+nell'interfaccia dell'ambiente, e `pulisci()` ripristina anche il guasto.
+
+- **Guasto:** in testa a tutti i quindici metodi dei repository; le quattro scritture sotto guasto non
+  scrivono, verificato su una fotografia dello storage.
+- **Policy in scrittura**, la tabella del criterio: `trips.save` solo dall'owner, upsert compreso;
+  `matchRequests.save` con i due attori **sulla riga vecchia e sulla nuova** (USING e WITH CHECK) e
+  `requesterTripId` sempre del richiedente; `raise` solo sui propri massimi. Rifiuto =
+  `storage-unavailable`, nessun `kind` nuovo. `adjustLegSeats` non imposto, dichiarato.
+- **Filtri in lettura:** candidature visibili a richiedente e owner, massimi solo propri; una lettura
+  negata è una riga assente, come su Postgres.
+- **Letture validate:** le liste omettono le righe che il dominio rifiuta, con un commento che nomina il
+  port di osservabilità mancante; `findByLegAndRequester` torna `invalid-record`.
+- **Unicità** (tratta, richiedente): un secondo id è `invalid-record` (`duplicate-requester-on-leg`).
+
+**La sonda che dà i denti al criterio:** rimettere il difetto N1 di T07e (togliere `comeUtente(altro)` da
+*"due profili hanno massimi indipendenti"*) rende **rosso** `test:unit`. Prima di questo task restava
+verde. Tutte le altre sonde del piano sono cadute dove dovevano; non eseguite, come da piano, le tre a
+esito noto.
+
+**Test esistenti cambiati: solo i due elencati nel criterio** — la fixture `unaCandidatura`, che
+puntava a una trasferta inesistente, e *"requesterTripId sopravvive"*, che usava un letterale. L'additività
+contro `b118678` è provata: una sola riga `expect` tolta, quella attesa.
+
+### La bocciatura del primo giro: una RAM più permissiva delle RLS
+
+**N1**, ed era il punto delicato del task. Per un id già esistente la policy delle candidature guardava
+**una sola** delle due righe, e in modo asimmetrico: il richiedente poteva riassegnare la propria riga a
+un altro richiedente, e l'owner di una seconda trasferta poteva spostare su di sé una candidatura altrui
+e accettarla. Su Postgres un UPDATE passa `USING` sulla riga vecchia **e** `WITH CHECK` sulla nuova, e per
+le trasferte il developer l'aveva già fatto. È la direzione pericolosa: un test verde su memory e rosso a
+T09, con la scelta fra adattare la suite e allentare la policy. Chiuso con i due controlli e due test, ognuno
+isolato da una sonda.
+
+**N2**, un commento che prometteva *"ogni scrittura rifiutata e ogni lettura filtrata"* con identità
+nulla, quando `adjustLegSeats` e le letture di trasferte e profili restano fuori; e la regola
+dell'identità nulla non la eseguiva nessun test. Chiuso con il commento riscritto e
+`memory-conditions.test.ts`, che la prova su `memory` perché l'ambiente di contratto non sa ancora
+tornare a identità nulla (voce in `IDEAS.md`, *"Un hook esci"*).
+
+### Lo step 5, dell'orchestratore
+
+Criteri su **T08**: `UNIQUE (trip_id, direction, requester_id)`; le policy della tabella di T07g, rese
+vincolanti; **deciso chi esegue il reintegro e l'incremento di `cancelRequest`**, che oggi gira come
+richiedente e riscrive righe di altri — sotto le policy tornerebbe `ok([])` in silenzio; CHECK compatibili
+con le righe seminate dalla suite. Su **T09**: `guasta` / `ripristina` nell'ambiente Supabase, la stessa
+mappatura degli errori, le omissioni sulle liste. In `ARCHITECTURE.md` l'unicità e la visibilità di
+`match_requests`.
+
+Tre voci nuove in `IDEAS.md` dalla review: dividere la suite di contratto per port (da ~1235 a 1867
+righe), l'hook *"esci"*, e il `kind` di un duplicato scritto senza permessi.
+
+**Riserva lasciata aperta, dichiarata:** nel nome di un test nuovo manca uno spazio dopo i due punti
+(*"un estraneo non vede la candidatura:findById…"*). Cosmetica, non toccata dopo l'approvazione per non
+committare codice fuori dal perimetro rivisto.
+
+**Il primo giro del developer è stato pulito:** nessuna scrittura da shell, nessun worktree. Le due regole
+aggiunte al brief dopo T07f hanno tenuto.

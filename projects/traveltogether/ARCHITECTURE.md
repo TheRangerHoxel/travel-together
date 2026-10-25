@@ -242,7 +242,10 @@ Vincoli duri e punteggio morbido sono elencati in [PRD.md](PRD.md).
   `rejected` / `cancelled`), **`request_note`** (facoltativa), **`resolution_note`**, **`resolved_by`**
   (`owner` / `requester` / `system`; nota e `resolved_by` insieme o nessuno dei due). Foreign key
   composta `(trip_id, direction) → trip_legs`, che rende impossibile una candidatura sul rientro di una
-  trasferta senza rientro. Il limite di lunghezza delle note è in `config/`, misurato in code point
+  trasferta senza rientro. Il limite di lunghezza delle note è in `config/`, misurato in code point.
+  **`UNIQUE (trip_id, direction, requester_id)`** (T07g): un secondo id sulla stessa coppia (tratta,
+  richiedente) è `invalid-record`, già imposto in RAM dalla suite di contratto. Visibile solo al
+  richiedente e all'owner della trasferta; le policy in scrittura sono quelle di T07g, vincolanti per T08.
 - `personal_bests` — **bozza (T07e)**: una riga per profilo con le quattro metriche
   (`shared_trips`, `shared_legs`, `transported_colleagues`, `shared_km`), il massimo storico di
   ciascuna. L'alzata è un unico `INSERT ... ON CONFLICT DO UPDATE ... RETURNING *` con `GREATEST` per

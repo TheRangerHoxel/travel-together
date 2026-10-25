@@ -10,6 +10,7 @@
 import { NOTE_CONFIG } from '../../config';
 import type { MatchRequest, ProfileId } from '../../core/domain';
 import { type AmbienteDiContratto, eseguiSuiteDiContratto } from '../contract/repository-contract';
+import { nuoveCondizioni } from './memory-conditions';
 import { MemoryMatchRequestRepository } from './memory-match-request-repository';
 import { MemoryPersonalBestsRepository } from './memory-personal-bests-repository';
 import { MemoryProfileRepository } from './memory-profile-repository';
@@ -34,12 +35,16 @@ function creaGeneratoreDiId(): () => string {
 }
 
 eseguiSuiteDiContratto('memory', async (): Promise<AmbienteDiContratto> => {
-  const profiles = new MemoryProfileRepository();
-  const trips = new MemoryTripRepository(profiles);
+  // Lo stato condiviso dell'ambiente: chi sta chiamando e se lo storage risponde.
+  // Lo vedono TUTTI gli adapter, cosi' `comeUtente` e `guasta` lo cambiano in un
+  // punto solo.
+  const condizioni = nuoveCondizioni();
+  const profiles = new MemoryProfileRepository(condizioni);
+  const trips = new MemoryTripRepository(profiles, condizioni);
   // Copia MUTABILE: l'adapter tiene il riferimento, quindi mutarla dal test e' il
   // modo di abbassare il limite dopo che le note sono state scritte.
   const limiteNote: { maxLength: number } = { maxLength: NOTE_CONFIG.maxLength };
-  const matchRequests = new MemoryMatchRequestRepository(limiteNote);
+  const matchRequests = new MemoryMatchRequestRepository(limiteNote, { condizioni, trips });
   const sessions = new MemorySessionGateway();
 
   const prossimoId = creaGeneratoreDiId();
@@ -49,13 +54,22 @@ eseguiSuiteDiContratto('memory', async (): Promise<AmbienteDiContratto> => {
     matchRequests,
     profiles,
     sessions,
-    personalBests: new MemoryPersonalBestsRepository(),
+    personalBests: new MemoryPersonalBestsRepository(condizioni),
 
-    // In RAM non esistono RLS: l'autenticazione non cambia cosa si vede.
-    // Su Supabase questo hook fara' un vero sign-in, ed e' il motivo per cui
-    // esiste gia' adesso: aggiungerlo dopo imporrebbe di riscrivere la suite.
-    async comeUtente(_profileId: ProfileId) {
-      // no-op
+    // In RAM le RLS non esistono, ma gli adapter ne imitano le policy scritte su T08:
+    // l'identita' registrata qui decide cosa possono scrivere e vedere. Cosi' un test
+    // scritto come se le RLS non esistessero e' rosso gia' su memory, non a T09.
+    // Su Supabase questo hook fara' un vero sign-in.
+    async comeUtente(profileId: ProfileId) {
+      condizioni.identita = profileId;
+    },
+
+    async guasta() {
+      condizioni.guasto = true;
+    },
+
+    async ripristina() {
+      condizioni.guasto = false;
     },
 
     async creaProfilo({ displayName, plantId }) {
@@ -86,7 +100,10 @@ eseguiSuiteDiContratto('memory', async (): Promise<AmbienteDiContratto> => {
 
     // Istanze nuove a ogni test rendono la pulizia superflua in RAM, ma l'hook
     // deve esistere perche' su staging le righe restano fra un test e l'altro.
+    // Ripristina anche il guasto: un test che cade fra `guasta` e `ripristina`
+    // lascerebbe l'`afterEach` eseguito sotto guasto, e lo staging sporco.
     async pulisci() {
+      condizioni.guasto = false;
       await sessions.signOut();
     },
   };

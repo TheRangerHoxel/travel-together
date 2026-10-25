@@ -761,7 +761,7 @@ erano scritti **prima** del modello a tratte (T04b) e di T07f, e il criterio sul
 insoddisfacibile come scritto. Piano, decisioni e alternative: `PROGRESS.md`, voce del 25 ottobre.
 
 **Criteri di accettazione**
-- [ ] `AmbienteDiContratto` guadagna `guasta()` / `ripristina()`, **obbligatori**, e `pulisci()`
+- [x] `AmbienteDiContratto` guadagna `guasta()` / `ripristina()`, **obbligatori**, e `pulisci()`
       ripristina anche il guasto. **Nessuna asserzione esistente di `repository-contract.ts` cambia**,
       salvo l'unica elencata nel criterio sull'identità. Verifica:
       `git diff -U0 b118678 -- app/src/adapters/contract/repository-contract.ts | rg "^-.*expect"`
@@ -773,7 +773,7 @@ insoddisfacibile come scritto. Piano, decisioni e alternative: `PROGRESS.md`, vo
       senza guasto salterebbe il test in verde, cioè proprio il verde falso che `CLAUDE.md` vieta.
       L'additività si prova sulle asserzioni. `pulisci` che ripristina: un test che cade fra `guasta` e
       `ripristina` lascerebbe su staging un `afterEach` eseguito sotto guasto, e lo staging sporco.)*
-- [ ] Un test di contratto esercita `storage-unavailable` su **ognuno dei quindici metodi** dei quattro
+- [x] Un test di contratto esercita `storage-unavailable` su **ognuno dei quindici metodi** dei quattro
       repository (`TripRepository` 6, `MatchRequestRepository` 5, `ProfileRepository` 2,
       `PersonalBestsRepository` 2), e passa su `memory`. Per le **quattro scritture** (`save` di
       trasferte e candidature, `adjustLegSeats`, `raise`), dopo `ripristina()` lo storage è **quello di
@@ -782,7 +782,7 @@ insoddisfacibile come scritto. Piano, decisioni e alternative: `PROGRESS.md`, vo
       `IDEAS.md`).
       *(25/10: "ogni lettura e ogni scrittura" contate e nominate. Aggiunto lo storage intatto: senza,
       passerebbe un adapter che scrive e poi riporta l'errore.)*
-- [ ] Le letture di **lista** omettono le righe che il dominio rifiuta (`makeTrip`, `makeTripLeg`,
+- [x] Le letture di **lista** omettono le righe che il dominio rifiuta (`makeTrip`, `makeTripLeg`,
       `validateMatchRequestStructure`), come già fa `listOpenOffers` per l'offerta con owner senza
       profilo. Il caso concreto, **nel modello a tratte**: una tratta con `seatsTotal: 2` e
       `seatsAvailable: 5` sotto una trasferta valida diventa oggi **un'offerta pubblicata con cinque
@@ -800,7 +800,7 @@ insoddisfacibile come scritto. Piano, decisioni e alternative: `PROGRESS.md`, vo
       venivano da `Trip`. Oggi una trasferta grezza 2/5 senza tratte non produce **nessuna** offerta,
       quindi un test scritto alla lettera sarebbe stato verde senza cambiare una riga dell'adapter.
       Aggiunti dove vivono i test, il controllo positivo e il doc.)*
-- [ ] L'enunciato *"ciò che attraversa un port è valido"* vale per **ogni lettura che restituisce
+- [x] L'enunciato *"ciò che attraversa un port è valido"* vale per **ogni lettura che restituisce
       un'entità con un validatore di dominio**. Oltre alle tre già coperte (`trips.findById`, `findLeg`,
       `matchRequests.findById`), un test per ciascuna di `listByOwner`, `listOpenOffers`, `listByLeg`,
       `listByRequester` e `findByLegAndRequester`. Quest'ultima è una lettura **singola**: una riga
@@ -810,7 +810,7 @@ insoddisfacibile come scritto. Piano, decisioni e alternative: `PROGRESS.md`, vo
       Scriverne uno sarebbe un altro task.
       *(25/10: "ogni lettura" comprendeva letture di tipi senza invarianti di dominio, dove non c'è
       niente da omettere, e non diceva cosa fa una lettura singola che oggi non valida affatto.)*
-- [ ] L'unicità della coppia (`tripId`, `direction`) fra le offerte e quella della coppia (tratta,
+- [x] L'unicità della coppia (`tripId`, `direction`) fra le offerte e quella della coppia (tratta,
       richiedente) fra le candidature sono **verificate dalla suite**, non soltanto dichiarate nel doc.
       Sono le due precondizioni su cui poggiano l'ordine totale di `findMatches` e lo stato che marca
       ogni offerta: con due righe della stessa coppia e stati diversi, lo stato mostrato dipenderebbe
@@ -827,7 +827,7 @@ insoddisfacibile come scritto. Piano, decisioni e alternative: `PROGRESS.md`, vo
       *(25/10: "verificate dalla suite" non diceva come. La seconda garanzia non era vera nemmeno come
       dichiarazione: la voce di `IDEAS.md` la attribuiva all'upsert per id, che **non** impedisce due id
       sulla stessa coppia, e l'adapter memory oggi li accetta entrambi.)*
-- [ ] Ogni omissione lascia un commento che nomina il canale mancante e la voce di `IDEAS.md` che lo
+- [x] Ogni omissione lascia un commento che nomina il canale mancante e la voce di `IDEAS.md` che lo
       chiuderà (il port di osservabilità). **Nessun commento dichiara l'omissione osservabile**, perché
       oggi non lo è: un commento che promette più del codice è un difetto. Verifica:
       `rg -n "Port di osservabilit" app/src/adapters --glob '!*.test.ts'` ha almeno una riga in ciascuno
@@ -838,7 +838,7 @@ insoddisfacibile come scritto. Piano, decisioni e alternative: `PROGRESS.md`, vo
 
 **Criterio aggiunto il 23 ottobre 2026, dalla bocciatura di T07e** (decisione dell'umano: qui e non in
 un task a sé, perché tocca gli stessi file e alza lo stesso standard — porta il task da S/M a M)
-- [ ] **L'ambiente di contratto in RAM registra l'identità corrente**, e gli adapter memory **rifiutano**
+- [x] **L'ambiente di contratto in RAM registra l'identità corrente**, e gli adapter memory **rifiutano**
       le operazioni su dati altrui dove le RLS di T08 le rifiuteranno. Così un test di contratto scritto
       come se le RLS non esistessero diventa **rosso su `memory`**, non a T09.
       Il difetto che lo motiva è reale e di oggi: un test dei massimi scriveva e leggeva la riga di un
@@ -881,7 +881,7 @@ un task a sé, perché tocca gli stessi file e alza lo stesso standard — porta
       **La prova che il criterio ha i denti è una sonda:** togliere `comeUtente(altro)` dal test *"due
       profili hanno massimi indipendenti"*, cioè rimettere il difetto di T07e, rende rosso `verify`.
       Prima di questo task restava verde.
-- [ ] *(25/10, aggiunto)* **Criteri corrispondenti scritti su T08 e T09**, nella forma già usata da T07c,
+- [x] *(25/10, aggiunto)* **Criteri corrispondenti scritti su T08 e T09**, nella forma già usata da T07c,
       T07e e T07f. Su T08: il vincolo `UNIQUE (trip_id, direction, requester_id)`; le policy della
       tabella del criterio sull'identità; **deciso chi esegue il reintegro e l'incremento dei posti di
       `cancelRequest`**, che oggi gira con l'identità del richiedente, legge con `listByLeg` e riscrive
@@ -1069,6 +1069,31 @@ Tabelle da `ARCHITECTURE.md`, come SQL versionato nel repo.
       `WHERE` o un `ORDER BY` in SQL, e lo stesso confronto darebbe due risposte a seconda di dove gira.
       Un test di integrazione scrive un istante con frazione oltre il millisecondo e lo rilegge troncato
 
+**Criteri aggiunti il 25 ottobre 2026, da T07g**
+- [ ] `match_requests` ha il vincolo **`UNIQUE (trip_id, direction, requester_id)`**: in RAM un secondo
+      id sulla stessa coppia (tratta, richiedente) è rifiutato con `invalid-record`, e senza il vincolo
+      nel DB la suite di contratto non passerebbe a T09. È la precondizione su cui poggiano l'ordine
+      totale di `findMatches` e lo stato che marca ogni offerta
+- [ ] Le policy implementano **la tabella del criterio sull'identità di T07g**, che in RAM è già imposta
+      e diventa qui vincolante: scrittura su `trips` solo dall'owner (upsert compreso); su
+      `match_requests` creazione, `pending` e `cancelled` dal richiedente, `accepted` e `rejected`
+      dall'owner della trasferta, `requester_trip_id` sempre del richiedente; `raise` sui massimi solo
+      propri; lettura delle candidature al richiedente e all'owner, dei massimi solo propri. **Una
+      scrittura negata è un errore, una lettura negata è una riga assente**: è il modo in cui la suite
+      in RAM le distingue
+- [ ] **Deciso chi esegue il reintegro e l'incremento dei posti di `cancelRequest`.** Oggi gira con
+      l'identità del richiedente, legge con `listByLeg` la tratta dell'owner e riscrive righe di
+      **altri** richiedenti (`restoreSystemRejected`), più `adjustLegSeats(+1)` sulla tratta dell'owner.
+      Con le policy qui sopra la `save` è vietata, e con la lettura ristretta `listByLeg` vede solo la
+      riga del richiedente: il reintegro tornerebbe **`ok([])` in silenzio**, l'annullamento riesce e gli
+      altri restano rifiutati per sempre. Nessun test di usecase lo vede, perché i fake non hanno
+      identità. Vie naturali: una funzione lato DB (`security definer`, con i suoi controlli) o una
+      policy dedicata alle transizioni `resolvedBy: 'system'`. Un test di integrazione riproduce
+      l'annullamento con un rifiutato dal sistema in coda e pinna il reintegro
+- [ ] I `CHECK` sono compatibili con le righe che la suite costruisce con `seminaCandidaturaGrezza`:
+      o la riga seminata è rappresentabile sotto i CHECK, o il test che la usa è dichiarato
+      *solo memory* con il motivo, come i test sulle liste invalide di trasferte e tratte
+
 ⛔ Checkpoint obbligatorio: cambio di schema DB.
 
 ## T09 Adapter Supabase
@@ -1081,6 +1106,18 @@ Implementazione dei port con `@supabase/supabase-js`.
 - [ ] URL e chiavi letti da `config`, iniettati, **nessuna chiave nel codice**
 - [ ] Un errore di rete si presenta come errore tipizzato del port, non come eccezione Supabase grezza
 - [ ] `core/` continua a non importare `@supabase/supabase-js` (verificato dal lint)
+
+**Criteri aggiunti il 25 ottobre 2026, da T07g**
+- [ ] L'ambiente di contratto Supabase implementa **`guasta()` / `ripristina()`**, obbligatori
+      nell'interfaccia: il test di `storage-unavailable` su ogni lettura e scrittura gira anche qui, e
+      `pulisci()` ripristina il guasto
+- [ ] La violazione del vincolo di unicità di T08 diventa **`invalid-record`**, il rifiuto di una policy
+      **`storage-unavailable`**, una lettura negata una riga assente: la stessa mappatura che la suite
+      pretende da `memory`
+- [ ] Le letture di lista **omettono** le righe che il dominio rifiuta, istante illeggibile compreso.
+      Su Postgres quel ramo nessun test condiviso lo può costruire (i CHECK e il tipo della colonna lo
+      impediscono): lo si verifica con un test dell'adapter sulla funzione di traduzione, e il commento
+      che accompagna l'omissione nomina il canale di osservabilità mancante come in `memory`
 
 ⛔ Nuova dipendenza: `@supabase/supabase-js` va approvata.
 

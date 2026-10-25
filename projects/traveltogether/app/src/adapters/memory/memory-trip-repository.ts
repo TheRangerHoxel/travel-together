@@ -16,6 +16,7 @@ import type {
 } from '../../core/domain';
 import { err, legKey, makeTrip, makeTripLeg, ok } from '../../core/domain';
 import type { ProfileRepository, RepositoryError, TripRepository } from '../../core/ports';
+import { type CondizioniDiAmbiente, erroreDiGuasto, rifiutoDiPolicy } from './memory-conditions';
 
 export class MemoryTripRepository implements TripRepository {
   private readonly trips = new Map<TripId, Trip>();
@@ -28,8 +29,18 @@ export class MemoryTripRepository implements TripRepository {
    * Si passa dal PORT e non da uno store privato: su Supabase la stessa
    * informazione viene da una join su `profiles`, quindi i due adapter fanno la
    * stessa operazione e la suite di contratto puo' verificarla su entrambi.
+   *
+   * Le condizioni sono opzionali: assenti = nessuna policy e nessun guasto. Cablate,
+   * `save` rifiuta le trasferte altrui (la RLS di scrittura su `trips` di T08) e ogni
+   * metodo risponde `storage-unavailable` sotto guasto. Le LETTURE non filtrano per
+   * identita': le offerte pubblicate devono essere leggibili da tutti, e il resto
+   * T08 non l'ha deciso. `adjustLegSeats` non e' imposto: T08 non ha deciso chi lo
+   * esegue.
    */
-  constructor(private readonly profiles: ProfileRepository) {}
+  constructor(
+    private readonly profiles: ProfileRepository,
+    private readonly condizioni?: CondizioniDiAmbiente
+  ) {}
 
   /**
    * Scrive **senza validare**. Non e' nel port, e non lo sara' mai.
@@ -90,6 +101,24 @@ export class MemoryTripRepository implements TripRepository {
       tratte.push(tratta.value);
     }
 
+    // Ordine dei controlli: validazione, guasto, identita'. A T09 la validazione e'
+    // locale e precede la rete; il resto lo decide il DB.
+    const guasto = erroreDiGuasto(this.condizioni);
+    if (guasto) return err(guasto);
+
+    if (this.condizioni) {
+      const identita = this.condizioni.identita;
+      if (trip.ownerId !== identita) {
+        return err(rifiutoDiPolicy('la trasferta e\' di un altro profilo'));
+      }
+      // L'upsert non e' una via per prendersi la riga di un altro: la RLS vale anche
+      // sul ramo DO UPDATE.
+      const esistente = this.trips.get(trip.id);
+      if (esistente && esistente.ownerId !== identita) {
+        return err(rifiutoDiPolicy('l\'id esiste gia\' con un altro proprietario'));
+      }
+    }
+
     // Copia difensiva: lo storage vero riceve dati, non riferimenti.
     this.trips.set(trip.id, { ...trip });
     // Le tratte che la nuova forma non prevede (auto tolta, rientro tolto) vanno.
@@ -105,6 +134,9 @@ export class MemoryTripRepository implements TripRepository {
   }
 
   async findById(id: TripId): Promise<Result<Trip, RepositoryError>> {
+    const guasto = erroreDiGuasto(this.condizioni);
+    if (guasto) return err(guasto);
+
     const trovato = this.trips.get(id);
     if (!trovato) {
       return err({ kind: 'not-found', id });
@@ -121,19 +153,37 @@ export class MemoryTripRepository implements TripRepository {
   }
 
   async listByOwner(ownerId: ProfileId): Promise<Result<readonly Trip[], RepositoryError>> {
-    // Le liste non validano riga per riga: vedi la nota su invalid-record.
+    const guasto = erroreDiGuasto(this.condizioni);
+    if (guasto) return err(guasto);
+
+    // Le righe che il dominio rifiuta si OMETTONO: una riga incoerente costa una
+    // voce, non l'intera schermata. Port di osservabilita': oggi l'omissione e'
+    // SILENZIOSA, perche' il canale per segnalarla non esiste ancora. E' la voce
+    // «Port di osservabilita'» di IDEAS.md, non schedulata.
     const suoi = [...this.trips.values()]
-      .filter((t) => t.ownerId === ownerId)
+      .filter((t) => t.ownerId === ownerId && makeTrip(t).ok)
       .map((t) => ({ ...t }));
     return ok(suoi);
   }
 
   async listOpenOffers(): Promise<Result<readonly SeatOffer[], RepositoryError>> {
+    const guasto = erroreDiGuasto(this.condizioni);
+    if (guasto) return err(guasto);
+
     // Un'offerta e' una TRATTA con almeno un posto libero. I posti si leggono dal
     // contatore di tratta e non da Trip.seatsAvailable, che dopo un'accettazione
     // non e' piu' quello vero. Nessun filtro su hasCar: le tratte esistono solo
     // per le trasferte con auto.
-    const candidate = [...this.trips.values()].filter((t) => t.status === 'published');
+    //
+    // Si omettono anche le righe che il dominio rifiuta: la trasferta (`makeTrip`)
+    // e la tratta (`makeTripLeg`). Port di osservabilita': come per il profilo
+    // mancante piu' sotto, oggi l'omissione e' SILENZIOSA, perche' il canale per
+    // segnalarla non esiste ancora (voce «Port di osservabilita'» di IDEAS.md, non
+    // schedulata). Senza la validazione una tratta con 2 totali e 5 liberi
+    // diventerebbe un'offerta pubblicata con cinque posti.
+    const candidate = [...this.trips.values()].filter(
+      (t) => t.status === 'published' && makeTrip(t).ok
+    );
 
     // Una sola lettura dei profili invece di una per trasferta. In RAM il
     // risparmio e' nullo, ma e' la forma che l'adapter Supabase dovra' avere —
@@ -160,7 +210,7 @@ export class MemoryTripRepository implements TripRepository {
       for (const direction of ['outbound', 'return'] as const) {
         const tratta = this.legs.get(legKey(trip.id, direction));
         // Il filtro "almeno un posto libero" e' PER TRATTA.
-        if (!tratta || tratta.seatsAvailable <= 0) continue;
+        if (!tratta || !makeTripLeg(tratta).ok || tratta.seatsAvailable <= 0) continue;
 
         if (direction === 'outbound') {
           offerte.push({
@@ -195,6 +245,9 @@ export class MemoryTripRepository implements TripRepository {
     tripId: TripId,
     direction: LegDirection
   ): Promise<Result<TripLeg, RepositoryError>> {
+    const guasto = erroreDiGuasto(this.condizioni);
+    if (guasto) return err(guasto);
+
     const chiave = legKey(tripId, direction);
     const trovata = this.legs.get(chiave);
     if (!trovata) {
@@ -213,6 +266,9 @@ export class MemoryTripRepository implements TripRepository {
     direction: LegDirection,
     delta: number
   ): Promise<Result<TripLeg, RepositoryError>> {
+    const guasto = erroreDiGuasto(this.condizioni);
+    if (guasto) return err(guasto);
+
     const chiave = legKey(tripId, direction);
     const attuale = this.legs.get(chiave);
     if (!attuale) {

@@ -15,7 +15,15 @@
 // asserzioni di restare le stesse.
 //
 //  - autenticazione: con le RLS attive (obbligatorie), un adapter Supabase non
-//    autenticato vedrebbe ogni scrittura respinta. In RAM e' un no-op.
+//    autenticato vedrebbe ogni scrittura respinta. Anche gli adapter in RAM
+//    registrano l'identita' corrente e ne imitano le policy di scrittura (le
+//    trasferte sono del loro owner, le candidature le scrivono i due attori, i
+//    massimi sono propri) e di lettura (una candidatura la vedono il richiedente e
+//    l'owner): un test scritto come se le RLS non esistessero e' rosso gia' su
+//    memory, non a T09. Le scritture negate tornano `storage-unavailable`; le
+//    letture negate non sono un errore, la riga semplicemente non c'e'.
+//  - guasto: lo storage che non risponde (rete giu', proxy aziendale). E' l'unico
+//    modo di esercitare il percorso d'errore dei repository.
 //  - id: 'trip-1' non e' inseribile in una colonna uuid, e un id malformato su
 //    Postgres non da' not-found ma un errore di sintassi. Li fornisce l'ambiente.
 //  - provisioning dei profili: su Supabase nascono da auth.users, non da una insert
@@ -50,8 +58,21 @@ export interface AmbienteDiContratto {
   readonly sessions: SessionGateway;
   readonly personalBests: PersonalBestsRepository;
 
-  /** Autentica le chiamate successive come quel profilo. No-op in RAM. */
+  /**
+   * Autentica le chiamate successive come quel profilo. In RAM registra l'identita'
+   * che gli adapter usano per imporre le policy; su Supabase fara' un sign-in vero.
+   */
   comeUtente(profileId: ProfileId): Promise<void>;
+
+  /**
+   * Da questo momento lo storage non risponde: ogni metodo di ogni repository (non
+   * `SessionGateway`, il cui errore e' un altro) ritorna `storage-unavailable`.
+   * **Obbligatorio**: un ambiente senza guasto salterebbe il test in verde.
+   */
+  guasta(): Promise<void>;
+
+  /** Lo storage torna a rispondere. Lo stato che aveva prima del guasto e' intatto. */
+  ripristina(): Promise<void>;
 
   /** Crea un profilo e ne ritorna l'id. Amministrazione, non operazione del port. */
   creaProfilo(dati: { displayName: string; plantId: PlantId }): Promise<ProfileId>;
@@ -91,7 +112,10 @@ export interface AmbienteDiContratto {
    * operazione del port. Su Supabase sara' una insert con credenziali di servizio.
    */
   seminaCandidaturaGrezza(request: MatchRequest): Promise<void>;
-  /** Riporta lo storage allo stato vuoto. */
+  /**
+   * Riporta lo storage allo stato vuoto **e ripristina il guasto**: un test che cade
+   * fra `guasta` e `ripristina` non deve lasciare l'`afterEach` eseguito sotto guasto.
+   */
   pulisci(): Promise<void>;
 }
 
@@ -684,16 +708,121 @@ export function eseguiSuiteDiContratto(
           expect(andata.ok && andata.value.seatsTotal).toBe(3);
         });
       });
+
+      // L'unicita' della coppia (tripId, direction) fra le offerte e' la precondizione
+      // dell'ordine totale di findMatches: con due voci della stessa coppia e stati
+      // diversi, lo stato mostrato dipenderebbe dall'ordine dell'array. Dichiarato: su
+      // memory lo garantisce gia' la Map, e il test paga a T09, contro una join che
+      // duplica le righe.
+      it('listOpenOffers non contiene due voci con la stessa coppia (tripId, direction)', async () => {
+        const prima = amb.nuovoTripId();
+        const seconda = amb.nuovoTripId();
+        await salvaTrasferta(unaTrasferta(prima));
+        await salvaTrasferta(unaTrasferta(prima, { returnAt: null }));
+        await salvaTrasferta(unaTrasferta(prima));
+        await salvaTrasferta(unaTrasferta(prima, { seatsTotal: 4, seatsAvailable: 4 }));
+        await salvaTrasferta(unaTrasferta(seconda));
+
+        const esito = await amb.trips.listOpenOffers();
+
+        expect(esito.ok).toBe(true);
+        if (esito.ok) {
+          const coppie = esito.value.map((o) => `${o.tripId}/${o.direction}`).sort();
+          // Il confronto con l'insieme atteso rende il test non vacuo: due trasferte con
+          // rientro sono quattro voci, ciascuna una volta sola.
+          expect(coppie).toEqual(
+            [
+              `${prima}/outbound`,
+              `${prima}/return`,
+              `${seconda}/outbound`,
+              `${seconda}/return`,
+            ].sort()
+          );
+        }
+      });
+
+      describe('policy di identita (specchio delle RLS di T08)', () => {
+        let altro: ProfileId;
+
+        beforeEach(async () => {
+          altro = await amb.creaProfilo({ displayName: 'Altro', plantId: 'foggia' });
+        });
+
+        it('save di una trasferta con ownerId altrui e rifiutato e NON scrive', async () => {
+          const id = amb.nuovoTripId();
+
+          const esito = await amb.trips.save(unaTrasferta(id, { ownerId: altro }));
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('storage-unavailable');
+          }
+          const riletta = await amb.trips.findById(id);
+          expect(riletta.ok).toBe(false);
+          if (!riletta.ok) {
+            expect(riletta.error.kind).toBe('not-found');
+          }
+        });
+
+        it('un upsert non e una via per prendersi la trasferta di un altro: la riga resta intatta', async () => {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id, { seatsTotal: 3, seatsAvailable: 3 }));
+
+          await amb.comeUtente(altro);
+          // Stessi posti, altro percorso: la scrittura sarebbe valida, e a fermarla e' solo la policy.
+          const esito = await amb.trips.save(
+            unaTrasferta(id, { ownerId: altro, fromPlantId: 'grottaglie' })
+          );
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('storage-unavailable');
+          }
+          const riletta = await amb.trips.findById(id);
+          expect(riletta.ok).toBe(true);
+          if (riletta.ok) {
+            expect(riletta.value.ownerId).toBe(owner);
+            expect(riletta.value.fromPlantId).toBe('pomigliano');
+          }
+        });
+      });
     });
 
     describe('MatchRequestRepository', () => {
       let offerta: TripId;
       let richiedente: ProfileId;
 
+      /**
+       * La trasferta di ciascun richiedente, che `requesterTripId` deve indicare:
+       * su Postgres e' una foreign key verso una trasferta VERA e, per le policy di
+       * T08, del richiedente. Salvata da lui, quindi con la sua identita'.
+       */
+      const trasfertaDi = new Map<ProfileId, TripId>();
+
+      async function assicuraTrasfertaDi(requesterId: ProfileId): Promise<void> {
+        if (trasfertaDi.has(requesterId)) return;
+        const id = amb.nuovoTripId();
+        await amb.comeUtente(requesterId);
+        await salvaTrasferta(unaTrasferta(id, { ownerId: requesterId }));
+        trasfertaDi.set(requesterId, id);
+      }
+
+      function tripDelRichiedente(requesterId: ProfileId): TripId {
+        const id = trasfertaDi.get(requesterId);
+        if (id === undefined) {
+          throw new Error(`fixture: ${requesterId} non ha una trasferta, usare candidaturaDi`);
+        }
+        return id;
+      }
+
       beforeEach(async () => {
         offerta = amb.nuovoTripId();
         await salvaTrasferta(unaTrasferta(offerta));
         richiedente = await amb.creaProfilo({ displayName: 'Richiedente', plantId: 'foggia' });
+        trasfertaDi.clear();
+        await assicuraTrasfertaDi(richiedente);
+        // I test del blocco ereditano l'identita' dell'owner, come prima.
+        await amb.comeUtente(owner);
       });
 
       /**
@@ -712,6 +841,7 @@ export function eseguiSuiteDiContratto(
         tripId: TripId = offerta,
         direction: LegDirection = 'outbound'
       ): Promise<void> {
+        await assicuraTrasfertaDi(requesterId);
         await amb.comeUtente(requesterId);
         await salvaCandidatura(unaCandidatura(requesterId, id, tripId, direction));
       }
@@ -729,7 +859,7 @@ export function eseguiSuiteDiContratto(
           tripId,
           direction,
           requesterId,
-          requesterTripId: `trip-di-${requesterId}`,
+          requesterTripId: tripDelRichiedente(requesterId),
           status: 'pending',
           requestNote: null,
           resolutionNote: null,
@@ -753,11 +883,18 @@ export function eseguiSuiteDiContratto(
       it('requesterTripId sopravvive a scrittura e rilettura', async () => {
         // Il KPI aziendale (T06) conta sulla trasferta del richiedente: se l'adapter
         // perdesse il campo, tornerebbe l'indovinello per plant e giorno.
-        const id = amb.nuovoMatchRequestId();
+        // Una SECONDA trasferta vera del richiedente, distinta da quella di default
+        // della fixture: con la stessa, un adapter che ignorasse il valore scritto e
+        // ne rimettesse uno suo passerebbe lo stesso.
+        const seconda = amb.nuovoTripId();
         await amb.comeUtente(richiedente);
+        await salvaTrasferta(unaTrasferta(seconda, { ownerId: richiedente }));
+        expect(seconda).not.toBe(tripDelRichiedente(richiedente));
+
+        const id = amb.nuovoMatchRequestId();
         await salvaCandidatura(
           unaCandidatura(richiedente, id, offerta, 'outbound', {
-            requesterTripId: 'trasferta-del-richiedente',
+            requesterTripId: seconda,
           })
         );
 
@@ -765,7 +902,7 @@ export function eseguiSuiteDiContratto(
 
         expect(esito.ok).toBe(true);
         if (esito.ok) {
-          expect(esito.value.requesterTripId).toBe('trasferta-del-richiedente');
+          expect(esito.value.requesterTripId).toBe(seconda);
         }
       });
 
@@ -1072,7 +1209,340 @@ export function eseguiSuiteDiContratto(
         if (!esito.ok) {
           expect(esito.error.kind).toBe('invalid-record');
         }
-      });    });
+      });
+
+      // Le liste omettono le righe che il dominio rifiuta, come listOpenOffers omette
+      // l'offerta con owner senza profilo; la lettura SINGOLA no, perche' un null
+      // farebbe credere a requestSeat che il collega non si sia mai candidato.
+      // Ogni test legge con un'identita' che VEDE la riga (owner o richiedente) e ha
+      // accanto una riga valida seminata allo stesso modo: altrimenti l'omissione
+      // sarebbe indistinguibile dal filtro d'identita'. Le righe di trasferte e tratte
+      // invalide stanno in memory-trip-repository.test.ts: con i CHECK di T08 su
+      // Postgres non si possono costruire.
+      describe('letture di righe invalide', () => {
+        const NOTA_SENZA_CHI: Partial<MatchRequest> = {
+          status: 'cancelled',
+          resolutionNote: 'Nota senza chi',
+          resolvedBy: null,
+        };
+
+        it('listByLeg omette la riga invalida e restituisce la valida', async () => {
+          const altroRichiedente = await amb.creaProfilo({ displayName: 'Altro', plantId: 'foggia' });
+          await assicuraTrasfertaDi(altroRichiedente);
+          const rotta = amb.nuovoMatchRequestId();
+          const sana = amb.nuovoMatchRequestId();
+          await amb.seminaCandidaturaGrezza(
+            unaCandidatura(richiedente, rotta, offerta, 'outbound', NOTA_SENZA_CHI)
+          );
+          await amb.seminaCandidaturaGrezza(
+            unaCandidatura(altroRichiedente, sana, offerta, 'outbound')
+          );
+
+          await amb.comeUtente(owner);
+          const esito = await amb.matchRequests.listByLeg(offerta, 'outbound');
+
+          expect(esito.ok).toBe(true);
+          if (esito.ok) {
+            expect(esito.value.map((r) => r.id)).toEqual([sana]);
+          }
+        });
+
+        it('listByRequester omette la riga invalida e restituisce la valida', async () => {
+          const rotta = amb.nuovoMatchRequestId();
+          const sana = amb.nuovoMatchRequestId();
+          await amb.seminaCandidaturaGrezza(
+            unaCandidatura(richiedente, rotta, offerta, 'outbound', NOTA_SENZA_CHI)
+          );
+          await amb.seminaCandidaturaGrezza(unaCandidatura(richiedente, sana, offerta, 'return'));
+
+          await amb.comeUtente(richiedente);
+          const esito = await amb.matchRequests.listByRequester(richiedente);
+
+          expect(esito.ok).toBe(true);
+          if (esito.ok) {
+            expect(esito.value.map((r) => r.id)).toEqual([sana]);
+          }
+        });
+
+        it('findByLegAndRequester su una riga invalida da invalid-record, non null; la valida si legge', async () => {
+          const rotta = amb.nuovoMatchRequestId();
+          const sana = amb.nuovoMatchRequestId();
+          await amb.seminaCandidaturaGrezza(
+            unaCandidatura(richiedente, rotta, offerta, 'outbound', NOTA_SENZA_CHI)
+          );
+          await amb.seminaCandidaturaGrezza(unaCandidatura(richiedente, sana, offerta, 'return'));
+
+          await amb.comeUtente(richiedente);
+          const invalida = await amb.matchRequests.findByLegAndRequester(
+            offerta,
+            'outbound',
+            richiedente
+          );
+          const valida = await amb.matchRequests.findByLegAndRequester(
+            offerta,
+            'return',
+            richiedente
+          );
+
+          expect(invalida.ok).toBe(false);
+          if (!invalida.ok) {
+            expect(invalida.error.kind).toBe('invalid-record');
+          }
+          expect(valida.ok).toBe(true);
+          if (valida.ok) {
+            expect(valida.value?.id).toBe(sana);
+          }
+        });
+      });
+
+      // L'unicita' della coppia (tratta, richiedente) e' la precondizione dello stato
+      // che marca ogni offerta: con due righe della stessa coppia e stati diversi, lo
+      // stato mostrato dipenderebbe dall'ordine dell'array. L'upsert per id NON la
+      // garantisce (non impedisce due id sulla stessa coppia), quindi la rifiuta save,
+      // con invalid-record: il kind distingue questo rifiuto da quello per identita'
+      // (storage-unavailable).
+      describe('unicita della candidatura per (tratta, richiedente)', () => {
+        it('un secondo id sulla stessa coppia e rifiutato con invalid-record e lo storage resta intatto', async () => {
+          const primo = amb.nuovoMatchRequestId();
+          const secondo = amb.nuovoMatchRequestId();
+          await candidaturaDi(richiedente, primo);
+
+          const esito = await amb.matchRequests.save(
+            unaCandidatura(richiedente, secondo, offerta, 'outbound')
+          );
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('invalid-record');
+          }
+          const trovata = await amb.matchRequests.findByLegAndRequester(
+            offerta,
+            'outbound',
+            richiedente
+          );
+          expect(trovata.ok && trovata.value?.id).toBe(primo);
+          await amb.comeUtente(owner);
+          const tutte = await amb.matchRequests.listByLeg(offerta, 'outbound');
+          expect(tutte.ok && tutte.value).toHaveLength(1);
+        });
+
+        it('controllo: lo stesso richiedente sull altra tratta e accettato', async () => {
+          await candidaturaDi(richiedente, amb.nuovoMatchRequestId(), offerta, 'outbound');
+
+          const esito = await amb.matchRequests.save(
+            unaCandidatura(richiedente, amb.nuovoMatchRequestId(), offerta, 'return')
+          );
+
+          expect(esito.ok).toBe(true);
+        });
+
+        it('controllo: un altro richiedente sulla stessa tratta e accettato', async () => {
+          const altroRichiedente = await amb.creaProfilo({ displayName: 'Altro', plantId: 'foggia' });
+          await candidaturaDi(richiedente, amb.nuovoMatchRequestId());
+
+          await candidaturaDi(altroRichiedente, amb.nuovoMatchRequestId());
+
+          await amb.comeUtente(owner);
+          const tutte = await amb.matchRequests.listByLeg(offerta, 'outbound');
+          expect(tutte.ok && tutte.value).toHaveLength(2);
+        });
+
+        it('controllo: lo stesso id sulla stessa coppia resta un upsert (la ricandidatura)', async () => {
+          const id = amb.nuovoMatchRequestId();
+          await candidaturaDi(richiedente, id);
+
+          const esito = await amb.matchRequests.save(
+            unaCandidatura(richiedente, id, offerta, 'outbound', { requestNote: 'Ci ho ripensato' })
+          );
+
+          expect(esito.ok).toBe(true);
+        });
+      });
+
+      describe('policy di identita (specchio delle RLS di T08)', () => {
+        let estraneo: ProfileId;
+
+        beforeEach(async () => {
+          estraneo = await amb.creaProfilo({ displayName: 'Estraneo', plantId: 'grottaglie' });
+        });
+
+        /** La riga com'e' ora, letta da chi la vede. */
+        async function comeLaVedeIlRichiedente(id: MatchRequestId) {
+          await amb.comeUtente(richiedente);
+          return amb.matchRequests.findById(id);
+        }
+
+        it('la creazione da parte di chi non e il richiedente e rifiutata e NON scrive', async () => {
+          const id = amb.nuovoMatchRequestId();
+          // L'identita' e' quella dell'owner: sta forgiando una candidatura a nome altrui.
+          const esito = await amb.matchRequests.save(unaCandidatura(richiedente, id, offerta, 'outbound'));
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('storage-unavailable');
+          }
+          const riletta = await comeLaVedeIlRichiedente(id);
+          expect(riletta.ok).toBe(false);
+          if (!riletta.ok) {
+            expect(riletta.error.kind).toBe('not-found');
+          }
+        });
+
+        it('accepted scritto dal richiedente e rifiutato; scritto dall owner passa', async () => {
+          const id = amb.nuovoMatchRequestId();
+          await candidaturaDi(richiedente, id);
+
+          const dalRichiedente = await amb.matchRequests.save(
+            unaCandidatura(richiedente, id, offerta, 'outbound', { status: 'accepted' })
+          );
+
+          expect(dalRichiedente.ok).toBe(false);
+          if (!dalRichiedente.ok) {
+            expect(dalRichiedente.error.kind).toBe('storage-unavailable');
+          }
+          const intatta = await comeLaVedeIlRichiedente(id);
+          expect(intatta.ok && intatta.value.status).toBe('pending');
+
+          await amb.comeUtente(owner);
+          const dallOwner = await amb.matchRequests.save(
+            unaCandidatura(richiedente, id, offerta, 'outbound', { status: 'accepted' })
+          );
+          expect(dallOwner.ok).toBe(true);
+        });
+
+        it('la chiusura da parte di un terzo, e cancelled da parte dell owner, sono rifiutate', async () => {
+          const id = amb.nuovoMatchRequestId();
+          await candidaturaDi(richiedente, id);
+          const chiusa: Partial<MatchRequest> = {
+            status: 'rejected',
+            resolutionNote: 'Non ci sono posti',
+            resolvedBy: 'owner',
+          };
+
+          await amb.comeUtente(estraneo);
+          const dalTerzo = await amb.matchRequests.save(
+            unaCandidatura(richiedente, id, offerta, 'outbound', chiusa)
+          );
+          const annullataDalTerzo = await amb.matchRequests.save(
+            unaCandidatura(richiedente, id, offerta, 'outbound', { status: 'cancelled' })
+          );
+          await amb.comeUtente(owner);
+          const annullataDallOwner = await amb.matchRequests.save(
+            unaCandidatura(richiedente, id, offerta, 'outbound', { status: 'cancelled' })
+          );
+
+          for (const esito of [dalTerzo, annullataDalTerzo, annullataDallOwner]) {
+            expect(esito.ok).toBe(false);
+            if (!esito.ok) {
+              expect(esito.error.kind).toBe('storage-unavailable');
+            }
+          }
+          const intatta = await comeLaVedeIlRichiedente(id);
+          expect(intatta.ok && intatta.value.status).toBe('pending');
+        });
+
+        it('requesterTripId di un altro profilo, o inesistente, e rifiutato e NON scrive', async () => {
+          const dellOwner = amb.nuovoMatchRequestId();
+          const inesistente = amb.nuovoMatchRequestId();
+          await amb.comeUtente(richiedente);
+
+          // `offerta` e' una trasferta vera, ma e' dell'owner.
+          const altrui = await amb.matchRequests.save(
+            unaCandidatura(richiedente, dellOwner, offerta, 'outbound', {
+              requesterTripId: offerta,
+            })
+          );
+          const senzaRiga = await amb.matchRequests.save(
+            unaCandidatura(richiedente, inesistente, offerta, 'outbound', {
+              requesterTripId: amb.idInesistente(),
+            })
+          );
+
+          for (const esito of [altrui, senzaRiga]) {
+            expect(esito.ok).toBe(false);
+            if (!esito.ok) {
+              expect(esito.error.kind).toBe('storage-unavailable');
+            }
+          }
+          for (const id of [dellOwner, inesistente]) {
+            const riletta = await amb.matchRequests.findById(id);
+            expect(riletta.ok).toBe(false);
+            if (!riletta.ok) {
+              expect(riletta.error.kind).toBe('not-found');
+            }
+          }
+        });
+
+        it('il richiedente non puo riassegnare la propria candidatura a un altro richiedente', async () => {
+          const id = amb.nuovoMatchRequestId();
+          await candidaturaDi(richiedente, id);
+          // Una trasferta vera dell'estraneo: a fermare la scrittura deve essere solo la riassegnazione.
+          await assicuraTrasfertaDi(estraneo);
+
+          await amb.comeUtente(richiedente);
+          const esito = await amb.matchRequests.save(
+            unaCandidatura(estraneo, id, offerta, 'outbound')
+          );
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('storage-unavailable');
+          }
+          const intatta = await comeLaVedeIlRichiedente(id);
+          expect(intatta.ok && intatta.value.requesterId).toBe(richiedente);
+        });
+
+        it('l owner di un altra trasferta non puo spostare su di se una candidatura altrui e accettarla', async () => {
+          const id = amb.nuovoMatchRequestId();
+          await candidaturaDi(richiedente, id);
+          const dellEstraneo = amb.nuovoTripId();
+          await amb.comeUtente(estraneo);
+          await salvaTrasferta(unaTrasferta(dellEstraneo, { ownerId: estraneo }));
+
+          // Come owner di `dellEstraneo` potrebbe accettare, ma la riga di partenza non e' sua.
+          const esito = await amb.matchRequests.save(
+            unaCandidatura(richiedente, id, dellEstraneo, 'outbound', { status: 'accepted' })
+          );
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('storage-unavailable');
+          }
+          const intatta = await comeLaVedeIlRichiedente(id);
+          expect(intatta.ok && intatta.value.tripId).toBe(offerta);
+          expect(intatta.ok && intatta.value.status).toBe('pending');
+        });
+
+        it('un estraneo non vede la candidatura:findById not-found, liste vuote, findByLegAndRequester null', async () => {
+          const id = amb.nuovoMatchRequestId();
+          await candidaturaDi(richiedente, id);
+
+          // Controllo: i due attori la vedono, quindi l'assenza che segue e' la policy.
+          const dalRichiedente = await comeLaVedeIlRichiedente(id);
+          await amb.comeUtente(owner);
+          const dallOwner = await amb.matchRequests.findById(id);
+          expect(dalRichiedente.ok && dallOwner.ok).toBe(true);
+
+          await amb.comeUtente(estraneo);
+          const perId = await amb.matchRequests.findById(id);
+          const perTratta = await amb.matchRequests.listByLeg(offerta, 'outbound');
+          const perRichiedente = await amb.matchRequests.listByRequester(richiedente);
+          const singola = await amb.matchRequests.findByLegAndRequester(
+            offerta,
+            'outbound',
+            richiedente
+          );
+
+          expect(perId.ok).toBe(false);
+          if (!perId.ok) {
+            expect(perId.error.kind).toBe('not-found');
+          }
+          expect(perTratta.ok && perTratta.value).toEqual([]);
+          expect(perRichiedente.ok && perRichiedente.value).toEqual([]);
+          expect(singola.ok && singola.value).toBeNull();
+        });
+      });
+    });
 
     describe('PersonalBestsRepository', () => {
       function massimi(
@@ -1159,6 +1629,200 @@ export function eseguiSuiteDiContratto(
 
         expect(stato).toEqual(massimi(owner, 5, 4, 9, 300));
         expect(await leggi(owner)).toEqual(massimi(owner, 5, 4, 9, 300));
+      });
+
+      describe('policy di identita (specchio delle RLS di T08)', () => {
+        let altro: ProfileId;
+
+        beforeEach(async () => {
+          altro = await amb.creaProfilo({ displayName: 'Altro', plantId: 'foggia' });
+        });
+
+        it('raise per un altro profilo e rifiutato e la sua riga resta intatta', async () => {
+          await amb.comeUtente(altro);
+          await alza(massimi(altro, 2, 3, 1, 50));
+
+          await amb.comeUtente(owner);
+          const esito = await amb.personalBests.raise(massimi(altro, 9, 9, 9, 999));
+
+          expect(esito.ok).toBe(false);
+          if (!esito.ok) {
+            expect(esito.error.kind).toBe('storage-unavailable');
+          }
+          await amb.comeUtente(altro);
+          expect(await leggi(altro)).toEqual(massimi(altro, 2, 3, 1, 50));
+        });
+
+        it('findByProfile di un altro che ha una riga ritorna zeri in ok', async () => {
+          await amb.comeUtente(altro);
+          await alza(massimi(altro, 2, 3, 1, 50));
+
+          // Controllo: lui la vede, quindi gli zeri che seguono sono la policy.
+          expect(await leggi(altro)).toEqual(massimi(altro, 2, 3, 1, 50));
+          await amb.comeUtente(owner);
+          expect(await leggi(altro)).toEqual(massimi(altro, 0, 0, 0, 0));
+        });
+      });
+    });
+
+    // Il percorso d'errore dei repository: l'unico comportamento dei port che nessun
+    // altro test tocca. Una riga per ognuno dei quindici metodi (TripRepository 6,
+    // MatchRequestRepository 5, ProfileRepository 2, PersonalBestsRepository 2).
+    // SessionGateway e' fuori: il suo errore e' `gateway-unavailable`, non un
+    // RepositoryError.
+    describe('storage non raggiungibile (guasto)', () => {
+      let tripDelRichiedente: TripId;
+      let offerta: TripId;
+      let richiedente: ProfileId;
+      let candidatura: MatchRequest;
+
+      /** Le tre voci di cui servono sia l'esito sia il suo `kind`. */
+      type Chiamata = () => Promise<{ ok: boolean; error?: { kind: string } }>;
+
+      beforeEach(async () => {
+        richiedente = await amb.creaProfilo({ displayName: 'Richiedente', plantId: 'foggia' });
+        tripDelRichiedente = amb.nuovoTripId();
+        await amb.comeUtente(richiedente);
+        await salvaTrasferta(unaTrasferta(tripDelRichiedente, { ownerId: richiedente }));
+
+        await amb.comeUtente(owner);
+        offerta = amb.nuovoTripId();
+        await salvaTrasferta(unaTrasferta(offerta));
+
+        candidatura = {
+          id: amb.nuovoMatchRequestId(),
+          tripId: offerta,
+          direction: 'outbound',
+          requesterId: richiedente,
+          requesterTripId: tripDelRichiedente,
+          status: 'pending',
+          requestNote: null,
+          resolutionNote: null,
+          resolvedBy: null,
+        };
+        await amb.comeUtente(richiedente);
+        await salvaCandidatura(candidatura);
+
+        // Una riga di massimi gia' scritta: senza, "zeri in ok" sotto guasto sarebbe
+        // indistinguibile da un guasto non propagato.
+        await amb.comeUtente(owner);
+        const alzata = await amb.personalBests.raise({
+          profileId: owner,
+          sharedTrips: 5,
+          sharedLegs: 1,
+          transportedColleagues: 9,
+          sharedKm: 120,
+        });
+        expect(alzata.ok).toBe(true);
+      });
+
+      /**
+       * Le quindici chiamate, tutte lecite per l'identita' dell'owner: sotto guasto
+       * deve cadere ciascuna, e senza guasto riesce ciascuna (cosi' un errore non
+       * viene da una policy o da un parametro sbagliato).
+       */
+      function chiamate(): readonly (readonly [string, Chiamata])[] {
+        return [
+          ['trips.save', () => amb.trips.save(unaTrasferta(offerta, { returnAt: null }))],
+          ['trips.findById', () => amb.trips.findById(offerta)],
+          ['trips.listByOwner', () => amb.trips.listByOwner(owner)],
+          ['trips.listOpenOffers', () => amb.trips.listOpenOffers()],
+          ['trips.findLeg', () => amb.trips.findLeg(offerta, 'outbound')],
+          ['trips.adjustLegSeats', () => amb.trips.adjustLegSeats(offerta, 'outbound', -1)],
+          [
+            'matchRequests.save',
+            () =>
+              amb.matchRequests.save({
+                ...candidatura,
+                status: 'rejected',
+                resolutionNote: 'Non ci sono posti',
+                resolvedBy: 'owner',
+              }),
+          ],
+          ['matchRequests.findById', () => amb.matchRequests.findById(candidatura.id)],
+          ['matchRequests.listByLeg', () => amb.matchRequests.listByLeg(offerta, 'outbound')],
+          ['matchRequests.listByRequester', () => amb.matchRequests.listByRequester(richiedente)],
+          [
+            'matchRequests.findByLegAndRequester',
+            () => amb.matchRequests.findByLegAndRequester(offerta, 'outbound', richiedente),
+          ],
+          ['profiles.findById', () => amb.profiles.findById(owner)],
+          ['profiles.listByIds', () => amb.profiles.listByIds([owner])],
+          ['personalBests.findByProfile', () => amb.personalBests.findByProfile(owner)],
+          [
+            'personalBests.raise',
+            () =>
+              amb.personalBests.raise({
+                profileId: owner,
+                sharedTrips: 9,
+                sharedLegs: 9,
+                transportedColleagues: 9,
+                sharedKm: 999,
+              }),
+          ],
+        ];
+      }
+
+      it('la tabella ha una riga per ognuno dei quindici metodi', () => {
+        expect(chiamate().map(([nome]) => nome)).toHaveLength(15);
+      });
+
+      it.each(chiamate().map(([nome]) => nome))('%s: senza guasto la chiamata riesce', async (nome) => {
+        const riga = chiamate().find(([n]) => n === nome);
+        expect(riga).toBeDefined();
+        const esito = await riga?.[1]();
+
+        expect(esito?.ok).toBe(true);
+      });
+
+      it.each(chiamate().map(([nome]) => nome))('%s: sotto guasto ritorna storage-unavailable', async (nome) => {
+        const riga = chiamate().find(([n]) => n === nome);
+        expect(riga).toBeDefined();
+        await amb.guasta();
+
+        const esito = await riga?.[1]();
+
+        expect(esito?.ok).toBe(false);
+        expect(esito?.error?.kind).toBe('storage-unavailable');
+      });
+
+      /** Tutto cio' che le quattro scritture potrebbero aver toccato, riletto. */
+      async function fotografia() {
+        return {
+          trasferta: await amb.trips.findById(offerta),
+          andata: await amb.trips.findLeg(offerta, 'outbound'),
+          ritorno: await amb.trips.findLeg(offerta, 'return'),
+          candidatura: await amb.matchRequests.findById(candidatura.id),
+          massimi: await amb.personalBests.findByProfile(owner),
+        };
+      }
+
+      it.each(['trips.save', 'trips.adjustLegSeats', 'matchRequests.save', 'personalBests.raise'])(
+        '%s: sotto guasto NON scrive, e dopo ripristina() lo storage e quello di prima',
+        async (nome) => {
+          const riga = chiamate().find(([n]) => n === nome);
+          expect(riga).toBeDefined();
+          const prima = await fotografia();
+          // La fotografia deve essere leggibile: altrimenti il confronto sarebbe fra errori.
+          expect(prima.trasferta.ok && prima.andata.ok && prima.ritorno.ok).toBe(true);
+          expect(prima.candidatura.ok && prima.massimi.ok).toBe(true);
+
+          await amb.guasta();
+          const esito = await riga?.[1]();
+          await amb.ripristina();
+
+          expect(esito?.ok).toBe(false);
+          expect(await fotografia()).toEqual(prima);
+        }
+      );
+
+      it('ripristina() fa tornare a rispondere ogni metodo', async () => {
+        await amb.guasta();
+        await amb.ripristina();
+
+        for (const [, chiama] of chiamate()) {
+          expect((await chiama()).ok).toBe(true);
+        }
       });
     });
 

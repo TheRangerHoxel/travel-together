@@ -550,3 +550,25 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — `adapters/memory/memory-session-gateway.ts`, la suite di contratto, l'ambiente. Additivo, nessuna firma cambia.
 - **Costo** — S.
 - **Stato** — proposta
+
+
+### Dividere la suite di contratto per port
+- **Cosa** — spezzare `adapters/contract/repository-contract.ts` in un file per repository, con un aggregatore che `memory.contract.test.ts` (e a T09 il gemello Supabase) importa invariato.
+- **Perché** — dalla review di T07g: il file è passato da circa 1235 a **1867 righe**. Il criterio di additività di T07g (*"nessuna `expect` esistente tolta"*) si verifica con un `git diff` su quel file, e più il file cresce più quel diff diventa illeggibile per chi rivede.
+- **Impatto** — solo file di test; nessun comportamento cambia, il conteggio dei test resta identico (è la prova). Da fare **dopo T09**, per non spostare il file mentre il gemello Supabase lo deve consumare senza modifiche.
+- **Costo** — S.
+- **Stato** — proposta
+
+### Un hook "esci" nell'ambiente di contratto
+- **Cosa** — `AmbienteDiContratto` guadagna un modo per tornare a **identità nulla** (un `esci()`), così la regola *"con identità nulla ogni scrittura è rifiutata e ogni lettura filtrata"* diventa un test della suite condivisa, non solo di `memory`.
+- **Perché** — dalla review di T07g: la regola è implementata in RAM e la prova oggi è un test specifico di `memory`, perché l'ambiente non sa uscire. A T09 su Supabase è un `signOut`, e senza l'hook nessuno verifica che l'utente anonimo non scriva.
+- **Impatto** — interfaccia dell'ambiente di contratto (additivo), l'adapter memory, a T09 l'ambiente Supabase. Nessun port cambia.
+- **Costo** — XS.
+- **Stato** — proposta
+
+### Il `kind` di un duplicato scritto da chi non ha i permessi
+- **Cosa** — fissare quale `kind` esce quando una scrittura è **insieme** vietata dalla policy e duplicata sulla coppia (tratta, richiedente). In RAM l'ordine è policy → unicità, quindi `storage-unavailable`; su Postgres dipende da quale controllo scatta prima fra RLS e indice unico.
+- **Perché** — dalla review di T07g. Non è un caso realistico in demo, ma se a T09 Postgres desse `invalid-record` la suite andrebbe adattata, che è il segnale che il port è sbagliato.
+- **Impatto** — una nota sui criteri di T09, eventualmente un test di contratto che pinni la combinazione.
+- **Costo** — XS.
+- **Stato** — proposta
