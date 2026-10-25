@@ -912,7 +912,7 @@ Fuori anche la voce *"Un modulo di sola fixture importato dalla produzione non l
 (`proposta`, non schedulata): tocca lo stesso file, ma non è in questo task.
 
 **Criteri di accettazione**
-- [ ] *(25/10, riscritto)* `'config'` esce da `GRAFO.usecases` e rientra **solo per
+- [x] *(25/10, riscritto)* `'config'` esce da `GRAFO.usecases` e rientra **solo per
       `src/core/usecases/**/*.test.ts`**, come elemento a sé del grafo: la regola *"il core di
       produzione non importa `config/`"* la impone il lint, non il giudizio di chi rivede.
       *Motivo della correzione:* il testo diceva `src/core/**/*.test.ts`, che **allargava** i test di
@@ -921,7 +921,7 @@ Fuori anche la voce *"Un modulo di sola fixture importato dalla produzione non l
       (`badge-`, `cascade-`, `create-trip-`, `kpi-`, `match-`, `note-config.test.ts`); nessun file di
       produzione del core lo importa (verificato il 25/10). `ARCHITECTURE.md` § Modularità, il paragrafo
       *"Un punto in cui lint e documento non coincidono"*, si riscrive: ora coincidono
-- [ ] *(25/10, precisato)* Il selettore anti-orologio copre **ogni accesso a un membro di `Date`**
+- [x] *(25/10, precisato)* Il selettore anti-orologio copre **ogni accesso a un membro di `Date`**
       (`MemberExpression[object.name='Date']`), quindi `Date.parse`, `Date.UTC` e `Date.now`, su
       `src/core/**/*.ts` **test inclusi**, lo stesso perimetro della regola di oggi. Sono deterministici,
       ma `Date.parse` su forme non-ISO è *implementation-defined* e Hermes e V8 non si comportano allo
@@ -930,7 +930,7 @@ Fuori anche la voce *"Un modulo di sola fixture importato dalla produzione non l
       test compresi, usa `Date.parse` o `Date.UTC`: `Date` compare solo in commenti (`clock.ts`,
       `calendar.ts`, `instant.ts`, `trip.ts`, `fixed-clock.test.ts`), quindi la regola non rende rosso
       niente di esistente
-- [ ] *(25/10, riscritto)* `src/__tests__/**` è un elemento dichiarato del grafo, **e**
+- [x] *(25/10, riscritto)* `src/__tests__/**` è un elemento dichiarato del grafo, **e**
       `boundaries/no-unknown-files` è attiva su `src/**/*.{ts,tsx}`. Oggi `src/__tests__/` è l'unico
       punto **di `src/`** in cui qualunque import è permesso: un test che vi finisse potrebbe cablare
       `ui/` con `adapters/` e il lint tacerebbe.
@@ -939,18 +939,18 @@ Fuori anche la voce *"Un modulo di sola fixture importato dalla produzione non l
       solo `src/`. Restano fuori da questo task (voce in `IDEAS.md`). Sul secondo punto: con i file di
       oggi `no-unknown-files` segnalerebbe **un file solo**, `src/__tests__/harness.test.ts`; con
       l'elemento dichiarato, nessuno
-- [ ] *(25/10, reso verificabile)* `PlantId` e `BadgeId` sono **derivati** dai rispettivi array
+- [x] *(25/10, reso verificabile)* `PlantId` e `BadgeId` sono **derivati** dai rispettivi array
       (`as const`). Oggi l'annotazione protegge una direzione sola: aggiungere un membro alla union senza
       aggiungerlo all'array **non produce alcun errore**, e un ciclo su `PLANT_IDS` (KPI per
       stabilimento, seed di T17) salterebbe una sede senza fallire. Verifica: in `plant.ts` e in
       `badge.ts` ogni letterale d'identità compare **una volta sola** (`rg -c "'pomigliano'"` e
       `rg -c "'primo-viaggio'"` danno 1), e la sonda su `BADGE_IDS` dello step 4 del piano
       rende rosso `typecheck`
-- [ ] *(25/10, elencate)* **Ogni regola nuova è provata violandola**, come in F1.4: una regola di lint
+- [x] *(25/10, elencate)* **Ogni regola nuova è provata violandola**, come in F1.4: una regola di lint
       che nessuno ha visto scattare non è un freno. Le sonde sono quelle elencate in `PROGRESS.md`
       (pianificazione di T07h), ognuna con l'esito registrato. Le violazioni di prova non restano nel
       commit: `git diff --name-only` del commit elenca solo i file del piano
-- [ ] *(25/10, reso verificabile)* Nessun comportamento a runtime cambia: `test:unit` resta a **548 test
+- [x] *(25/10, reso verificabile)* Nessun comportamento a runtime cambia: `test:unit` resta a **548 test
       in 31 suite**, e nessun file di test cambia. Se `verify` diventa rosso su un file esistente, si
       corregge il file: **la regola non si allenta**
 

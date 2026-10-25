@@ -6,22 +6,20 @@
 
 // Due famiglie. Passeggero: viaggi condivisi. Conducente: chi ha offerto posti E ha
 // visto accettare almeno una candidatura (T07, "il conducente va riconosciuto").
-export type BadgeId =
-  | 'primo-viaggio'
-  | 'cinque-viaggi'
-  | 'dieci-viaggi'
-  | 'primo-passaggio'
-  | 'cinque-colleghi'
-  | 'mille-km';
-
-export const BADGE_IDS: readonly BadgeId[] = [
+//
+// L'array e' la fonte e il tipo ne e' derivato: un badge nuovo si aggiunge in un
+// punto solo, e chi ha un Record<BadgeId, ...> completo smette di compilare finche'
+// non lo copre.
+export const BADGE_IDS = [
   'primo-viaggio',
   'cinque-viaggi',
   'dieci-viaggi',
   'primo-passaggio',
   'cinque-colleghi',
   'mille-km',
-];
+] as const;
+
+export type BadgeId = (typeof BADGE_IDS)[number];
 
 export interface Badge {
   readonly id: BadgeId;

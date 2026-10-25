@@ -118,22 +118,33 @@ Una sola direzione: `ui/` → `usecases/` → `ports/` ← `adapters/`. Niente i
 
 - `core/` **non può** importare `adapters/` né `ui/`
 - `ui/` **non può** importare `adapters/`: passa dagli usecase
-- `core/` **non può** usare `Date.now()` né `new Date()`: il tempo entra dal port `Clock`
+- `core/` **non può** usare `new Date()` né alcun membro di `Date` (`Date.now()`, `Date.parse()`,
+  `Date.UTC()`, test inclusi): il tempo entra dal port `Clock`
 - `core/` **non può** importare `@supabase/supabase-js`, né alcun modulo di rete o filesystem
 
 **Queste regole le impone il lint** (`eslint-plugin-boundaries`), non il giudizio di chi rivede.
 Una violazione fa fallire `verify`: non apre una discussione.
 
-**Un punto in cui lint e documento non coincidono, e come si risolve.** Il lint permette
-`core/usecases → config/`; questo documento dice che gli usecase dipendono **solo** da `domain/` e
-`ports/`. Vince il documento, di fatto: **il codice di produzione del core non importa `config/`**, i
-valori entrano come parametro, e il core resta compilabile ed eseguibile senza `config/`.
+**Convenzione, non regola di lint:** un istante si legge solo con `normalizeUtcInstant`, in
+`instant.ts`. Il lint vieta `Date`, non un secondo parser scritto a mano: quello lo ferma il reviewer.
 
-L'unico arco che esiste davvero vive in un **test di conformità** dentro `core/usecases`, che importa
-i valori reali e li lega al tipo. Serve a una cosa sola: far diventare rosso `tsc --noEmit` se i
-valori in `config/` divergono dal tipo che il core si aspetta. Senza, `config/` esporterebbe un
-oggetto che nessuno confronta con niente, e un campo rinominato arriverebbe a runtime come
-`undefined` — che nei conti diventa `NaN`, e `NaN` fa fallire ogni confronto in silenzio.
+**Lint e documento coincidono anche su `config/`.** Gli usecase dipendono **solo** da `domain/` e
+`ports/`: **il codice di produzione del core non importa `config/`**, i valori entrano come parametro,
+e il core resta compilabile ed eseguibile senza `config/`. Il lint lo impone: l'arco `usecases → config`
+non esiste nel grafo.
+
+L'unico arco consentito è per i file `core/usecases/**/*.test.ts` (categoria di file
+`conformance-test`): qualunque test di usecase può importare `config/`, e oggi lo fanno solo i sei
+**test di conformità**, che importano i valori reali e li legano al tipo. I test di `domain/` non
+l'hanno. L'arco serve a una cosa sola: far diventare rosso `tsc --noEmit` se i valori in `config/`
+divergono dal tipo che il core si aspetta. Senza, `config/` esporterebbe un oggetto che nessuno
+confronta con niente, e un campo rinominato arriverebbe a runtime come `undefined` — che nei conti
+diventa `NaN`, e `NaN` fa fallire ogni confronto in silenzio.
+
+**Nessun file di `src/` sta fuori dal grafo.** `src/__tests__/` è un elemento a sé (`harness`), senza
+alcun import verso il resto di `src/`, e `boundaries/no-unknown-files` fa fallire ogni file di `src/`
+che non appartiene a un elemento. Restano fuori dal grafo, dichiarato, la radice (`App.tsx`,
+`index.ts`) e `tests/`: c'è una voce in `IDEAS.md`.
 
 ### Dependency inversion sui punti che cambieranno
 

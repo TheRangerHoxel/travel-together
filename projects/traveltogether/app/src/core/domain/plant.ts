@@ -9,9 +9,11 @@
 // I DATI dei plant (nomi, distanze fra tratte) stanno in config/, non qui:
 // il dominio conosce l'identita' di uno stabilimento, non quanti km dista.
 
-export type PlantId = 'pomigliano' | 'foggia' | 'grottaglie';
+// L'array e' la fonte e il tipo ne e' derivato: aggiungere una sede e' un solo punto
+// da toccare, e non esiste una union piu' larga della lista che la enumera.
+export const PLANT_IDS = ['pomigliano', 'foggia', 'grottaglie'] as const;
 
-export const PLANT_IDS: readonly PlantId[] = ['pomigliano', 'foggia', 'grottaglie'];
+export type PlantId = (typeof PLANT_IDS)[number];
 
 export interface Plant {
   readonly id: PlantId;

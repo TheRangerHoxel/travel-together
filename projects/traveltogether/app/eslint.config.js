@@ -23,11 +23,21 @@ const NO_CLOCK_IN_CORE =
   "core/ non puo' leggere l'orologio di sistema: il tempo entra dal port Clock, " +
   'altrimenti i test non sono deterministici.';
 
+/** Categoria di file dei test di conformita' di core/usecases/. */
+const CONFORMANCE = 'conformance-test';
+
 /** Chi puo' dipendere da chi. Una sola direzione, niente cicli. */
 const GRAFO = {
   domain: ['domain'],
   ports: ['domain', 'ports'],
-  usecases: ['domain', 'ports', 'usecases', 'config'],
+  // Il codice di produzione degli usecase NON importa config/: i valori entrano
+  // come parametro. L'arco verso config/ lo hanno solo i test di conformita'
+  // (vedi CONFORMANCE e la policy dedicata).
+  usecases: ['domain', 'ports', 'usecases'],
+  // src/__tests__/: nessun import verso il resto di src/. Un test end-to-end in
+  // RAM che cabli ui/ e adapters/ richiede di allargare questo elemento con una
+  // decisione scritta, non di scoprire che il lint tace.
+  harness: ['harness'],
   adapters: ['domain', 'ports', 'adapters', 'config'],
   ui: ['domain', 'ports', 'usecases', 'ui', 'config'],
   config: ['config'],
@@ -84,19 +94,45 @@ module.exports = [
         { type: 'adapters', pattern: 'src/adapters/**' },
         { type: 'ui', pattern: 'src/ui/**' },
         { type: 'config', pattern: 'src/config/**' },
+        { type: 'harness', pattern: 'src/__tests__/**' },
+      ],
+      // Categoria di FILE, non elemento: i test di conformita' restano 'usecases'
+      // (gli elementi sono per cartella) e si distinguono per categoria.
+      'boundaries/files': [
+        { category: CONFORMANCE, pattern: 'src/core/usecases/**/*.test.ts' },
       ],
     },
     rules: {
+      // Ogni file di src/ appartiene a un elemento del grafo: una cartella nuova
+      // non nasce fuori controllo. Copre src/, non la radice (App.tsx, index.ts, tests/).
+      'boundaries/no-unknown-files': 2,
       // 'default: disallow' fa si' che un modulo nuovo nasca isolato invece che
       // libero: va dichiarato cosa puo' importare, non cosa non puo'.
       'boundaries/dependencies': [
         2,
         {
           default: 'disallow',
-          policies: Object.entries(GRAFO).map(([from, verso]) => ({
-            from: { element: { type: from } },
-            allow: { to: { element: { types: { anyOf: verso } } } },
-          })),
+          policies: [
+            ...Object.entries(GRAFO).map(([from, verso]) => ({
+              from: { element: { type: from } },
+              allow: { to: { element: { types: { anyOf: verso } } } },
+            })),
+            // Eccezione stretta: solo i *.test.ts di core/usecases/ hanno l'arco verso
+            // config/. I test di domain/ e il codice di produzione non lo hanno.
+            {
+              from: {
+                element: { type: 'usecases' },
+                file: { categories: CONFORMANCE },
+              },
+              allow: {
+                to: {
+                  element: {
+                    types: { anyOf: [...GRAFO.usecases, 'config'] },
+                  },
+                },
+              },
+            },
+          ],
         },
       ],
     },
@@ -132,8 +168,10 @@ module.exports = [
           message: NO_CLOCK_IN_CORE,
         },
         {
-          selector:
-            "CallExpression[callee.type='MemberExpression'][callee.object.name='Date'][callee.property.name='now']",
+          // Ogni membro di Date (now, parse, UTC, ...), test inclusi. Date.parse su
+          // forme non-ISO e' implementation-defined e Hermes e V8 divergono: la
+          // normalizzazione sta in instant.ts. Un alias (const D = Date) non e' coperto.
+          selector: "MemberExpression[object.name='Date']",
           message: NO_CLOCK_IN_CORE,
         },
       ],

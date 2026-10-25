@@ -4339,3 +4339,78 @@ Per l'orchestratore, non per il developer: la riga *"`core/` non usa `Date.now()
 
 Ogni sonda si esegue **da sola**, si registra l'esito (regola che scatta, file, riga) e si ripristina
 prima della successiva. Niente worktree, niente scritture da shell: le regole del brief di T07f restano.
+
+
+---
+
+## 2026-10-25 — T07h · implementazione, sonde e primo giro di review
+
+`verify` completo **verde**, **548 test unitari in 31 suite**, invariato: nessun file di test toccato,
+nessun comportamento a runtime cambiato. Diff: `eslint.config.js`, `plant.ts`, `badge.ts`,
+`ARCHITECTURE.md`, e una riga del `CLAUDE.md` di progetto (orchestratore).
+
+### Una deviazione dal piano, e regge
+
+Il piano voleva un elemento `usecases-test` dichiarato per file. In `eslint-plugin-boundaries` 7.2.0
+non si può: `mode: 'file'` funziona ma è deprecato e stampa un warning a ogni lint, e senza `mode` gli
+elementi combaciano per cartella e il pattern `*.test.ts` è ignorato (i sei test di conformità
+risultavano `usecases` e davano sei errori). Il developer ha usato un **descrittore di file**,
+`settings['boundaries/files']` con la categoria `conformance-test` su `src/core/usecases/**/*.test.ts`,
+e una policy dedicata che aggiunge `config` solo a quei file. `GRAFO.usecases` non contiene più `config`.
+Il reviewer l'ha trovato documentato nel README del pacchetto installato e nei suoi tipi, e ha
+verificato che un file di produzione non può finire nella categoria senza chiamarsi `*.test.ts` — e
+allora jest lo eseguirebbe come test.
+
+### Le sonde: ogni regola nuova vista scattare
+
+Eseguite dal developer una per volta, ripristinate con Edit; **rifatte dal reviewer** con
+`eslint --stdin --stdin-filename`, cioè su contenuto virtuale, senza scrivere su disco — tutte tranne la
+4, che richiede di scrivere un file: quell'esito è solo del developer. Il reviewer ha rilanciato lint,
+typecheck e `test:unit`; `verify` completo (con `test:int` e smoke) l'hanno eseguito developer e
+orchestratore.
+
+| # | Violazione | File | Esito |
+|---|---|---|---|
+| 1a | `import { MATCH_CONFIG } from '../../config'` | `core/usecases/find-matches.ts` | `boundaries/dependencies`: *no policy allowing dependencies from "usecases" to "config"* |
+| 1b | la stessa riga | `core/usecases/request-test-fakes.ts` | stesso errore: il modulo di fake resta `usecases` puro |
+| 1c | `import { NOTE_CONFIG } from '../../config'` | `core/domain/trip.test.ts` | `boundaries/dependencies`, da "domain" |
+| + | controllo positivo: i sei test di conformità | `core/usecases/*-config.test.ts` | verdi |
+| 2a | `Date.parse('2026-11-03')` | `core/domain/instant.ts` | `no-restricted-syntax` (*core/ non puo' leggere l'orologio di sistema*) |
+| 2b | `Date.UTC(2026, 10, 3)` | `core/domain/instant.ts` | stesso errore |
+| 2c | `Date.now()` | `core/domain/instant.ts` | stesso errore |
+| 2d | `Date.parse('2026-11-03')` | `core/domain/instant.test.ts` | stesso errore: il perimetro include i test |
+| 3a | `import '../adapters/memory'` | `src/__tests__/harness.test.ts` | `boundaries/dependencies`, da "harness" a "adapters" |
+| 3b | `import '../ui'` | `src/__tests__/harness.test.ts` | `boundaries/dependencies`, da "harness" a "ui" |
+| 3c | file nuovo `src/sonda/x.ts` | — | `boundaries/no-unknown-files`; file e cartella cancellati |
+| 4 | `'sonda'` aggiunto a `BADGE_IDS` | `core/domain/badge.ts` | `typecheck` rosso, TS2741 in `award-badges.ts(39)` e in tre test |
+
+Il reviewer ha aggiunto sonde sue, tutte coerenti: un `.test.tsx` di usecase che importa `config` è
+rosso; un test di conformità che importa `adapters` è rosso (la policy dedicata non allarga oltre
+`config`); `new Date(0)` e `Date?.now()` sono rossi; `export type X = Date` resta verde, giustamente.
+**`globalThis.Date.now()` passa**: è già in `IDEAS.md` (*"Un alias di `Date` aggira il selettore"*).
+
+Su `PlantId` nessuna sonda può fallire, perché nessun consumatore ha bisogno di tutte le sedi: la
+verifica è il conteggio — `'pomigliano'` e `'primo-viaggio'` compaiono una volta sola nei rispettivi file.
+
+### Primo giro: bocciato per il documento, non per il codice
+
+1. In `ARCHITECTURE.md` le frasi su `harness` e `no-unknown-files` erano state inserite **prima** di
+   *"Serve a una cosa sola: far diventare rosso `tsc`…"*, che così si riferiva alla cosa sbagliata.
+2. Gli esiti delle sonde stavano nel report del developer e non qui, dove il criterio li chiede.
+
+Chiusi dall'orchestratore, perché sono documenti suoi: il paragrafo su `config/` è ricomposto, e quello
+sul grafo di `src/` è a sé; questa tabella è la voce che mancava. Chiuse insieme due riserve: la frase
+*"i test di conformità"* era più stretta del lint (**qualunque** test di usecase può importare
+`config/`, oggi lo fanno solo i sei di conformità), e *"un istante si legge solo in `instant.ts`"* stava
+sotto *"queste regole le impone il lint"* mentre è una **convenzione** — il lint vieta `Date`, non un
+secondo parser scritto a mano. Ora è scritta come tale, in `ARCHITECTURE.md` e nel `CLAUDE.md` di
+progetto.
+
+
+**Secondo giro: APPROVATO.** Il reviewer ha verificato che il codice è identico al primo giro e che i
+due paragrafi e questa voce non promettono più di quanto la config imponga. Riserva lasciata, dichiarata:
+il commento a `eslint.config.js:173` sugli alias di `Date` non nomina `globalThis.Date` — cosmetica, già
+coperta dalla voce di `IDEAS.md`, non toccata per non riaprire il codice dopo la review.
+
+**T07h chiuso**, commit unico. Con T07f, T07g e T07h il blocco di igiene prima dello schema è finito:
+il prossimo è **T07b ⛔** (parametri da tabella, un port nuovo), poi **T08 ⛔** (schema e migrazioni).

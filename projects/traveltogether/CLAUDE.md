@@ -23,7 +23,9 @@ ui/  →  core/usecases/  →  core/ports/  ←  adapters/
 
 - `core/` **non** importa `adapters/` né `ui/`
 - `ui/` **non** importa `adapters/`: passa sempre dagli usecase
-- `core/` **non** usa `Date.now()` né `new Date()`: il tempo entra dal port `Clock`
+- `core/` **non** usa `new Date()` né alcun membro di `Date` (`Date.now`, `Date.parse`, `Date.UTC`…),
+  test compresi: il tempo entra dal port `Clock`. Per convenzione, non per lint, gli istanti si
+  leggono solo con `normalizeUtcInstant`
 - `core/` **non** importa `@supabase/supabase-js`, né rete, né filesystem
 
 Violarli fa fallire `verify`. Se un task sembra richiedere di violarli, quasi sempre **manca un port**:
