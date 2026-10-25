@@ -5398,3 +5398,199 @@ l'agente) verificato con soli sì/no: nessun valore vero del `.env` dentro, tran
 che però nel `.env` è **esso stesso un segnaposto**. **Prima di T10 il codice invito va sostituito con uno
 vero e non indovinabile, solo nel `.env`.** E un buco nel `.gitignore`: `supabase/.temp/` era ancorato
 alla radice, quindi `app/supabase/.temp/` sarebbe entrato nel commit; ora è `**/supabase/.temp/`.
+
+
+---
+
+## 2026-10-25 — T08 · le sonde degli step 3–8, una per una
+
+Il criterio *"ogni policy, vincolo, trigger e funzione è provato togliendolo, con l'esito registrato
+qui"* (N3 della review finale). Eseguite dal developer, ciascuna da sola e ripristinata; dove non dice
+altro, la mutazione è dentro la transazione annullata del test, quindi staging non l'ha mai vista.
+
+### Step 3 — schema, vincoli, RLS
+
+| Mutazione | Test che cadono |
+|---|---|
+| `WITH CHECK` dell'INSERT su `trips` senza owner | 1: creazione a nome altrui |
+| `USING (true)` sull'UPDATE di `trips` | 2: upsert dirottato, update altrui |
+| `USING (true)` sulla lettura di `match_requests` | 1 |
+| ownership di `requester_trip_id` tolta dalla policy | 1: atteso 42501, arriva 23503 |
+| FK composta `(requester_trip_id, requester_id)` ridotta a semplice | 1 |
+| trigger di guardia tolto | 1: owner che riscrive a proprio nome |
+| CHECK nota / `resolved_by` tolto | 1 |
+| CHECK `has_car` tolto | 1 |
+| `timestamptz(3)` al posto del CHECK al millisecondo | 1: la riga con `.9996` passa |
+| RLS disattivata su `plant_distances` | 2: catalogo e anon |
+| policy di lettura per `anon` su `trips` | 1 |
+| `USING (true)` sulla lettura di `personal_bests` | 1 |
+| UNIQUE (tratta, richiedente) tolto | 1 |
+| FK delle tratte da RESTRICT a CASCADE | 1 |
+| CHECK sulla `pending` aperta tolto | 1 |
+| S1: ramo `elsif` del trigger di guardia (owner della trasferta vecchia) | 1 |
+| S2: clausola `requester_trip_id` nella `WITH CHECK` dell'UPDATE | 1: arriva 23503 invece di 42501 |
+
+### Step 4 — funzioni e trigger
+
+| Mutazione | Test che cadono |
+|---|---|
+| autorizzazione tolta da `adjust_leg_seats` | 3 |
+| ramo del richiedente `accepted` tolto | 1 |
+| `BETWEEN` tolto dal `WHERE` | 1 |
+| D1: limite ±1 del richiedente tolto (SQL) | 1 di integrazione |
+| D1: limite ±1 del richiedente tolto (memory) | 1 di contratto |
+| condizione sui posti liberi tolta da `restore_system_rejected` | 1 |
+| filtro `resolved_by = 'system'` tolto | 1 |
+| `GREATEST` sostituito da `excluded` su una colonna | 1 |
+| trigger di monotonia dei massimi tolto | 1 |
+| ramo di cancellazione tolto dal trigger delle tratte | 3 |
+| contatore sovrascritto invece che preservato | 3 |
+| trigger su `notes.maxLength` tolto | 2 |
+| `…` tolto da `lower_note_max_length` | 2 |
+| marcatura tolta da `lower_note_max_length` | 2 |
+| S4: controllo `max_length < 1` tolto | 1 |
+| `REVOKE` da `anon` tolto | 1 (dal catalogo: la funzione rifiuta da sé chi non ha identità) |
+| `search_path` tolto da una funzione definer | 1 |
+
+### Step 5 — seed
+
+| Mutazione | Test che cadono |
+|---|---|
+| un valore del seed cambiato (`30` → `31`) | confronto del file committato con il generatore |
+| quotatura rotta nel generatore | caso dell'apostrofo |
+| numero scritto come testo `jsonb` | 3 di integrazione |
+
+### Step 7 — concorrenza
+
+| Mutazione | Test che cadono |
+|---|---|
+| A conferma prima che B tenti | 1 (B non è bloccato) |
+| nuova candidatura inserita prima della lettura della cascata | 1 (le `pending` lette diventano 2) |
+
+### Step 8 — tipi generati
+
+| Mutazione | Esito |
+|---|---|
+| membro aggiunto a `LegDirection` nel dominio | `typecheck` rosso sull'asserzione di conformità |
+| membro aggiunto all'enum `plant_id` nel file generato | `typecheck` rosso |
+| import di `database.types` da `core/` | lint rosso (`no-restricted-imports`, `boundaries/dependencies`) |
+| valore aggiunto a `Constants.trip_status` | `tipi.test.ts` rosso |
+
+### Senza sonda, dichiarato
+
+- **S3** (upsert di un estraneo sulla candidatura di R → 42501): cade solo togliendo **quattro** strati
+  insieme — `USING` dell'UPDATE, `WITH CHECK`, trigger di guardia, `USING` della SELECT che il `DO UPDATE`
+  richiede. Difesa in profondità: il test fissa il comportamento, non lo strato.
+- **Inversione A/B** del caso 1 di concorrenza: a esito noto, perché i due ruoli sono simmetrici.
+- **Caso 3** di concorrenza (annullamento con reintegro): nessuna sonda dedicata; le sonde sulla
+  funzione sono quelle dello step 4.
+- **Unicità che guardi anche l'id**: a esito noto, già sondata a T07g.
+
+### Step 7–9, cosa c'è
+
+Tre test di concorrenza su righe **vere** (fixture `@t08.test.invalid`, dominio riservato dall'RFC 2606),
+pulite all'avvio, dopo ogni test e alla fine, con l'assenza di residui asserita dal test; parametri
+intatti dopo il run (8 / 3 / 6). `database.types.ts` prodotto dal generatore, non a mano, confinato in
+`adapters/`; conformità degli enum nei due versi via `typecheck`, e confronto con `pg_enum`. ARCHITECTURE.md
+§ Modello dati riscritto sullo schema applicato. `verify` verde: 679 unit, **139 di integrazione in 11
+suite**, 1 smoke.
+
+**Review finale, primo giro: BOCCIATO** per tre punti di documento e di freno: l'harness dichiarava di
+non poter confermare mentre esportava due helper che lo fanno, riservati ad un file solo per convenzione
+(N1); ARCHITECTURE.md e IDEAS.md sottostimavano il richiedente accettato, che con il limite per chiamata
+può ripetere anche il −1 fino a zero (N2); questa voce mancava (N3). Codice, SQL, test e tipi approvati.
+
+
+**Secondo giro della review finale: APPROVATO.** N1 chiuso con una regola di lint provata dal reviewer
+su quattro forme d'import (diretto, `* as`, riesportazione, e l'eccezione in `concorrenza.test.ts`); N2 e
+N3 chiusi. Due riserve in `IDEAS.md`: il freno si aggira da un altro file di `support/`, e il controllo
+del lock filtra per testo invece che per pid. **T08 chiuso**, secondo commit.
+
+---
+
+## 2026-10-25, 21:30 — Fine sessione · HANDOFF
+
+Scritto per la prossima sessione, su questa macchina (casa) o sull'altra (lavoro). **Working tree
+pulito, `origin/auto/build` allineato.** `main` fermo al commit iniziale: lo mergia l'umano.
+
+### Stato vero
+
+**Fase 2: chiusi T01–T07e** (sessioni precedenti) **e in questa sessione T07f, T07g, T07h, T07b, T08.**
+`verify` verde: **679 unit in 32 suite, 139 di integrazione in 11 suite, 1 smoke**. **Lo schema è
+applicato a staging** (tre migrazioni, 20:41) e coincide con il repo.
+
+Commit della sessione, in ordine: `75adc14` `b118678` (T07f) · `9717649` `8a19406` (T07g) · `38f092c`
+`4a4bc11` (T07h) · `065baa3` `8c5a4b2` (T07b) · `d575dc0` (prerequisiti in `tools/`) · `096b504`
+`8612e07` e il commit di chiusura di T08.
+
+### Per riprendere, in quest'ordine
+
+1. `git pull` su `auto/build`.
+2. **Solo su una macchina nuova o se `tools/setup.py` è cambiato:** `py tools/setup.py` dalla radice,
+   poi `npm ci` in `projects/traveltogether/app`.
+3. In ogni shell, `tools/node` e `tools/supabase` in testa al PATH.
+4. **`app/.env`** con quattro variabili: `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`,
+   `EXPO_PUBLIC_INVITE_CODE`, **`SUPABASE_DB_URL`** (Session pooler `aws-0-eu-west-1`, utente
+   `postgres.<ref>`, porta 5432 — la Direct connection è solo IPv6 e da qui non si raggiunge). Il `.env`
+   non viaggia con git: **sulla macchina del lavoro va aggiunta `SUPABASE_DB_URL`**.
+5. `CLAUDE.md`, `OFFICINA.md`, la coda di questo file, `TASKS.md`, `git log -1`, `git status`, poi
+   `npm run verify`.
+6. **Armare l'heartbeat** (`CronCreate`, ogni 15 minuti su minuti non tondi), come da `CLAUDE.md`: è
+   ciò che fa ripartire il loop dopo un limite di utilizzo. Oggi ha funzionato una volta da solo (20:11).
+
+### Prossimi passi, in ordine
+
+1. **T08b ⛔** — il reintegro passa da un metodo del port (`restore_system_rejected` è già nel DB). Il
+   ⛔ è un cambio d'interfaccia; con la delega dell'umano si scioglie con la raccomandazione.
+2. **T09 ⛔** — adapter Supabase. **Dipendenza nuova `@supabase/supabase-js`**: è ⛔, va approvata.
+   Ha accumulato molti criteri da T07b, T07f, T07g, T08 (mappatura degli errori, upsert e zero righe,
+   `guasta`/`ripristina`, `pulisci` sui parametri, RPC di `adjust_leg_seats` e `raise_personal_bests`).
+3. **T10** — accesso con codice invito. **Prima, l'umano sostituisce `EXPO_PUBLIC_INVITE_CODE` nel
+   `.env` con un codice vero e non indovinabile**: oggi è un segnaposto. `invite_codes` è passata da
+   T08 a T10.
+4. **Non si aprono senza riscriverne prima i criteri: T13, T14, T15** (riquadri ⚠️ in `TASKS.md`).
+
+### Decisioni dell'umano in questa sessione
+
+Delega: davanti a una decisione, l'opzione raccomandata dall'agente (registrata, con l'alternativa,
+in ogni voce). Node e la Supabase CLI li installa l'agente, **dentro il repo** (`tools/`), perché si
+lavora su due macchine. **Le migrazioni le applica l'agente con la CLI**, con `SUPABASE_DB_URL` nel
+`.env`. Il loop **riparte da solo** dopo un limite di utilizzo (heartbeat). Non installata la skill di
+terze parti `supabase/agent-skills`.
+
+### Aperto, da decidere quando servirà (in `IDEAS.md`)
+
+- **L'owner può riassegnare una candidatura chiusa a un altro collega**: RAM e RLS lo permettono allo
+  stesso modo, perché viene dalla tabella delle policy di T07g. Cambiarlo è una decisione dell'umano.
+- **Il richiedente accettato può ripetere ±1** finché la riga è `accepted`: gonfiare o azzerare i posti
+  in N chiamate. Rischio dichiarato per la demo; il rimedio è *"stato e posti in un'operazione sola"*.
+- **Le note non hanno un limite nel database**, **i privilegi di default** (TRUNCATE ecc.), **l'indice
+  su `trips(owner_id)`**, il freno sugli helper che confermano aggirabile da `support/`, il filtro per
+  pid nel test del lock.
+- **I KPI aziendali (T16)** hanno bisogno di candidature che le RLS non lasciano leggere.
+
+### Tre cose da sapere sulla macchina di casa
+
+- **L'hook guard di git non gira qui**: `.claude/settings.json` lo chiama con `python` (qui è l'alias
+  del Microsoft Store) e con un percorso assoluto della macchina del lavoro. Restano le deny rules e la
+  branch protection. Non corretto: `settings.json` è dell'umano.
+- **Il tipo di agente `reviewer` non era caricato** in questa sessione: la review l'ha fatta un agente
+  generico con le istruzioni di `reviewer.md`, su modello forte, senza modificare file.
+- **La password del database è stata esposta in chat** e poi reimpostata dall'umano; quella in uso non
+  è mai passata dalla conversazione.
+
+### Le lezioni della sessione
+
+1. **Quattro bocciature su sette sono nate da testi che promettevano più del codice** — commenti,
+   documenti, doc dei port, perfino la regola dell'heartbeat. La regola in `CLAUDE.md` c'è; il difetto si
+   ripresenta e lo trova solo una lettura. Vale come avviso per ogni brief.
+2. **La RAM e il database vanno confrontati in tutte e due le direzioni.** T07g ha trovato una RAM più
+   permissiva delle RLS; la review delle migrazioni ha cercato il contrario, e ha trovato invece un
+   documento che sottostimava il rischio.
+3. **Una verifica che dipende da un secondo canale vale solo se i canali sono indipendenti**: la CA
+   di Supabase letta dal server non provava niente finché non è arrivata la stessa impronta dalla
+   dashboard.
+4. **Un'interruzione non distrugge niente se il lavoro è committato e il loop sa ripartire.** Due
+   developer fermati dal limite di utilizzo sono ripartiti dal working tree senza perdere niente; e T08
+   è stato committato in due parti perché, dopo il push, uno schema applicato senza i suoi file nel repo
+   era il rischio più grande della giornata.

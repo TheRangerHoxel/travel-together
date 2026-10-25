@@ -140,6 +140,30 @@ module.exports = [
     },
   },
 
+  // --- test:int: solo la concorrenza puo confermare ---------------------------
+  // `apriConfermabile` e `inTransazioneConfermata` fanno COMMIT su staging. Servono ai soli test
+  // di concorrenza; in un altro file, insieme a `applicaSchema`, ricreerebbero lo schema di staging.
+  {
+    files: ['tests/integration/**/*.ts'],
+    ignores: ['tests/integration/concorrenza.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        2,
+        {
+          patterns: [
+            {
+              group: ['**/support/db'],
+              importNames: ['apriConfermabile', 'inTransazioneConfermata'],
+              message:
+                'Conferma davvero le righe su staging: solo tests/integration/concorrenza.test.ts puo usarla. ' +
+                'Gli altri test usano inTransazioneAnnullata, che fa sempre ROLLBACK.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // --- core/: isolamento da I/O, rete e orologio ---------------------------
   // Seconda rete sui confini, con le regole del core di eslint. Lavorano sulla
   // stringa di import e non richiedono risoluzione dei moduli: se la

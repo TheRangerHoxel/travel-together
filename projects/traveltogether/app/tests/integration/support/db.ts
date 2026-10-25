@@ -6,10 +6,15 @@
 // di Postgres e' transazionale, quindi anche lo schema (applicato dai file del repo,
 // non da cio' che c'e' su staging) sparisce con il rollback: staging non cambia.
 //
-// Due cose NON si fanno mai, e l'harness le impedisce invece di sperare:
-//  - chiudere la transazione con un COMMIT: `esegui` rifiuta ogni istruzione di
-//    controllo della transazione;
-//  - far uscire la stringa di connessione: ogni errore passa da `oscuraErrore`.
+// Due cose, di cui la prima ha UN'eccezione dichiarata:
+//  - la transazione non si conferma: `inTransazioneAnnullata` fa sempre ROLLBACK e `esegui`
+//    rifiuta ogni istruzione di controllo della transazione. L'ECCEZIONE e'
+//    `apriConfermabile`/`inTransazioneConfermata` (in fondo a questo file), che conferma
+//    davvero e serve solo ai test di concorrenza, dove una seconda connessione non vede una
+//    transazione aperta. Una regola di lint (eslint.config.js) ne vieta l'import a ogni file di
+//    tests/integration/ tranne concorrenza.test.ts: usata con `applicaSchema` ricreerebbe lo
+//    schema di staging;
+//  - la stringa di connessione non esce: ogni errore passa da `oscuraErrore`.
 //
 // TLS: la connessione e' CIFRATA E VERIFICATA contro la CA radice di Supabase
 // (supabase/prod-ca-2021.crt), con `ssl: { ca, rejectUnauthorized: true }` e il controllo del
@@ -248,6 +253,68 @@ export async function inTransazioneAnnullata<T>(corpo: (sessione: Sessione) => P
     throw oscuraErrore(errore, url);
   } finally {
     await sql.end({ timeout: 5 }).catch(() => undefined);
+  }
+}
+
+/**
+ * Una connessione che PUO confermare. Esiste solo per i test di concorrenza, dove una seconda
+ * connessione non vede una transazione aperta e quindi le righe vanno confermate davvero.
+ * Tutto il resto passa da `inTransazioneAnnullata`, che non puo confermare.
+ *
+ * Chi la usa scrive righe VERE su staging: solo fixture riconoscibili (indirizzi
+ * `@t08.test.invalid`), da ripulire con `pulisciFixtureConfermate`.
+ */
+export interface Confermabile {
+  readonly sessione: Sessione;
+  inizia(): Promise<void>;
+  conferma(): Promise<void>;
+  annulla(): Promise<void>;
+  chiudi(): Promise<void>;
+}
+
+export async function apriConfermabile(): Promise<Confermabile> {
+  const url = urlDelDatabase();
+  const sql = apri(url);
+  try {
+    const riservata = await sql.reserve();
+    const sessione = new Sessione(riservata, url);
+    const esegueGrezzo = async (istruzione: string): Promise<void> => {
+      try {
+        await riservata.unsafe(istruzione);
+      } catch (errore) {
+        if (comeErroreDb(errore) !== null) throw errore;
+        throw oscuraErrore(errore, url);
+      }
+    };
+    return {
+      sessione,
+      inizia: () => esegueGrezzo('begin'),
+      conferma: () => esegueGrezzo('commit'),
+      annulla: () => esegueGrezzo('rollback'),
+      chiudi: async () => {
+        // Una transazione rimasta aperta (test fallito a meta) si annulla, non si conferma.
+        await riservata.unsafe('rollback').catch(() => undefined);
+        riservata.release();
+        await sql.end({ timeout: 5 }).catch(() => undefined);
+      },
+    };
+  } catch (errore) {
+    await sql.end({ timeout: 5 }).catch(() => undefined);
+    if (comeErroreDb(errore) !== null) throw errore;
+    throw oscuraErrore(errore, url);
+  }
+}
+
+/** Apre una connessione, esegue `corpo` in una transazione e la CONFERMA (annulla se il corpo fallisce). */
+export async function inTransazioneConfermata<T>(corpo: (sessione: Sessione) => Promise<T>): Promise<T> {
+  const connessione = await apriConfermabile();
+  try {
+    await connessione.inizia();
+    const esito = await corpo(connessione.sessione);
+    await connessione.conferma();
+    return esito;
+  } finally {
+    await connessione.chiudi();
   }
 }
 

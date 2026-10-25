@@ -34,6 +34,7 @@
     "smoke": "expo export --platform android --output-dir dist && jest --config jest.smoke.config.js --ci",
     "db:preflight": "node scripts/db-preflight.js",
     "db:status": "node scripts/supabase-db.js status",
+    "db:types": "node scripts/supabase-db.js types",
     "db:push": "node scripts/supabase-db.js push",
     "verify": "node scripts/verify.js"
   },

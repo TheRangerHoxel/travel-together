@@ -31,7 +31,7 @@ function limiteNoteDelSeed(): number {
 /**
  * Id di forma uuid anche in RAM.
  *
- * In memoria basterebbe 'trip-1', ma lo schema di T08 usera' colonne uuid: una
+ * In memoria basterebbe 'trip-1', ma lo schema di T08 ha colonne uuid: una
  * stringa libera non e' inseribile, e su Postgres un id malformato non produce
  * not-found ma un errore di sintassi. Generarli gia' validi qui significa che la
  * suite non dovra' essere toccata quando arrivera' l'adapter Supabase — che e'

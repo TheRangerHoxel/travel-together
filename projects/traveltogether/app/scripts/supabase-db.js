@@ -24,14 +24,22 @@ const { oscura } = require('./oscura');
 const COMANDI = {
   push: ['db', 'push'],
   status: ['migration', 'list'],
+  // Sola lettura: interroga il catalogo e stampa i tipi TypeScript su stdout. Con --scrivi li
+  // scrive in src/adapters/supabase/database.types.ts invece di stamparli.
+  types: ['gen', 'types', 'typescript', '--schema', 'public'],
 };
+
+const FILE_DEI_TIPI = join(__dirname, '..', 'src', 'adapters', 'supabase', 'database.types.ts');
 
 function esci(messaggio, codice) {
   process.stderr.write(messaggio + '\n');
   process.exit(codice);
 }
 
-const [nome, ...extra] = process.argv.slice(2);
+const [nome, ...argomenti] = process.argv.slice(2);
+// --scrivi e' nostro, non della CLI: non le si passa.
+const scrivi = argomenti.includes('--scrivi');
+const extra = argomenti.filter((argomento) => argomento !== '--scrivi');
 const sottocomando = nome === undefined ? undefined : COMANDI[nome];
 if (sottocomando === undefined) {
   esci(`uso: node scripts/supabase-db.js <${Object.keys(COMANDI).join('|')}> [argomenti della CLI]`, 2);
@@ -61,6 +69,12 @@ if (esito.error) {
   esci(`impossibile eseguire la Supabase CLI: ${oscura(esito.error.message, url)}`, 1);
 }
 
-process.stdout.write(oscura(esito.stdout ?? '', url));
+const uscita = oscura(esito.stdout ?? '', url);
+if (scrivi && nome === 'types' && esito.status === 0) {
+  require('node:fs').writeFileSync(FILE_DEI_TIPI, uscita, 'utf8');
+  process.stdout.write(`scritto ${FILE_DEI_TIPI}\n`);
+} else {
+  process.stdout.write(uscita);
+}
 process.stderr.write(oscura(esito.stderr ?? '', url));
 process.exit(esito.status ?? 1);

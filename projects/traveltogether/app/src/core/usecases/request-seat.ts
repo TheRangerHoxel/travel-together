@@ -171,13 +171,14 @@ export async function requestSeat(
   // (`input.requesterId`), non di un terzo. L'argomento vale quindi solo nel modello
   // di minaccia in cui `requesterId` e' falsificabile — che e' quello reale di oggi,
   // perche' questo usecase non conosce la sessione e l'identita' gliela passa chi
-  // chiama (limite gia' dichiarato in T05 e gia' criterio di T08).
+  // chiama (limite dichiarato in T05; la RLS di T08 lo chiude lato DB).
   // E in quel modello la protezione e' PARZIALE, non totale: chi si spaccia per un
   // collega non legge piu' lo stato della sua candidatura indicando una trasferta
   // qualsiasi, ma lo legge ancora indicando una trasferta VALIDA di quel collega
   // (esistente, sua, senza auto, published). Questo ordine aggiunge un prerequisito
   // di conoscenza, non chiude la rivelazione: la chiusura e' la policy
-  // `requester_id = auth.uid()` di T08, e questo commento non la rende meno urgente.
+  // `requester_id = auth.uid()` di T08, che lo schema applicato ha: vale quando le
+  // chiamate passano da una sessione vera, non da questo usecase.
   //
   // La forma precede la lettura della trasferta perche' un id vuoto e' violazione del
   // dominio (`requester-trip-missing`), non una trasferta introvabile: rispondere

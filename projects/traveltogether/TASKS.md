@@ -1115,7 +1115,7 @@ e i *"deciso…"*, sciolti per delega. Forma dello schema, piano, decisioni e al
 voce *"T08 · pianificazione"*.
 
 **Criteri di accettazione**
-- [ ] Le migrazioni sono file SQL tracciati in git, applicabili su un progetto vuoto.
+- [x] Le migrazioni sono file SQL tracciati in git, applicabili su un progetto vuoto.
       *(25/10, reso verificabile senza un secondo progetto, che non c'è: il piano gratuito ne ha due e
       l'altro è la demo.)* Vivono in `app/supabase/migrations/`; accanto, in `app/supabase/rollback/`,
       lo script che le annulla. Un test di integrazione apre una transazione su staging, esegue il
@@ -1123,26 +1123,26 @@ voce *"T08 · pianificazione"*.
       DDL di Postgres è transazionale, quindi staging non cambia, e la prova vale prima e dopo la prima
       applicazione. Un secondo test pretende che nessuno di quei file contenga `begin`, `commit` o
       `rollback` come istruzione: renderebbero distruttiva la prima prova
-- [ ] Applicate su **staging** senza errori. *(25/10, reso verificabile:)* `npm run db:status` — wrapper
+- [x] Applicate su **staging** senza errori. *(25/10, reso verificabile:)* `npm run db:status` — wrapper
       della CLI che legge `SUPABASE_DB_URL` da `.env` senza stamparla — elenca ogni migrazione locale
       come applicata. Prima, un controllo in sola lettura che `public` non contenga tabelle. È il passo
       che **modifica staging**: lo esegue l'orchestratore, da solo
-- [ ] **RLS attiva su ogni tabella**, nessuna esclusa. *(25/10, perimetro dichiarato:)* un test legge dal
+- [x] **RLS attiva su ogni tabella**, nessuna esclusa. *(25/10, perimetro dichiarato:)* un test legge dal
       catalogo **ogni** tabella degli schemi `public` e `private` e pretende la RLS attiva. Nessun
       elenco scritto nel test: una tabella nuova senza RLS lo fa cadere
-- [ ] Un test di integrazione dimostra che un utente **non** può leggere i dati di un altro oltre a
+- [x] Un test di integrazione dimostra che un utente **non** può leggere i dati di un altro oltre a
       quanto previsto. *(25/10: "quanto previsto" ora è scritto.)* `trips`, `trip_legs`, `profiles` e le
       tre tabelle dei parametri: `SELECT` per ogni `authenticated` (le offerte sono di tutti, e
       `listOpenOffers` fa la join sui profili: è il vincolo che il doc del port chiede a T08);
       `match_requests`: richiedente e owner della trasferta; `personal_bests`: solo i propri; `anon`:
       **zero righe** ovunque, non un errore (T09 lo mappa così, come `memory`). Per ogni tabella
       ristretta, una riga che il lettore non deve vedere **e** una che deve vedere
-- [ ] Un test dimostra che un utente non può modificare le trasferte altrui. *(25/10: fuso nel criterio
+- [x] Un test dimostra che un utente non può modificare le trasferte altrui. *(25/10: fuso nel criterio
       delle policy di T07g più sotto, che lo dice meglio — upsert compreso.)*
-- [ ] Un test dimostra che un utente non può accettare richieste su offerte non sue. *(25/10: idem.)*
-- [ ] Il decremento di `seats_available` è atomico lato DB: un test di concorrenza non va sotto zero.
+- [x] Un test dimostra che un utente non può accettare richieste su offerte non sue. *(25/10: idem.)*
+- [x] Il decremento di `seats_available` è atomico lato DB: un test di concorrenza non va sotto zero.
       *(25/10: è lo stesso criterio del test di concorrenza reale del 13/10, fuso lì.)*
-- [ ] I tipi TypeScript sono **generati** dallo schema, non scritti a mano. *(25/10, ⛔ aperto, non
+- [x] I tipi TypeScript sono **generati** dallo schema, non scritti a mano. *(25/10, ⛔ aperto, non
       delegabile.)* Il comando previsto, `supabase gen types typescript --db-url`, esegue
       `postgres-meta` in un container Docker, che qui non c'è e non si installa senza admin (da
       confermare allo step 0). Le alternative chiedono una **credenziale nuova** (token personale per
@@ -1154,13 +1154,13 @@ voce *"T08 · pianificazione"*.
       union di dominio corrispondente: un membro aggiunto da una parte sola fa cadere `typecheck`
 
 **Criteri aggiunti il 13 ottobre 2026, dal modello a tratte di T04b**
-- [ ] Esiste `trip_legs` con chiave primaria **composta** `(trip_id, direction)`, e `match_requests`
+- [x] Esiste `trip_legs` con chiave primaria **composta** `(trip_id, direction)`, e `match_requests`
       la referenzia con una **foreign key composta** `(trip_id, direction)`: una candidatura su una
       tratta inesistente — per esempio sul rientro di una trasferta che non ha rientro — diventa
       impossibile **per costruzione**, non per un controllo lato client
       *(25/10: la foreign key è `RESTRICT`, deciso due criteri più sotto.)*
-- [ ] I `CHECK` replicano gli invarianti di `makeTripLeg`: `seats_available BETWEEN 0 AND seats_total`
-- [ ] Il decremento atomico è `UPDATE … SET seats_available = seats_available + :delta WHERE … AND
+- [x] I `CHECK` replicano gli invarianti di `makeTripLeg`: `seats_available BETWEEN 0 AND seats_total`
+- [x] Il decremento atomico è `UPDATE … SET seats_available = seats_available + :delta WHERE … AND
       seats_available + :delta BETWEEN 0 AND seats_total`, e **zero righe toccate è l'errore**: è la
       forma per cui `adjustLegSeats` è stata definita **relativa** e non assoluta.
       *(25/10, precisato dove vive, ed è contratto di T09:)* PostgREST non esprime un aggiornamento
@@ -1173,7 +1173,7 @@ voce *"T08 · pianificazione"*.
       `trip_legs` non ha policy di scrittura: la scrivono solo questa funzione e il trigger di
       materializzazione. Lo **specchio in RAM** (`memory` autorizza allo stesso modo) è in questo task,
       perché una RAM più permissiva del DB è la direzione pericolosa (T07g, N1)
-- [ ] **Deciso cosa accade quando una tratta viene eliminata e la referenzia una candidatura**, in
+- [x] **Deciso cosa accade quando una tratta viene eliminata e la referenzia una candidatura**, in
       qualunque stato. L'umano ha scelto l'**annullamento a cascata** con `resolvedBy: 'system'` e
       nota automatica, che è logica di prodotto e quindi di un usecase, non dell'adapter: qui va
       deciso se la foreign key è `RESTRICT` (e l'usecase annulla prima di salvare) o altro. **Non**
@@ -1185,16 +1185,16 @@ voce *"T08 · pianificazione"*.
       il trigger che materializza le tratte. Un test della suite di contratto lo prova con una
       candidatura **chiusa**, che è il caso che il guard sugli stati aperti non copriva. L'annullamento
       a cascata resta un criterio del task di **modifica trasferta**, che non esiste
-- [ ] Le RLS di **scrittura** su `trips` impongono `owner_id = auth.uid()`: `save` è un upsert con id
+- [x] Le RLS di **scrittura** su `trips` impongono `owner_id = auth.uid()`: `save` è un upsert con id
       fornito dal chiamante, quindi senza questo vincolo chi passa il `tripId` di un collega ne
       sovrascrive la trasferta. I criteri esistenti parlano di "non modificare le trasferte altrui",
       che una policy scritta solo su UPDATE lascia aggirabile da un upsert.
       *(25/10: coperto dal criterio delle policy di T07g, che lo estende al ramo `DO UPDATE`.)*
-- [ ] Le RLS di scrittura su `match_requests` vincolano i **due attori**: il richiedente per la
+- [x] Le RLS di scrittura su `match_requests` vincolano i **due attori**: il richiedente per la
       creazione e l'annullamento, l'owner della trasferta per accettazione e rifiuto. In RAM
       l'`actorId` lo passa il chiamante, quindi i controlli degli usecase di T05 proteggono da una UI
       sbagliata e **non** da un client ostile. *(25/10: coperto dal criterio delle policy di T07g.)*
-- [ ] Foreign key `match_requests.requester_trip_id → trips.id`, **più** una policy che impone che
+- [x] Foreign key `match_requests.requester_trip_id → trips.id`, **più** una policy che impone che
       quella trasferta sia **del richiedente**. È la metà DB della decisione dell'umano del 14 ottobre
       (l'altra metà è T07c): rende impossibile lo stato in cui il campo da cui dipendono tutti e
       quattro i KPI punta alla trasferta di un altro, anche per il seed e per le migrazioni.
@@ -1205,13 +1205,13 @@ voce *"T08 · pianificazione"*.
       foreign key e dà all'app lo stesso esito di `memory` (`storage-unavailable`). Un test prova
       entrambe: come `authenticated` il rifiuto RLS (`42501`), come `postgres` quello della foreign key
       (`23503`)
-- [ ] Un test di concorrenza **reale** su Postgres ripete l'interleaving di T05 su due connessioni: in
+- [x] Un test di concorrenza **reale** su Postgres ripete l'interleaving di T05 su due connessioni: in
       RAM l'intercalatura è deterministica e scelta dal test, qui no.
       *(25/10, precisato:)* due connessioni, ciascuna con la sua transazione: A decrementa l'ultimo posto
       e tiene il lock, B tenta lo stesso e attende, A conferma, B ottiene **zero righe** — non un errore
       di `CHECK`, che vorrebbe dire una condizione `BETWEEN` caduta e salvata solo dal vincolo. Righe di
       test **confermate**, quindi ripulite (criterio sulla pulizia, in fondo)
-- [ ] **Abbassare `NOTE_CONFIG.maxLength` è una migrazione, non una modifica di configurazione**
+- [x] **Abbassare `NOTE_CONFIG.maxLength` è una migrazione, non una modifica di configurazione**
       (decisione dell'umano, 14 ottobre 2026). Chi lo abbassa accorcia contestualmente le note che
       sforano, così nessuna riga resta inchiudibile — oggi le `save` degli usecase validano la riga
       intera, quindi una nota vecchia e troppo lunga bloccherebbe accettazione, rifiuto, annullamento e
@@ -1230,7 +1230,7 @@ voce *"T08 · pianificazione"*.
       seminate e verifica testo, marcatura e parametro, e il rifiuto sulla nota automatica
 
 **Criteri aggiunti il 23 ottobre 2026, da tre voci di `IDEAS.md` portate dentro dall'umano**
-- [ ] I `CHECK` coprono anche `has_car = false ⇒ seats_total = 0`, non solo
+- [x] I `CHECK` coprono anche `has_car = false ⇒ seats_total = 0`, non solo
       `seats_available BETWEEN 0 AND seats_total`. Oggi quell'invariante vive **solo in `makeTrip`**,
       cioè nel client: nel DB nulla impedisce la riga che lo viola, e una migrazione, uno script di
       seed o una query eseguita a mano la inserirebbero senza resistenza.
@@ -1238,7 +1238,7 @@ voce *"T08 · pianificazione"*.
       seats_total = 0`, `seats_available <= seats_total` — e **solo** quelli: le regole di **creazione**
       di T04 (plant uguali, data nel passato, rientro prima della partenza) restano fuori, perché T04b ha
       dichiarato raggiungibile la trasferta degenere e un `CHECK` la renderebbe irrappresentabile
-- [ ] Un test di integrazione riproduce la **corsa fra la cascata e una candidatura concorrente** e
+- [x] Un test di integrazione riproduce la **corsa fra la cascata e una candidatura concorrente** e
       pinna l'esito atteso: riga `pending` su una tratta a zero posti, chiudibile solo con un rifiuto
       motivato. Fra la lettura di `listByLeg` nella cascata e una `requestSeat` concorrente non c'è
       alcun lock, e su Postgres la corsa è **reale**, non intercalata in un event loop. Non è una
@@ -1248,7 +1248,7 @@ voce *"T08 · pianificazione"*.
       `pending` della tratta, un richiedente nuovo inserisce la sua e conferma, l'owner rifiuta quelle
       lette e conferma. Esito pinnato: la riga nuova resta `pending` su una tratta a zero; l'owner che
       prova ad accettarla ottiene **zero righe** da `adjust_leg_seats`; la rifiuta con nota, e riesce
-- [ ] **Deciso cosa accade alle candidature già chiuse quando la tratta viene eliminata.** La foreign
+- [x] **Deciso cosa accade alle candidature già chiuse quando la tratta viene eliminata.** La foreign
       key composta rifiuta la cancellazione finché esiste **una qualsiasi** riga che la referenzia,
       comprese le `rejected` e le `cancelled`: il guard di T05 sugli stati **aperti** chiude la
       divergenza fra i due adapter solo in parte, perché con sole righe chiuse `memory` elimina la
@@ -1260,7 +1260,7 @@ voce *"T08 · pianificazione"*.
       che non esiste, e cancellerebbe la storia di un rifiuto motivato
 
 **Criterio aggiunto il 23 ottobre 2026, dalla decisione sul trigger di T07e**
-- [ ] La tabella dei **massimi** delle metriche ha RLS che permette a ciascuno di leggere **e
+- [x] La tabella dei **massimi** delle metriche ha RLS che permette a ciascuno di leggere **e
       aggiornare i propri**, e a nessuno quelli di un altro. La metà in scrittura non è un dettaglio:
       l'umano ha deciso che i massimi li alza un usecase sul percorso di lettura della dashboard, quindi
       una policy scritta solo in lettura renderebbe il percorso inutilizzabile. Resta da decidere qui se
@@ -1278,7 +1278,7 @@ voce *"T08 · pianificazione"*.
       (zero righe) e non scrive (errore RLS)
 
 **Criterio aggiunto il 25 ottobre 2026, da T07f**
-- [ ] Ogni colonna istante è **`timestamptz(3)`**, non `timestamptz`. Il dominio tronca al
+- [x] Ogni colonna istante è **`timestamptz(3)`**, non `timestamptz`. Il dominio tronca al
       millisecondo (`normalizeUtcInstant`), e una colonna a microsecondi conserverebbe una precisione
       che il dominio butta: due istanti uguali per `compareUtcInstants` potrebbero essere diversi per un
       `WHERE` o un `ORDER BY` in SQL, e lo stesso confronto darebbe due risposte a seconda di dove gira.
@@ -1293,11 +1293,11 @@ voce *"T08 · pianificazione"*.
       il `CHECK` rende rosso il test (la riga passa, arrotondata)
 
 **Criteri aggiunti il 25 ottobre 2026, da T07g**
-- [ ] `match_requests` ha il vincolo **`UNIQUE (trip_id, direction, requester_id)`**: in RAM un secondo
+- [x] `match_requests` ha il vincolo **`UNIQUE (trip_id, direction, requester_id)`**: in RAM un secondo
       id sulla stessa coppia (tratta, richiedente) è rifiutato con `invalid-record`, e senza il vincolo
       nel DB la suite di contratto non passerebbe a T09. È la precondizione su cui poggiano l'ordine
       totale di `findMatches` e lo stato che marca ogni offerta
-- [ ] Le policy implementano **la tabella del criterio sull'identità di T07g**, che in RAM è già imposta
+- [x] Le policy implementano **la tabella del criterio sull'identità di T07g**, che in RAM è già imposta
       e diventa qui vincolante: scrittura su `trips` solo dall'owner (upsert compreso); su
       `match_requests` creazione, `pending` e `cancelled` dal richiedente, `accepted` e `rejected`
       dall'owner della trasferta, `requester_trip_id` sempre del richiedente; `raise` sui massimi solo
@@ -1314,7 +1314,7 @@ voce *"T08 · pianificazione"*.
       Anche le letture **non** imposte da T07g sono ora decise (criterio di lettura, in testa): tutti gli
       `authenticated` leggono trasferte, tratte e profili. Lo specchio in RAM si aggiorna in questo task:
       con identità nulla `memory` filtra anche quelle, come Postgres con `anon` (oggi non lo fa)
-- [ ] **Deciso chi esegue il reintegro e l'incremento dei posti di `cancelRequest`.** Oggi gira con
+- [x] **Deciso chi esegue il reintegro e l'incremento dei posti di `cancelRequest`.** Oggi gira con
       l'identità del richiedente, legge con `listByLeg` la tratta dell'owner e riscrive righe di
       **altri** richiedenti (`restoreSystemRejected`), più `adjustLegSeats(+1)` sulla tratta dell'owner.
       Con le policy qui sopra la `save` è vietata, e con la lettura ristretta `listByLeg` vede solo la
@@ -1340,7 +1340,7 @@ voce *"T08 · pianificazione"*.
       del port `MatchRequestRepository` (nota del 25/10 sulla voce *"La cascata e il reintegro scrivono
       N righe una alla volta"* di `IDEAS.md`): cambio d'interfaccia, decisione dell'umano, da schedulare
       **prima di T09**
-- [ ] I `CHECK` sono compatibili con le righe che la suite costruisce con `seminaCandidaturaGrezza`:
+- [x] I `CHECK` sono compatibili con le righe che la suite costruisce con `seminaCandidaturaGrezza`:
       o la riga seminata è rappresentabile sotto i CHECK, o il test che la usa è dichiarato
       *solo memory* con il motivo, come i test sulle liste invalide di trasferte e tratte.
       *(25/10, deciso:)* i `CHECK` replicano gli invarianti di `validateMatchRequestStructure` — nota di
@@ -1355,7 +1355,7 @@ voce *"T08 · pianificazione"*.
       la decide `trim()` di JavaScript, che un `btrim` non riproduce; la seconda è un parametro
 
 **Criteri aggiunti il 25 ottobre 2026, da T07b**
-- [ ] **Le tabelle dei parametri** (scalari, distanze fra plant, badge), nella forma decisa qui, con RLS
+- [x] **Le tabelle dei parametri** (scalari, distanze fra plant, badge), nella forma decisa qui, con RLS
       attiva: **`SELECT` per `authenticated`**, nessuna policy di `INSERT`/`UPDATE`/`DELETE` per i ruoli
       dell'app, niente per `anon`. Il gate è la dashboard, che ha solo l'umano: nessun ruolo admin nel
       modello. Un test di integrazione dimostra che un autenticato legge, che `anon` non legge, e che una
@@ -1369,7 +1369,7 @@ voce *"T08 · pianificazione"*.
       chiavi nel DDL, rende irrappresentabile il parametro mancante (che `parseParameters` già tratta) e
       fa di ogni parametro nuovo una migrazione di colonna. Nessuna `REVOKE` di `SELECT` ad `anon`: deve
       vedere **zero righe**, non un errore, come chiede T09
-- [ ] **Il seed dei parametri è derivato da `SEED_PARAMETERS`**, non riscritto a mano: uno script genera
+- [x] **Il seed dei parametri è derivato da `SEED_PARAMETERS`**, non riscritto a mano: uno script genera
       la migrazione di seed, e un test unitario senza rete confronta il file SQL committato con l'output
       dello script. Così `config/` e la migrazione non divergono. Dopo l'applicazione, la tabella è la
       fonte a runtime e può divergere dal seed per decisione dell'umano.
@@ -1381,14 +1381,14 @@ voce *"T08 · pianificazione"*.
       `AppParameters` del seed: prova che jsonb conserva numeri, testo e accenti. **Dopo l'applicazione il
       seed è congelato:** una migrazione applicata non si riscrive, quindi una modifica di
       `SEED_PARAMETERS` fa cadere il test apposta, e cosa farne è una decisione (voce in `IDEAS.md`)
-- [ ] I `CHECK` delle tabelle dei parametri sono compatibili con i casi della suite di contratto di T07b
+- [x] I `CHECK` delle tabelle dei parametri sono compatibili con i casi della suite di contratto di T07b
       (una coppia di distanze mancante, un'etichetta con una parola vietata), e **nessun CHECK replica
       la lista delle parole vietate**: sarebbe la seconda lista, in un secondo linguaggio. Se un caso
       diventa irrappresentabile, il test è dichiarato *solo memory* con il motivo.
       *(25/10: P3 e P4 restano rappresentabili — una riga che manca, un testo — e nessun `CHECK` guarda
       le etichette. I `CHECK` ci sono su tipo del valore, soglie intere ≥ 1, km finiti ≥ 0, coppie con
       plant diversi: casi che la suite non costruisce e che `parse-parameters.test.ts` già copre.)*
-- [ ] **Abbassare `note.maxLength` resta una migrazione** (decisione del 14 ottobre), ma con T07b è anche
+- [x] **Abbassare `note.maxLength` resta una migrazione** (decisione del 14 ottobre), ma con T07b è anche
       una riga modificabile dalla dashboard: un trigger o un vincolo impedisce di portarlo sotto la
       lunghezza della nota più lunga esistente, così l'unica via resta la procedura che accorcia e marca
       le note. Un test di integrazione prova il rifiuto.
@@ -1397,32 +1397,32 @@ voce *"T08 · pianificazione"*.
 
 **Criteri aggiunti il 25 ottobre 2026, dalla pianificazione di T08** — vincoli che i port chiedevano già
 a T08 nei loro doc, e i controlli che rendono il resto verificabile
-- [ ] Foreign key `trips.owner_id → profiles.id` e `profiles.id → auth.users(id)`. La prima la chiede il
+- [x] Foreign key `trips.owner_id → profiles.id` e `profiles.id → auth.users(id)`. La prima la chiede il
       doc di `listOpenOffers`: senza, *"offerta con owner inesistente"* è uno stato possibile e
       l'omissione diventa una perdita silenziosa. La seconda lega l'identità delle RLS (`auth.uid()`) al
       profilo
-- [ ] Le tratte le **materializza il DB**, con un trigger su `trips`, nella semantica che il doc di
+- [x] Le tratte le **materializza il DB**, con un trigger su `trips`, nella semantica che il doc di
       `TripRepository.save` fissa: una tratta con l'auto senza rientro, due con rientro, nessuna senza
       auto; contatore **preservato** sulle esistenti e `seats_total` aggiornato; un contatore preservato
       fuori dal nuovo totale fa fallire l'intero salvataggio. Così `save` resta un upsert su `trips`, che
       PostgREST esprime, e la scrittura delle tratte è atomica con quella della trasferta. Un test per
       caso, compreso il rientro tolto con una candidatura sulla tratta (rifiutato, criterio del 13/10)
-- [ ] Ogni funzione `security definer` ha `search_path` vuoto e nomi qualificati; `EXECUTE` è revocato a
+- [x] Ogni funzione `security definer` ha `search_path` vuoto e nomi qualificati; `EXECUTE` è revocato a
       `public` e ad `anon` su **ogni** funzione, e concesso ad `authenticated` solo sulle tre che l'app
       chiama (`adjust_leg_seats`, `restore_system_rejected`, `raise_personal_bests`). Le altre stanno in
       uno schema `private`, che PostgREST non espone. Un test, come `anon`, pretende il rifiuto su
       ciascuna delle tre; uno, come `authenticated`, su `private.lower_note_max_length`
-- [ ] `test:int` **fallisce** senza `SUPABASE_DB_URL`, con un messaggio che dice dove metterla: la
+- [x] `test:int` **fallisce** senza `SUPABASE_DB_URL`, con un messaggio che dice dove metterla: la
       variabile entra nell'elenco di `credenziali.test.ts` (unica modifica a quel test, dichiarata: lo
       stringe, non lo allenta) e in `.env.example` con un valore finto. Solo i test di concorrenza
       scrivono righe **confermate**: profili di test riconoscibili (email `@t08.test.invalid`, nomi
       dichiaratamente fittizi), cancellati alla fine, più una pulizia all'avvio dei residui di
       un'esecuzione interrotta. Tutti gli altri girano in una transazione annullata. Nessun test tocca
       righe che non ha creato, né le tabelle dei parametri fuori da una transazione annullata
-- [ ] **Ogni policy, vincolo, trigger e funzione è provato togliendolo:** le sonde del piano, ciascuna
+- [x] **Ogni policy, vincolo, trigger e funzione è provato togliendolo:** le sonde del piano, ciascuna
       con l'esito registrato in `PROGRESS.md`. Una policy tolta che non fa cadere nessun test è una
       policy non verificata
-- [ ] `ARCHITECTURE.md` § Modello dati smette di essere una bozza e descrive lo schema applicato; i doc
+- [x] `ARCHITECTURE.md` § Modello dati smette di essere una bozza e descrive lo schema applicato; i doc
       dei port e degli adapter memory che dicono *"a T08 sarà…"* o *"T08 non ha deciso…"*
       (`adjustLegSeats`, `raise`, `listOpenOffers`, `save`, `memory-conditions.ts`) dicono cosa è, nello
       stesso commit. Verifica: `rg -n "T08 non ha deciso" app/src` (test **inclusi**) non trova niente

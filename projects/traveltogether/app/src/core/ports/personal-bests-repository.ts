@@ -31,8 +31,12 @@ export interface PersonalBestsRepository {
    *
    * Non e' un leggi-modifica-scrivi per lo stesso motivo per cui `adjustLegSeats` e'
    * relativa: un merge fatto nel client fra una lettura e una scrittura perderebbe
-   * un'alzata concorrente, cioe' abbasserebbe un massimo. A T08 e' un unico
-   * `INSERT ... ON CONFLICT DO UPDATE ... RETURNING *` con `GREATEST` per colonna.
+   * un'alzata concorrente, cioe' abbasserebbe un massimo. Su Postgres e' la funzione
+   * `raise_personal_bests` (T08, `security invoker`, quindi sotto le policy della
+   * propria riga): un unico `INSERT ... ON CONFLICT DO UPDATE ... RETURNING *` con
+   * `GREATEST` per colonna, chiamata come rpc perche' PostgREST non esprime `GREATEST`
+   * in un upsert. Un trigger rifiuta, per chiunque, un UPDATE diretto che abbassi un
+   * massimo.
    */
   raise(candidate: PersonalBests): Promise<Result<PersonalBests, RepositoryError>>;
 }

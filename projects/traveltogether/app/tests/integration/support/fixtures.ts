@@ -1,13 +1,15 @@
-// Le fixture dei test di integrazione. Tutte dentro la transazione annullata del test:
+// Le fixture dei test di integrazione. Di norma dentro la transazione annullata del test:
 // spariscono col ROLLBACK, quindi non c'e pulizia da fare e nessun dato resta su staging.
+// L'unica eccezione sono i test di concorrenza (vedi sotto), che le confermano e le ripuliscono.
 //
 // Ogni funzione scrive COME `postgres` (e ci torna da sola): le fixture sono amministrazione,
 // non operazioni dell app, e devono riuscire anche dove le RLS le vieterebbero. Il test passa
 // poi a `comeUtente` per agire.
 //
 // Le fixture CONFERMATE (per i test di concorrenza, dove una seconda connessione non vede una
-// transazione aperta) e la loro pulizia arrivano con quei test, dopo l'applicazione dello
-// schema.
+// transazione aperta) usano le stesse funzioni dentro `inTransazioneConfermata`, e si ripuliscono
+// con `pulisciFixtureConfermate` (in fondo a questo file): solo gli utenti `@t08.test.invalid`
+// e cio che dipende da loro.
 
 import type { Sessione } from './db';
 
@@ -160,6 +162,51 @@ export async function creaCandidatura(sessione: Sessione, dati: DatiCandidatura)
     ]
   );
   return testo(righe[0]?.id, 'match_requests.id');
+}
+
+const UTENTI_DI_TEST = `select id from auth.users where email like '%@${DOMINIO_DI_TEST}'`;
+
+/**
+ * Cancella le fixture CONFERMATE dei test di concorrenza, e SOLO quelle: tutto cio che e legato
+ * a un utente con indirizzo `@t08.test.invalid`, nell'ordine delle foreign key (candidature,
+ * trasferte -- le tratte vanno in cascata --, massimi, profili, utenti). Non tocca nessun'altra
+ * riga, nemmeno delle stesse tabelle. Va chiamata dentro `inTransazioneConfermata`, e all'avvio
+ * oltre che alla fine: un'esecuzione interrotta lascia i residui.
+ *
+ * Limite dichiarato: la cancellazione cerca le candidature legate a utenti di test, e le
+ * trasferte di test con tutte le candidature sopra. L'unica riga NON di test che puo sparire e
+ * la candidatura di un utente vero su una trasferta di test (la foreign key la renderebbe
+ * orfana): esiste solo nei pochi secondi in cui una trasferta di test esiste su staging.
+ */
+export async function pulisciFixtureConfermate(sessione: Sessione): Promise<void> {
+  await sessione.comePostgres();
+  await sessione.modifica(
+    `delete from public.match_requests
+     where requester_id in (${UTENTI_DI_TEST})
+        or trip_id in (select id from public.trips where owner_id in (${UTENTI_DI_TEST}))`
+  );
+  await sessione.modifica(`delete from public.trips where owner_id in (${UTENTI_DI_TEST})`);
+  await sessione.modifica(`delete from public.personal_bests where profile_id in (${UTENTI_DI_TEST})`);
+  await sessione.modifica(`delete from public.profiles where id in (${UTENTI_DI_TEST})`);
+  await sessione.modifica(`delete from auth.users where email like '%@${DOMINIO_DI_TEST}'`);
+}
+
+/** Quante righe di test restano, per tabella: tutte devono essere zero a fine esecuzione. */
+export async function contaResiduiDiTest(sessione: Sessione): Promise<Record<string, number>> {
+  await sessione.comePostgres();
+  const conta = async (interrogazione: string): Promise<number> =>
+    Number((await sessione.esegui(interrogazione))[0]?.n);
+  return {
+    utenti: await conta(`select count(*)::int as n from auth.users where email like '%@${DOMINIO_DI_TEST}'`),
+    profili: await conta(`select count(*)::int as n from public.profiles where id in (${UTENTI_DI_TEST})`),
+    trasferte: await conta(`select count(*)::int as n from public.trips where owner_id in (${UTENTI_DI_TEST})`),
+    candidature: await conta(
+      `select count(*)::int as n from public.match_requests
+       where requester_id in (${UTENTI_DI_TEST})
+          or trip_id in (select id from public.trips where owner_id in (${UTENTI_DI_TEST}))`
+    ),
+    massimi: await conta(`select count(*)::int as n from public.personal_bests where profile_id in (${UTENTI_DI_TEST})`),
+  };
 }
 
 /** Quante righe ha una tabella, contate come `postgres` (le RLS non c'entrano). */

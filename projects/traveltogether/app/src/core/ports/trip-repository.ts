@@ -93,13 +93,14 @@ export interface TripRepository {
    * offerta. Un adapter su Postgres che la ottenesse da una join deve evitare che
    * la join la duplichi.
    *
-   * Vincoli per T08, entrambi necessari:
-   * - le RLS su `trips` devono permettere la lettura delle offerte pubblicate di
-   *   tutti i colleghi. Se non lo facessero, findMatches non vedrebbe nulla e la
-   *   suite di contratto, in RAM, non se ne accorgerebbe.
-   * - serve la foreign key `trips.owner_id -> profiles.id`. Senza, lo stato
-   *   "offerta con owner inesistente" e' possibile su Postgres, e l'omissione
-   *   diventerebbe una perdita silenziosa invece di un caso impossibile.
+   * Cosa lo schema di T08 garantisce a questo metodo (entrambe necessarie):
+   * - la RLS di lettura su `trips`, `trip_legs` e `profiles` e' `SELECT` per ogni
+   *   `authenticated`: le offerte pubblicate di tutti i colleghi sono visibili. Senza,
+   *   findMatches non vedrebbe nulla e la suite di contratto, in RAM, non se ne
+   *   accorgerebbe. Con `anon` (nessuna identita') le liste sono vuote, non un errore.
+   * - la foreign key `trips.owner_id -> profiles.id`: lo stato "offerta con owner
+   *   inesistente" non esiste su Postgres, quindi l'omissione descritta sopra non puo'
+   *   nascondere una perdita silenziosa.
    */
   listOpenOffers(): Promise<Result<readonly SeatOffer[], RepositoryError>>;
 
@@ -118,11 +119,14 @@ export interface TripRepository {
    * chiama a leggere, calcolare e riscrivere: fra la lettura e la scrittura una
    * seconda accettazione concorrente vedrebbe lo stesso valore, e l'ultimo posto
    * verrebbe venduto due volte (criterio di T05). Con un delta l'adapter lo fa in
-   * un'unica operazione atomica; a T08 e'
+   * un'unica operazione atomica. Su Postgres e' la funzione `adjust_leg_seats(trip_id,
+   * direction, delta)` (T08, `security definer`), che contiene
    * `UPDATE trip_legs SET seats_available = seats_available + :delta
    *  WHERE trip_id = :t AND direction = :d
-   *  AND seats_available + :delta BETWEEN 0 AND seats_total`,
-   * e zero righe toccate si traduce nell'errore sotto.
+   *  AND seats_available + :delta BETWEEN 0 AND seats_total`:
+   * PostgREST non esprime un aggiornamento relativo a una colonna, quindi l'adapter la
+   * chiama come rpc. Zero righe restituite si traduce nell'errore sotto; la tratta
+   * inesistente e' l'errore `P0002`, un chiamante non autorizzato `42501`.
    *
    * Se il risultato uscirebbe da [0, seatsTotal] ritorna `invalid-record` (il
    * `detail` e' il `kind` di `TripLegError`) e lo storage resta intatto: il
@@ -132,7 +136,8 @@ export interface TripRepository {
    * **Chi puo' chiamarlo:** il proprietario della trasferta, oppure il richiedente di
    * una candidatura `accepted` su quella tratta (`cancelRequest` restituisce il posto
    * prima di scrivere `cancelled`, quindi la riga e' ancora `accepted`). Il richiedente
-   * puo' solo `+1` o `-1` (la compensazione dopo una save fallita); l'owner e' libero entro
+   * puo' solo `+1` o `-1` (la compensazione dopo una save fallita), ma lo puo' ripetere
+   * finche' la riga e' `accepted` (rischio dichiarato, vedi ARCHITECTURE.md); l'owner e' libero entro
    * i limiti. Chiunque altro, o un altro delta per il richiedente, e' rifiutato con
    * `storage-unavailable`, come ogni scrittura negata. Ordine dei
    * controlli: esistenza (`not-found`), identita', limiti (`invalid-record`).

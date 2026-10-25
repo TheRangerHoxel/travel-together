@@ -62,6 +62,12 @@ proponi l'interfaccia, non la scorciatoia.
 - **RLS attiva su ogni tabella**, anche nella demo: una struttura con RLS permissive verrebbe portata
   così com'è in un eventuale pilota con dati veri.
 - La `service_role` key serve solo alle migrazioni, non entra mai nell'app.
+- **`SUPABASE_DB_URL`** (T08) è la stringa del **Session pooler** di staging, con la password del
+  database: pieni poteri sullo schema. Sta solo in `app/.env`, **mai con prefisso `EXPO_PUBLIC_`**
+  (finirebbe nel bundle), e la usano solo i test di integrazione e gli script `db:*`, che la oscurano
+  in ogni output. TLS sempre verificato sulla CA radice di Supabase in `app/supabase/prod-ca-2021.crt`.
+- **Le migrazioni applicate non si modificano:** ogni correzione è un file nuovo. `db:push` lo esegue
+  l'orchestratore, dopo una review delle migrazioni e un `db:push --dry-run`.
 
 ## Numeri mostrati all'utente
 

@@ -262,39 +262,68 @@ tolleranza, zero posti, un posto) e l'ordinamento del punteggio.
 
 Vincoli duri e punteggio morbido sono elencati in [PRD.md](PRD.md).
 
-## Modello dati (bozza — ⛔ lo schema va approvato in T08)
+## Modello dati (T08, applicato a staging)
 
-- `plants` — lista chiusa, seed: Pomigliano d'Arco, Foggia, Grottaglie
-- `profiles` — id, nome visualizzato, plant di appartenenza
-- `trips` — owner, plant partenza, plant destinazione, data/ora partenza, data rientro, `has_car`,
-  `seats_total`, `seats_available`, stato
-- `trip_legs` — **la tratta** (T04b): chiave primaria composta `(trip_id, direction)` con `direction` in
-  (`outbound` / `return`), `seats_total`, `seats_available`. Una riga per l'andata e, se `return_at`
-  non è nullo, una per il ritorno; nessuna senza auto. I posti dell'auto valgono per ciascuna tratta.
-  Il decremento è un `UPDATE ... SET seats_available = seats_available + :delta WHERE ... AND
-  seats_available + :delta BETWEEN 0 AND seats_total`, atomico
-- `match_requests` — trip offerta, **`direction`**, richiedente, stato (`pending` / `accepted` /
-  `rejected` / `cancelled`), **`request_note`** (facoltativa), **`resolution_note`**, **`resolved_by`**
-  (`owner` / `requester` / `system`; nota e `resolved_by` insieme o nessuno dei due). Foreign key
-  composta `(trip_id, direction) → trip_legs`, che rende impossibile una candidatura sul rientro di una
-  trasferta senza rientro. Il limite di lunghezza delle note è nei **parametri** (tabella letta da
-  `ParameterRepository`, chiave `notes.maxLength`), misurato in code point.
-  **`UNIQUE (trip_id, direction, requester_id)`** (T07g): un secondo id sulla stessa coppia (tratta,
-  richiedente) è `invalid-record`, già imposto in RAM dalla suite di contratto. Visibile solo al
-  richiedente e all'owner della trasferta; le policy in scrittura sono quelle di T07g, vincolanti per T08.
-- `personal_bests` — **bozza (T07e)**: una riga per profilo con le quattro metriche
-  (`shared_trips`, `shared_legs`, `transported_colleagues`, `shared_km`), il massimo storico di
-  ciascuna. L'alzata è un unico `INSERT ... ON CONFLICT DO UPDATE ... RETURNING *` con `GREATEST` per
-  colonna; RLS: ciascuno legge e aggiorna solo la propria riga. Non è uno schema approvato (⛔ T08)
-- `invite_codes` — codice, attivo
+Lo schema è nelle migrazioni di `app/supabase/migrations/` (`…_schema.sql`, `…_functions.sql`,
+`…_parameter_seed.sql`); lo script che le annulla è `app/supabase/rollback/…_revert.sql`. Una migrazione
+applicata non si riscrive: ogni correzione è una migrazione nuova. I tipi TypeScript sono **generati**
+(`npm run db:types`) in `app/src/adapters/supabase/database.types.ts`.
 
-**Questo modello resta una bozza in attesa di T08**: `trip_legs` e le colonne di nota sono la forma
-decisa dal modello di dominio di T04b, non uno schema approvato né una migrazione scritta.
+**Identità come tipi enumerati** (un secondo elenco delle union di letterali del dominio, tenuto uguale
+nei due versi da `typecheck`): `plant_id`, `badge_id`, `parameter_key`, `leg_direction`, `trip_status`,
+`match_request_status`, `resolved_by`. Nessuna tabella `plants`: gli stabilimenti sono un tipo.
 
-**RLS obbligatorie su ogni tabella.** Anche nell'MVP: un'app con RLS permissive insegna l'abitudine
-sbagliata, e la stessa struttura verrebbe portata in un pilota con dati veri.
-Il decremento di `seats_available` all'accettazione è un'operazione che non tollera race condition:
-va risolta nel DB (transazione o funzione), non nel client.
+| Tabella | Contenuto e vincoli | Lettura (`authenticated`) | Scrittura dall'app |
+|---|---|---|---|
+| `profiles` | `id` → `auth.users` (cascade), nome, plant | tutti | nessuna (T10) |
+| `trips` | owner → `profiles` (restrict), plant, `departure_at`/`return_at` `timestamptz` con `CHECK` al millisecondo, `has_car`, posti, stato; `CHECK` degli invarianti di `makeTrip`; `UNIQUE (id, owner_id)` | tutti | solo l'owner, upsert compreso |
+| `trip_legs` | **la tratta**: PK `(trip_id, direction)`, posti per tratta; `CHECK` `0 ≤ liberi ≤ totali` | tutti | nessuna: la scrivono il trigger e `adjust_leg_seats` |
+| `match_requests` | foreign key composta `(trip_id, direction) → trip_legs` (**restrict**), `(requester_trip_id, requester_id) → trips(id, owner_id)`, `UNIQUE (trip_id, direction, requester_id)`, note e `resolved_by` insieme o nessuno, `pending` senza risoluzione, `notes_shortened` (solo DB) | richiedente e owner della trasferta | i due attori, più un trigger sulla riga vecchia |
+| `personal_bests` | una riga per profilo, quattro metriche ≥ 0 | solo la propria | solo la propria: `raise_personal_bests`, ma le policy permettono anche `INSERT` e `UPDATE` diretti sulla propria riga; un trigger rifiuta qualunque scrittura che abbassi una metrica |
+| `parameters`, `plant_distances`, `badge_parameters` | parametri di prodotto (T07b), seed generato da `SEED_PARAMETERS` | tutti | nessuna: l'umano dalla dashboard |
+
+`anon`: nessuna policy, quindi **zero righe** ovunque (non un errore). **RLS attiva su ogni tabella**, anche
+nell'MVP: un'app con RLS permissive insegna l'abitudine sbagliata, e la stessa struttura verrebbe portata in
+un pilota con dati veri. Una scrittura negata è un errore (`42501`); una lettura negata è una riga assente.
+Fa eccezione una `UPDATE`/`DELETE` che la `USING` non lascia vedere: tocca zero righe senza errore.
+
+**Funzioni.** In `public`, perché l'app le chiama come rpc (PostgREST non esprime un aggiornamento relativo a
+una colonna né `GREATEST` in un upsert):
+- `adjust_leg_seats(trip_id, direction, delta)` — `security definer`. Il decremento di `seats_available`
+  è un unico `UPDATE … SET seats_available = seats_available + :delta WHERE … AND seats_available + :delta
+  BETWEEN 0 AND seats_total`, **atomico lato DB**. Esiti: la tratta aggiornata; **zero righe** se il
+  risultato esce da `[0, seats_total]`; `P0002` se la tratta non esiste; `42501` se chi chiama non è l'owner
+  né il richiedente di una candidatura `accepted` su quella tratta, o se il richiedente usa un delta diverso
+  da ±1. Ordine dei controlli: esistenza, identità, limiti.
+- `restore_system_rejected(trip_id, direction)` — `security definer`. Riporta a `pending` le candidature
+  rifiutate dal sistema su quella tratta, se ha posti liberi, e ne restituisce gli id. **Non controlla chi
+  chiama**: qualunque `authenticated` può lanciarla.
+- `raise_personal_bests(profile_id, …)` — `security invoker`, `INSERT … ON CONFLICT DO UPDATE` con
+  `GREATEST` per colonna, sotto le policy della propria riga.
+
+In `private` (schema non esposto, nessun privilegio per i ruoli dell'app): il trigger che **materializza le
+tratte** da `trips` (una con auto senza rientro, due con rientro, nessuna senza auto; contatore preservato;
+togliere una tratta con candidature è rifiutato dalla foreign key), il trigger di guardia di
+`match_requests` sulla riga vecchia, il trigger di monotonia dei massimi, il trigger su `notes.maxLength` e
+`lower_note_max_length(n)`, la procedura (solo `postgres`) per abbassare il limite delle note accorciandole e
+marcandole. Ogni funzione `security definer` ha `search_path` vuoto; `EXECUTE` è revocato a `public` e `anon`
+su tutte, e concesso ad `authenticated` solo sulle tre dell'app.
+
+**Cosa le RLS non possono fare**, dichiarato: migrazioni, seed e dashboard girano come `postgres` e le
+scavalcano, quindi gli invarianti che devono valere per chiunque sono vincoli (`CHECK`, `UNIQUE`, foreign
+key), non policy.
+
+**Rischio dichiarato per la demo.** Il richiedente di una candidatura `accepted` può chiamare
+`adjust_leg_seats` con +1 e −1 quante volte vuole finché la riga è `accepted`: in N chiamate può **gonfiare i
+posti fino a `seats_total` o azzerarli**. Il limite a ±1 impedisce solo il salto in un colpo. Il rimedio è
+cambiare stato e posti in un'operazione sola (voce di `IDEAS.md` «stato e posti in un'operazione sola»).
+
+**Fuori da T08:** `invite_codes` (il flusso d'accesso è di T10) e le candidature di tutti per il KPI
+aziendale (nessun utente le legge: vedi `IDEAS.md`).
+
+**Collaudo.** Le migrazioni si provano in `test:int` dentro transazioni annullate (revert + migrazioni in
+ordine, poi `ROLLBACK`); solo i test di concorrenza scrivono righe confermate, con utenti
+`@t08.test.invalid` ripuliti all'avvio e alla fine.
 
 ## Verifica — `npm run verify`
 

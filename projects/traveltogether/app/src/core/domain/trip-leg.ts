@@ -33,7 +33,7 @@ const LEG_KEY_SEPARATOR = '|';
  * Chiave canonica e deterministica di una tratta: `<tripId>|<direction>`.
  * Serve dove l'identita' composta deve stare in una stringa sola (Map, Set).
  *
- * Precondizione sul `tripId`: a T08 gli id sono `uuid`, quindi non contengono il
+ * Precondizione sul `tripId`: nello schema (T08) gli id sono `uuid`, quindi non contengono il
  * separatore. Con un id libero che lo contenesse la chiave resta comunque
  * iniettiva finche' le direzioni sono un insieme chiuso di parole in cui
  * nessuna e' suffisso dell'altra (il suffisso decide la direzione, il resto e'

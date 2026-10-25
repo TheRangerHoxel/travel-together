@@ -348,6 +348,12 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Costo** — M.
 - **Stato** — proposta
 - **Nota (25 ottobre 2026, dalla pianificazione di T08) — il prezzo ora ha anche un lato di sicurezza.** `adjust_leg_seats` deve autorizzare il **richiedente** di una candidatura `accepted` a fare +1, perché `cancelRequest` restituisce il posto prima di scrivere `cancelled`. Ma la funzione non sa *perché* viene chiamata: finché la sua riga è `accepted`, un client ostile può ripetere il +1 e gonfiare i posti liberi della tratta fino a `seats_total` (il `CHECK` lo ferma lì, non prima), così l'owner accetterebbe più passeggeri di quanti ne porta. È lo stesso difetto di questa voce visto da un altro lato: il delta non è legato al cambio di stato. Per la demo, su dati sintetici e con un APK firmato, è un rischio dichiarato; per un pilota con dati veri la forma giusta è quella di questa voce — stato e posti in un'operazione sola.
+- **Correzione (25 ottobre 2026, dalle review di T08) — il rischio è più largo del +1.** Lo schema applicato
+  limita il richiedente a **±1 per chiamata** (D1, scelta (a)), ma il limite è per chiamata, non per
+  candidatura: finché la riga è `accepted` il richiedente può ripetere **sia +1 sia −1**, quindi gonfiare
+  i posti fino a `seats_total` **o azzerarli** in N chiamate, bloccando l'offerta. La nota sopra diceva
+  solo il primo lato: un documento che prometteva meno rischio di quello che il codice permette. Il
+  rimedio resta questa voce.
 
 ### Vietare agli agenti di manipolare i file di testo via shell
 - **Cosa** — una regola operativa: i file si modificano con gli **strumenti di modifica**, non con comandi di shell. In particolare, negli script PowerShell non si usano nomi di variabile o di comando di **una sola lettera**, e non si fanno round-trip di lettura/riscrittura di un file di testo.
@@ -686,5 +692,20 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Cosa** — documentare (o decidere) cosa accade cancellando dalla dashboard un utente con trasferte: `profiles → auth.users ON DELETE CASCADE` e `trips → profiles RESTRICT` fanno fallire la cancellazione.
 - **Perché** — dalla review intermedia di T08. È un comportamento sicuro, ma chi gestisce gli inviti in T10 lo scoprirebbe come un errore grezzo.
 - **Impatto** — una nota su T10, eventualmente una procedura.
+- **Costo** — XS.
+- **Stato** — proposta
+
+
+### Il freno sugli helper che confermano si aggira da `support/`
+- **Cosa** — estendere la `no-restricted-imports` di `tests/integration/**` a `'./db'` (o vietare l'import di `apriConfermabile` / `inTransazioneConfermata` a tutto `tests/integration/support/**` tranne `db.ts`), e coprire l'`import()` dinamico.
+- **Perché** — dalla review finale di T08 (R-a): un file di `support/` può importarli da `'./db'` e riesportarli, e il pattern `**/support/db` non lo vede. Oggi nessun file lo fa. Il rischio è quello che la regola esiste per fermare: un `applicaSchema` confermato ricreerebbe lo schema di staging.
+- **Impatto** — `app/eslint.config.js`, una sonda.
+- **Costo** — XS.
+- **Stato** — proposta
+
+### Il test sul lock può contare il backend sbagliato
+- **Cosa** — in `aspettaUnBackendInAttesaDiLock`, filtrare per **pid**: leggere `pg_backend_pid()` sulla connessione di B prima della sua UPDATE, poi `where pid = … and wait_event_type = 'Lock'`.
+- **Perché** — dalla review finale di T08 (R-b): oggi il filtro è `query like '%adjust_leg_seats%'`, e un secondo run dall'altra macchina in contemporanea darebbe un falso positivo. Rischio basso, resta anche il controllo a tempo.
+- **Impatto** — `tests/integration/concorrenza.test.ts`.
 - **Costo** — XS.
 - **Stato** — proposta
