@@ -3957,3 +3957,226 @@ sono inclusi. Il primo `rg` lo diceva, il secondo no.
 
 Il reviewer è stato un agente generico con le istruzioni di `reviewer.md`, su modello forte, senza
 modificare file: il tipo `reviewer` non è caricato in questa sessione.
+
+
+---
+
+## 2026-10-25 — T07g · pianificazione
+
+Nessun codice. Il planner ha toccato **solo** `TASKS.md` (criteri di T07g), `IDEAS.md` (tre voci) e
+questa voce. Letti prima: i sei port, i cinque adapter memory, `repository-contract.ts`,
+`memory.contract.test.ts`, `memory-trip-repository.test.ts`, `request-test-fakes.ts`, i validatori di
+dominio e gli usecase che leggono liste (`leg-system-transitions`, `refresh-personal-bests`) o agiscono
+per conto di un attore (`request-seat`, `accept-request`, `reject-request`, `cancel-request`).
+
+**Un fatto che semplifica tutto:** nessun usecase usa gli adapter memory, perché i test di `core/` passano
+dai fake di `request-test-fakes.ts`. Quindi le policy in RAM non possono rompere un solo test di usecase:
+il raggio del task è la suite di contratto, i test specifici di memory e i quattro adapter.
+
+### I criteri, riletti: sette correzioni e un'aggiunta
+
+**La causa comune:** tre criteri sono stati scritti **prima** del modello a tratte e di T07f, e quello
+sull'identità non diceva **quali** operazioni rifiutare. Su metà delle tabelle T08 non ha ancora deciso.
+
+- **Il primo era insoddisfacibile.** *"I file che già lo usano restano verdi senza essere modificati"*:
+  l'unico file che usa `AmbienteDiContratto` è `memory.contract.test.ts`, che lo **implementa**, e un
+  membro obbligatorio lo costringe a cambiare. L'unico modo di soddisfarlo alla lettera era renderli
+  opzionali, e a T09 un ambiente senza guasto avrebbe saltato il test **in verde**. L'additività ora si
+  prova sulle asserzioni, con un comando: `git diff -U0 b118678 -- …/repository-contract.ts | rg
+  "^-.*expect"` restituisce una riga sola, quella elencata.
+- **Il caso concreto delle liste era scritto sul modello di prima di T04b.** *"Una riga con
+  `seatsTotal: 2` e `seatsAvailable: 5` diventa un'offerta con cinque posti"* era vero quando i posti
+  venivano da `Trip`. Oggi `listOpenOffers` li legge dalla **tratta**, e una trasferta grezza 2/5 senza
+  tratte non produce nessuna offerta: il test scritto alla lettera sarebbe stato **verde senza toccare
+  l'adapter**. Il caso vero è la tratta 2/5 sotto una trasferta valida, che oggi diventa davvero
+  un'offerta con cinque posti.
+- **"Ogni lettura"** comprendeva letture di tipi senza validatore (`Profile`, `PersonalBests`), dove non
+  c'è niente da omettere, e taceva su `findByLegAndRequester`, lettura singola che oggi non valida.
+- **L'unicità delle candidature non era vera nemmeno come dichiarazione.** La voce di `IDEAS.md` la
+  attribuiva all'upsert per id, che non impedisce **due id** sulla stessa (tratta, richiedente): l'adapter
+  memory oggi li accetta entrambi. Per verificarla serve che `save` la rifiuti, e il doc lo dichiari.
+- **Il guasto:** quindici metodi contati e nominati, più lo **storage intatto** sulle quattro scritture,
+  senza cui passerebbe un adapter che scrive e poi riporta l'errore.
+- **I commenti sull'omissione:** resi verificabili con due `rg`, con il perimetro dichiarato.
+- **L'identità:** la tabella di cosa si rifiuta, cosa si filtra e cosa no, il modo del rifiuto, i due test
+  esistenti che cambiano e la sonda che dimostra i denti. Dettaglio sotto.
+- **Aggiunto:** criteri corrispondenti su T08 e T09.
+
+### L'identità: quali operazioni, e in che modo
+
+**Oggi nessun test di contratto agisce con l'identità sbagliata.** L'ho verificato test per test: N1 di
+T07e era l'unico, ed è chiuso. Il valore del criterio è quindi **prospettico**: i ~40 test nuovi di questo
+task, e quelli di dopo. Due fixture però sarebbero rosse a T09 per la stessa **classe** di difetto:
+`unaCandidatura` usa `requesterTripId: trip-di-${id}`, una trasferta che non esiste (foreign key), e
+*"requesterTripId sopravvive"* usa il letterale `'trasferta-del-richiedente'` (non è un uuid, e non è
+una trasferta del richiedente). Con la policy su `requester_trip_id` imposta in RAM diventano rosse
+**su memory**: è il criterio che funziona, e le si corregge nominandole.
+
+**Il modo del rifiuto non è uno solo, perché Postgres non ne ha uno solo.** Una scrittura negata da una
+policy è un **errore** (`WITH CHECK`, e anche il ramo `DO UPDATE` di un upsert su una riga che la policy
+non lascia aggiornare). Una lettura negata **non lo è**: la riga semplicemente non c'è. Un adapter in RAM
+che rispondesse con un errore anche in lettura pretenderebbe da Supabase ciò che non può dare, e a T09 la
+suite andrebbe adattata. Quindi: scritture → `storage-unavailable`, che `RepositoryError` prescrive già
+per *"permessi negati, RLS che blocca"*; letture → `not-found`, omissione, `null`, zeri.
+
+**Un difetto trovato sulla strada, ed è il più serio della pianificazione.** `cancelRequest` gira con
+l'identità del **richiedente**, e quando restituisce un posto chiama `restoreSystemRejected`: `listByLeg`
+sulla tratta dell'owner, poi una `save` per ogni riga rifiutata dal sistema, cioè su righe di **altri**
+richiedenti. E chiama `adjustLegSeats(+1)` sulla tratta dell'owner. Con la policy dei due attori scritta
+su T08 la `save` sarebbe vietata; con la lettura delle candidature ristretta a richiedente e owner,
+`listByLeg` vedrebbe solo la riga del richiedente, e il reintegro tornerebbe **`ok([])` in silenzio**:
+l'annullamento riesce e gli altri restano rifiutati per sempre. I test di usecase non possono vederlo,
+perché i fake non hanno identità. Non lo risolve T07g, che **non impone** `adjustLegSeats` e non esegue
+usecase in RAM: diventa un criterio di T08 (*"deciso chi esegue il reintegro e l'incremento"*), le cui
+vie naturali sono una funzione lato DB o una policy dedicata alle transizioni `system`.
+
+### Il piano, in cinque step
+
+Ordine **diverso** da quello dei criteri: l'identità per prima, così i test nuovi degli step 2–4 nascono
+**sotto** la rete che li controlla. Scriverli prima vorrebbe dire produrre quaranta test fuori dalla rete
+che il task esiste per mettere.
+
+Ordine dei controlli in ogni scrittura in RAM: **validazione → guasto → identità → unicità**. A T09 la
+validazione è locale e precede la rete; il resto lo fa il DB. Nelle letture: guasto → filtro d'identità →
+validazione.
+
+**Step 1 — Condizioni in RAM e identità.**
+- Deve esistere in `adapters/memory` un modulo con lo **stato mutabile condiviso** dell'ambiente
+  (`identità: ProfileId | null`, più il guasto che lo step 2 accende), iniettato come parametro
+  **opzionale** nei costruttori di `MemoryTripRepository`, `MemoryMatchRequestRepository` (che riceve
+  anche il `TripRepository`, per sapere di chi è una trasferta: stesso precedente della join sui profili)
+  e `MemoryPersonalBestsRepository`. Assente = nessuna policy, il comportamento di oggi.
+  `memory.contract.test.ts` lo crea, lo passa, e `comeUtente` lo scrive.
+- Le policy della tabella del criterio di `TASKS.md`, e nient'altro.
+- Test nuovi in `repository-contract.ts`, uno per regola, ciascuno con l'esito e lo storage dopo:
+  trasferta con `ownerId` altrui; dirottamento di un id esistente di un altro; candidatura creata da chi
+  non è il richiedente; `accepted` scritto dal richiedente; chiusura da un terzo; `requesterTripId` di
+  un'altra persona e inesistente; `raise` per un altro profilo (la sua riga resta intatta);
+  `findByProfile` di un altro che ha una riga → zeri; le quattro letture delle candidature da un
+  estraneo. A T09 questi test girano contro le RLS vere: sono **i test di integrazione delle policy di
+  T08, gratis**.
+- Fixture: `unaCandidatura` punta a una trasferta vera del richiedente, salvata da lui nel `beforeEach`
+  del blocco, che poi **restituisce l'identità a `owner`** (i test esistenti ereditano quella);
+  `candidaturaDi` crea quella di un altro richiedente quando serve. *"requesterTripId sopravvive"* usa
+  una seconda trasferta vera, **distinta** dalla default (lezione 4: fixture che non distinguono).
+- Commenti: l'intestazione di `repository-contract.ts` e il doc di `comeUtente` (*"In RAM è un no-op"*),
+  e il commento in `memory.contract.test.ts`, oggi falsi.
+- **Sonde, tutte possono fallire:** togliere `comeUtente(altro)` da *"due profili hanno massimi
+  indipendenti"* (è N1 di T07e: prima verde, ora deve essere rosso — **la sonda del criterio**); togliere
+  `comeUtente(owner)` prima del rifiuto in *"note e resolvedBy"*; togliere `comeUtente(altro)` in
+  *"listByOwner ritorna solo…"*; nell'adapter, togliere il controllo sull'owner **esistente** in
+  `trips.save` (cade il dirottamento) e quello su `requesterTripId`. **Da non chiedere:** sonde su
+  `adjustLegSeats`, che non è imposto: esito noto, non cade niente.
+- File: modulo nuovo in `adapters/memory`, `memory-trip-repository.ts`,
+  `memory-match-request-repository.ts`, `memory-personal-bests-repository.ts`, `memory.contract.test.ts`,
+  `repository-contract.ts`.
+- Chiude con `verify` verde, con le sole due modifiche di fixture elencate.
+
+**Step 2 — Il guasto.**
+- `guasta()` / `ripristina()` obbligatori in `AmbienteDiContratto`; `pulisci()` ripristina. In RAM il
+  flag nello stato condiviso, controllato in testa a **ognuno** dei quindici metodi.
+  `MemoryProfileRepository` riceve lo stato anche lui.
+- Test di contratto a tabella, una riga per metodo, `kind` asserito; per le quattro scritture, dopo
+  `ripristina()`, la rilettura mostra lo stato di prima.
+- **Sonde che possono fallire:** togliere il controllo da `trips.findById`, `listByOwner`, `findLeg`,
+  `adjustLegSeats`, `profiles.listByIds`, `personalBests.findByProfile` (cade la riga sua); spostarlo
+  **dopo** la scrittura in `trips.save` (cade lo storage intatto); `ripristina` vuota (cade la rilettura).
+  **Innocue per costruzione, da non chiedere:** togliere il controllo da `listOpenOffers`, perché chiama
+  `profiles.listByIds`, che restituisce lo stesso errore; e dai cinque metodi di
+  `MatchRequestRepository`, il cui filtro d'identità legge le trasferte sotto lo stesso guasto. Il
+  contratto osservabile è soddisfatto in entrambi i modi; la sonda non misurerebbe niente.
+- File: `repository-contract.ts`, `memory.contract.test.ts`, i cinque adapter memory toccati.
+- Chiude verde. Nessuna asserzione esistente cambia.
+
+**Step 3 — Le letture validano.**
+- `listByOwner` e `listOpenOffers` omettono la trasferta che `makeTrip` rifiuta e la tratta che
+  `makeTripLeg` rifiuta; `listByLeg` e `listByRequester` la candidatura che
+  `validateMatchRequestStructure` rifiuta (solo struttura: il limite delle note vale in scrittura, come
+  in `findById`); `findByLegAndRequester` torna `invalid-record`.
+- Test: in `memory-trip-repository.test.ts` la tratta 2/5 sotto una trasferta valida, la trasferta
+  riscritta invalida sopra tratte valide, `listByOwner` con una riga invalida, ciascuno con una riga
+  sana seminata allo stesso modo che resta. In `repository-contract.ts`, con `seminaCandidaturaGrezza`,
+  le due liste e `findByLegAndRequester`, letti con un'identità che **vede** la riga, con la sana
+  accanto.
+- Doc: `repository-error.ts` (`invalid-record` vale anche per le liste, in forma di omissione),
+  `trip-repository.ts`, `match-request-repository.ts`. Ogni omissione col suo commento sul canale.
+- **Sonde, tutte possono fallire:** togliere la validazione da ciascuna delle cinque letture (cade il
+  suo test); omettere **tutto** (cade il controllo positivo).
+- File: `memory-trip-repository.ts`, `memory-match-request-repository.ts`, i tre doc di port,
+  `memory-trip-repository.test.ts`, `repository-contract.ts`.
+- Chiude verde. I due `rg` del criterio.
+
+**Step 4 — Unicità.**
+- Doc di `MatchRequestRepository.save`: un secondo id sulla stessa (tratta, richiedente) è
+  `invalid-record`, storage intatto; lo stesso id resta upsert. Il controllo in RAM guarda **tutte** le
+  righe, non solo quelle visibili all'identità, come un indice unico.
+- Test di contratto del criterio, con l'identità giusta, così il `kind` dice che il rifiuto è per
+  unicità e non per identità.
+- **Sonde che possono fallire:** togliere il controllo (cade il rifiuto); restringere la coppia a
+  `(tripId, requesterId)`, senza la direzione (cade *"due candidature dello stesso collega sulle due
+  tratte"*, test esistente); confrontare anche l'id (cade il rifiuto); ripetere una direzione nel ciclo
+  di `listOpenOffers` (cade l'unicità delle offerte).
+- File: `match-request-repository.ts`, `memory-match-request-repository.ts`, `repository-error.ts`,
+  `repository-contract.ts`.
+- Chiude verde.
+
+**Step 5 — Criteri a valle e documenti.** Li scrive l'orchestratore, non il developer: sono criteri.
+- `TASKS.md`: i criteri corrispondenti su T08 e T09 elencati nell'ultimo criterio di T07g.
+- `ARCHITECTURE.md`, § Modello dati (bozza): `match_requests` con l'unicità (tratta, richiedente).
+
+Stima: una quarantina di test nuovi su 488, **dichiarata come stima**. Il costo sale da M a **M pieno**:
+più file del previsto, nessun file grande.
+
+### Le decisioni prese qui, con l'alternativa scartata
+
+- **Identità prima di tutto il resto.** Scartato l'ordine dei criteri: test scritti fuori dalla rete.
+- **Stato condiviso mutabile iniettato**, come `limiteNote`. Scartati un setter per adapter (quattro punti
+  da tenere allineati) e l'identità letta da `MemorySessionGateway` (accoppia due port che su Supabase
+  condividono il client, non il contratto).
+- **Parametro opzionale; assente = nessuna policy.** Scartato obbligatorio: costringerebbe
+  `memory-trip-repository.test.ts` a gestire un'identità estranea a ciò che prova. I denti stanno nei test
+  negativi di contratto, rossi se l'ambiente non cabla lo stato.
+- **In RAM solo le policy scritte su T08, più la lettura delle candidature.** Scartato imporre anche la
+  lettura delle trasferte: deciderebbe in un adapter di test una policy che T08 non ha scritto.
+- **Letture negate come filtro, non come errore.** Scartato l'errore: Postgres non lo produce.
+- **Le liste di trasferte e tratte testate in `memory-trip-repository.test.ts`.** Scartati due hook nuovi
+  di semina grezza nell'ambiente: a T09 non sarebbero realizzabili sotto i CHECK, e un test che non può
+  girare fallisce, cioè la suite andrebbe adattata.
+- **Validazione → guasto → identità → unicità.** Scartato il guasto per primo: a T09 la validazione è
+  locale.
+- **`pulisci` ripristina il guasto.** Scartato un `try/finally` in ogni test: affiderebbe a ciascun test
+  la pulizia di staging.
+
+### Le decisioni che spetterebbero all'umano, con la mia raccomandazione (applicata per delega)
+
+- **Nessun `RepositoryError` nuovo per il rifiuto d'identità: è `storage-unavailable`.** Nessuna firma di
+  port cambia; cambiano solo i costruttori degli adapter memory, che non sono port. Raccomando così perché
+  il doc lo prescrive già, e perché i denti del criterio vengono dai test rossi, non dal `kind`. Scartato
+  un `forbidden`: è un ⛔ sul contratto, tocca ogni consumatore, e oggi non aggiunge niente. Il prezzo,
+  che *"non autorizzato"* e *"rete giù"* coincidano, è una voce di `IDEAS.md`.
+- **Il secondo id sulla stessa coppia è `invalid-record`, con il doc esteso.** Scartato un `conflict`:
+  ⛔ per lo stesso motivo; e `storage-unavailable` sarebbe falso, perché ritentare non serve.
+- **`findByLegAndRequester` valida e torna `invalid-record`.** Stringe il contratto di una lettura.
+  Scartato `null`: `requestSeat` crederebbe che il collega non si sia candidato e ne creerebbe un'altra.
+- **La tabella delle policy in RAM diventa vincolante per T08**, compresa la lettura delle candidature
+  che T08 non ha scritto per esteso. Raccomandata, perché la suite la segue già per convenzione in ogni
+  test, e perché le note sono dati personali.
+
+### Fuori da T07g, per non farlo cercare
+
+- La sessione di `MemorySessionGateway` e l'identità dell'ambiente restano **separate** in RAM, mentre su
+  Supabase `comeUtente` farà un sign-in vero, visibile anche a `currentSession`. Nessun test di contratto
+  dipende da questa differenza.
+- La voce *"La suite di contratto non pinna `listByLeg` su una tratta inesistente"* resta una proposta,
+  benché tocchi lo stesso file: non è fra le tre portate dentro.
+- I fake di `request-test-fakes.ts` non acquisiscono né identità né validazione: non sono adapter.
+
+### Tre voci nuove in `IDEAS.md`, dal planner
+
+Il rifiuto RLS e il guasto di rete che arrivano come lo stesso `storage-unavailable`; `Profile` e
+`PersonalBests` senza un validatore di dominio; `gateway-unavailable` mai prodotto né asserito. Il
+conflitto di `cancelRequest` e la compatibilità fra i CHECK e `seminaCandidaturaGrezza` **non** sono voci:
+sono criteri di T08 dello step 5, perché la policy che li rende visibili la scrive questo task.
+
+**Prossimo passo:** review del piano, poi developer sullo Step 1, con le sonde **scritte nel brief**,
+comprese quelle da non chiedere e il perché.

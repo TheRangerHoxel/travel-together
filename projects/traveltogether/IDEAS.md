@@ -529,3 +529,24 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — solo il modo di scrivere i criteri in `TASKS.md`; eventualmente una riga in `CLAUDE.md` del progetto. Nessun codice.
 - **Costo** — XS.
 - **Stato** — proposta
+
+### Un rifiuto RLS e un guasto di rete arrivano come lo stesso `storage-unavailable`
+- **Cosa** — decidere se una scrittura **negata** dalle policy debba essere distinguibile da uno storage che non risponde: un `kind` dedicato in `RepositoryError`, oppure un `detail` normato, oppure niente e lo si dichiara.
+- **Perché** — scoperto pianificando T07g. Il doc di `RepositoryError` mette già insieme *"rete giù, permessi negati, RLS che blocca"*, e T07g lo pinna nella suite di contratto: in RAM una scrittura su dati altrui torna `storage-unavailable`, e a T09 lo farà l'adapter Supabase. Per un usecase e per la UI vuol dire che *"non sei autorizzato"* e *"riprova più tardi"* sono lo stesso messaggio, e un difetto di autorizzazione in demo si presenterebbe come un problema di rete da ritentare. È la metà in scrittura della voce *"Una lettura negata dalle RLS sarà indistinguibile da «nessun massimo»"*, che riguarda la lettura.
+- **Impatto** — `core/ports/repository-error.ts` (un `kind` in più **rompe il contratto**: ⛔), gli adapter, la suite di contratto, gli usecase che mappano `storage-unavailable`. Reversibile. Nessun effetto se la decisione è dichiarare.
+- **Costo** — XS per dichiarare, S per un `kind` nuovo.
+- **Stato** — proposta
+
+### `Profile` e `PersonalBests` non hanno un validatore di dominio
+- **Cosa** — un costruttore validante per `Profile` (plant fra i `PlantId`, nome non vuoto) e uno per `PersonalBests` (interi non negativi), invocati dagli adapter in lettura come `makeTrip` e `validateMatchRequestStructure`.
+- **Perché** — scoperto pianificando T07g. Il criterio *"ciò che attraversa un port è valido"* si può verificare solo dove esiste un validatore: per `ProfileRepository` e `PersonalBestsRepository` non c'è niente da omettere né da rifiutare, quindi una riga corrotta (un massimo negativo, un plant che non esiste più) entra nel dominio senza resistenza. Il massimo negativo è innocuo per `awardBadges`, che ha soglie `>= 1`; un `plantId` sconosciuto in `listByIds` finisce nel punteggio di T03 attraverso `ownerPlantId`.
+- **Impatto** — `core/domain` (due funzioni nuove, additive), gli adapter memory e Supabase, test specifici. Nessuna firma di port cambia. A T08 i CHECK potrebbero coprire lo stesso, e allora il ramo su Postgres resta difensivo.
+- **Costo** — S.
+- **Stato** — proposta
+
+### `gateway-unavailable` non è prodotto né asserito da nessun test
+- **Cosa** — un test di contratto che eserciti `gateway-unavailable` su `signInWithInviteCode`, `currentSession` e `signOut`, con lo stesso `guasta()` / `ripristina()` dell'ambiente.
+- **Perché** — scoperto pianificando T07g, ed è la stessa ragione per cui T07g esiste, su un altro port: l'errore è dichiarato nel tipo di `SessionError` e nessun codice lo produce, quindi non sappiamo se i due adapter lo tratterebbero allo stesso modo. È il primo schermo della demo (T10), cioè il punto in cui un proxy aziendale si farebbe vedere per primo. T07g lo lascia fuori perché il suo criterio parla di `storage-unavailable`.
+- **Impatto** — `adapters/memory/memory-session-gateway.ts`, la suite di contratto, l'ambiente. Additivo, nessuna firma cambia.
+- **Costo** — S.
+- **Stato** — proposta
