@@ -1,8 +1,8 @@
-// Assegnazione dei badge. Le soglie qui sono FIXTURE diverse da quelle di produzione
-// (2, 3, 4 / 2, 3, 500): un valore di produzione hardcoded nel core non passerebbe.
+// Assegnazione dei badge. Soglie ed etichette qui sono FIXTURE diverse da quelle del
+// seed (2, 3, 4 / 2, 3, 500): un valore compilato nel core non passerebbe.
 
 import type { BadgeId, LegDirection, MatchRequest, Trip } from '../domain';
-import { BADGE_IDS } from '../domain';
+import { BADGE_IDS, FORBIDDEN_BADGE_WORDS, isValidBadgeLabel } from '../domain';
 import { utc } from '../domain/instant-fixture';
 import { awardBadges, BADGE_CATALOG } from './award-badges';
 import type { BadgeConfig } from './badge-config';
@@ -17,6 +17,14 @@ const CONFIG: BadgeConfig = {
     'primo-passaggio': 2,
     'cinque-colleghi': 3,
     'mille-km': 500,
+  },
+  labels: {
+    'primo-viaggio': 'Fixture: prima tappa',
+    'cinque-viaggi': 'Fixture: seconda tappa',
+    'dieci-viaggi': 'Fixture: terza tappa',
+    'primo-passaggio': 'Fixture: primo giro',
+    'cinque-colleghi': 'Fixture: compagnia',
+    'mille-km': 'Fixture: strada',
   },
 };
 
@@ -83,6 +91,7 @@ describe('la soglia segue il parametro, non una costante', () => {
 
   it('con soglie ridotte a 1 le stesse statistiche assegnano di piu\'', () => {
     const reduced: BadgeConfig = {
+      ...CONFIG,
       thresholds: {
         'primo-viaggio': 1,
         'cinque-viaggi': 1,
@@ -98,6 +107,7 @@ describe('la soglia segue il parametro, non una costante', () => {
 
   it('con soglie alzate le stesse statistiche non assegnano', () => {
     const raised: BadgeConfig = {
+      ...CONFIG,
       thresholds: { ...CONFIG.thresholds, 'primo-viaggio': 3, 'primo-passaggio': 3 },
     };
     expect(ids({ ...ZERO, sharedTrips: 2, sharedLegs: 2 })).toEqual(['primo-viaggio', 'primo-passaggio']);
@@ -124,6 +134,7 @@ describe('idempotenza', () => {
 describe('config non valida: errore tipizzato', () => {
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])('soglia %s', (bad) => {
     const result = awardBadges(ZERO, {
+      ...CONFIG,
       thresholds: { ...CONFIG.thresholds, 'mille-km': bad },
     });
     expect(result).toEqual({ ok: false, error: { kind: 'invalid-config', badgeId: 'mille-km' } });
@@ -134,53 +145,87 @@ describe('simbolici: nessun premio, nessun denaro, nessun buono', () => {
   // Welfare e buoni sono fuori scope per decisione dell'umano (PRD). Un testo che li
   // promette e' una promessa che il prodotto non puo' mantenere, e in demo qualcuno
   // la prenderebbe sul serio. Il test ispeziona i TESTI mostrati, non la logica.
-  const FORBIDDEN = [
-    'premi',
-    'buon',
-    'euro',
-    '€',
-    'denaro',
-    'soldi',
-    'sconto',
-    'scont',
-    'voucher',
-    'regalo',
-    'regali',
-    'bonus',
-    'rimbors',
-    'ricompensa',
-    'gratis',
-    'coupon',
-    // Aggiunte dopo un rilievo del reviewer su T07, verificato ESEGUENDO il predicato:
-    // senza queste due, "Ticket restaurant" e "Welfare aziendale" passavano il controllo.
-    // Sono i due termini italiani piu' probabili per promettere proprio cio' che il PRD
-    // mette fuori scope — "ticket" e' il nome corrente del buono pasto, e il welfare e'
-    // escluso per decisione dell'umano — cioe' i due che un'etichetta scritta in fretta
-    // userebbe. Le altre quattordici intercettavano 11 etichette avvelenate su 12.
-    'ticket',
-    'welfare',
-  ];
+  //
+  // La lista delle parole vietate e' una sola (domain/badge-label.ts) e si importa:
+  // qui non se ne tiene una copia.
+  const STATS_ALTE: PersonalStats = {
+    ...ZERO,
+    sharedTrips: 99,
+    sharedLegs: 99,
+    transportedColleagues: 99,
+    sharedKm: 99999,
+  };
 
-  it('nessuna etichetta del catalogo contiene una parola vietata', () => {
+  it('nessuna etichetta della config contiene una parola vietata', () => {
     for (const id of BADGE_IDS) {
-      const label = BADGE_CATALOG[id].label.toLowerCase();
-      for (const word of FORBIDDEN) {
+      const label = CONFIG.labels[id].toLowerCase();
+      for (const word of FORBIDDEN_BADGE_WORDS) {
         expect({ id, word, found: label.includes(word) }).toEqual({ id, word, found: false });
       }
     }
   });
 
   it('nessun badge assegnato ha un\'etichetta vuota o vietata', () => {
-    const result = awardBadges(
-      { ...ZERO, sharedTrips: 99, sharedLegs: 99, transportedColleagues: 99, sharedKm: 99999 },
-      CONFIG
-    );
+    const result = awardBadges(STATS_ALTE, CONFIG);
     if (!result.ok) throw new Error('atteso ok');
     expect(result.value).toHaveLength(BADGE_IDS.length);
     for (const badge of result.value) {
       expect(badge.label.trim()).not.toBe('');
-      for (const word of FORBIDDEN) expect(badge.label.toLowerCase()).not.toContain(word);
+      for (const word of FORBIDDEN_BADGE_WORDS) expect(badge.label.toLowerCase()).not.toContain(word);
     }
+  });
+
+  it('il testo del badge e\' quello della config, per ogni badge', () => {
+    const result = awardBadges(STATS_ALTE, CONFIG);
+    if (!result.ok) throw new Error('atteso ok');
+    expect(result.value).toEqual(BADGE_IDS.map((id) => ({ id, label: CONFIG.labels[id] })));
+  });
+
+  // Le sedici parole del criterio di T07b, ognuna dentro un'etichetta scritta come la
+  // scriverebbe qualcuno in fretta. Il criterio elenca i PLURALI (premi, buoni,
+  // sconti, regali, rimborsi, ricompense): con la vecchia radice 'ricompensa',
+  // "Ricompense per te" passava il controllo.
+  const ETICHETTE_VIETATE = [
+    'Premi per i viaggiatori',
+    'Buoni pasto',
+    'Dieci euro risparmiati',
+    'Risparmio in €',
+    'Denaro in tasca',
+    'Soldi risparmiati',
+    'Sconti per te',
+    'Il tuo Voucher',
+    'Regali dai colleghi',
+    'Bonus viaggio',
+    'Rimborsi garantiti',
+    'Ricompense per te',
+    'Viaggio gratis',
+    'Coupon del mese',
+    'Ticket restaurant',
+    'Welfare aziendale',
+  ];
+
+  it('la tabella ha sedici etichette', () => {
+    expect(ETICHETTE_VIETATE).toHaveLength(16);
+  });
+
+  it.each(ETICHETTE_VIETATE)('"%s": il predicato la rifiuta e awardBadges ritorna invalid-config', (label) => {
+    expect(isValidBadgeLabel(label)).toBe(false);
+
+    const result = awardBadges(ZERO, {
+      ...CONFIG,
+      labels: { ...CONFIG.labels, 'cinque-colleghi': label },
+    });
+
+    expect(result).toEqual({ ok: false, error: { kind: 'invalid-config', badgeId: 'cinque-colleghi' } });
+  });
+
+  it.each(['', '   '])('l\'etichetta %j (vuota) e\' rifiutata con invalid-config', (label) => {
+    const result = awardBadges(ZERO, {
+      ...CONFIG,
+      labels: { ...CONFIG.labels, 'primo-viaggio': label },
+    });
+
+    expect(result).toEqual({ ok: false, error: { kind: 'invalid-config', badgeId: 'primo-viaggio' } });
   });
 });
 
@@ -229,6 +274,7 @@ describe('end-to-end: dai dati alle statistiche ai badge', () => {
     const stats = computePersonalStats(profileId, trips, requests, DISTANCES);
     if (!stats.ok) throw new Error(`stats: ${JSON.stringify(stats.error)}`);
     return ids(stats.value, {
+      ...CONFIG,
       thresholds: { ...CONFIG.thresholds, 'primo-viaggio': 1, 'primo-passaggio': 1 },
     });
   }

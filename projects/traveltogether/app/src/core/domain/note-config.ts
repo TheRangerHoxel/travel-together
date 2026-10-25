@@ -2,8 +2,8 @@
 //
 // Il TIPO sta in domain/ e non in usecases/ (a differenza di MatchConfig) perche'
 // la validazione della nota vive nel costruttore di dominio makeMatchRequest, e
-// domain/ puo' importare solo domain/. I VALORI stanno in src/config/notes.ts; il
-// legame fra le due meta' e' core/usecases/note-config.test.ts.
+// domain/ puo' importare solo domain/. Il VALORE e' un parametro (chiave
+// `notes.maxLength`), validato da parseParameters con isValidNoteMaxLength.
 
 export interface NoteConfig {
   /**

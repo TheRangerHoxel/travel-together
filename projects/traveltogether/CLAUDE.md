@@ -37,8 +37,11 @@ proponi l'interfaccia, non la scorciatoia.
 - Gli stati sono union di letterali, non `string`.
 - Gli errori di dominio sono **tipi di ritorno**, non eccezioni: un usecase che può fallire lo dichiara
   nella firma.
-- Niente valori magici nella logica: soglie, costi, tolleranze e distanze stanno in `config/`.
-  Un KPI che cambia modificando `config` è la prova che non è hardcoded.
+- Niente valori magici nella logica: soglie, costi, tolleranze, distanze ed etichette dei badge sono
+  **parametri** (T07b), letti a runtime dal port `ParameterRepository` e validati al confine da
+  `parseParameters`. `config/` ne contiene solo il **seed** (`SEED_PARAMETERS`), che i test
+  scrivono nell'ambiente memory e che genererà la migrazione di T08: **mai un valore di default a runtime**. Un KPI che cambia cambiando
+  un parametro è la prova che non è hardcoded.
 - Nomi di dominio in inglese nel codice (`Trip`, `SeatOffer`), testi utente in italiano.
 
 ## Test
@@ -52,8 +55,9 @@ proponi l'interfaccia, non la scorciatoia.
 
 ## Dati e sicurezza
 
-- Chiavi Supabase, codice invito e parametri di `config` arrivano da `.env`, iniettati. **Mai nel codice**,
-  nemmeno nei test, nei commenti o nei file di esempio.
+- Chiavi Supabase e codice invito arrivano da `.env`, iniettati. **Mai nel codice**, nemmeno nei test,
+  nei commenti o nei file di esempio. I parametri di prodotto **non** sono segreti e non stanno in
+  `.env`: stanno nelle tabelle dei parametri (T07b, T08).
 - `.env.example` elenca i nomi delle variabili con valori finti.
 - **RLS attiva su ogni tabella**, anche nella demo: una struttura con RLS permissive verrebbe portata
   così com'è in un eventuale pilota con dati veri.

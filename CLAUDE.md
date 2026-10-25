@@ -126,6 +126,13 @@ finisce, o una sveglia programmata **prima**. Un limite di sessione interrompe i
 riprova**, perché il reset non è un evento che qualcuno ascolta. L'interruzione non si può rendere
 impossibile: si rende **economica**.
 
+- **All'inizio di ogni sessione di loop si arma un heartbeat** (`CronCreate`, ricorrente, ogni 15
+  minuti su minuti non tondi). Scatta solo a sessione inattiva: se trova un subagent fermato da un limite
+  di utilizzo lo fa ripartire con `SendMessage`, se il loop è fermo senza una domanda all'umano in
+  sospeso esegue il passo successivo, altrimenti non fa niente. È il risveglio che il reset del limite
+  non dà da solo. **Limiti dichiarati:** l'heartbeat vive quanto il processo di Claude Code — se la
+  finestra viene chiusa, la ripresa resta manuale — e **scade da solo dopo 7 giorni**: una sessione più
+  lunga lo riarma (`CronList` per controllare che ci sia). Non scavalca i checkpoint ⛔.
 - **Il lavoro approvato si committa subito.** Un task verde e approvato dal reviewer **non** resta nel
   working tree mentre si fa altro: è l'unica cosa che un'interruzione può distruggere. Con questa
   regola si perde al massimo un giro di review in corso, che si rifà.

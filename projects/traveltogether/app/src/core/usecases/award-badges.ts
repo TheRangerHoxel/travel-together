@@ -17,11 +17,13 @@
 // la metrica a soglia-1 non c'e', a soglia c'e', a soglia+1 c'e' ancora (una volta).
 //
 // SIMBOLICI: nessun testo promette premi, denaro o buoni (CLAUDE.md di progetto).
-// Un test ispeziona le etichette. Le etichette NON citano le soglie in numeri: la
-// soglia e' configurabile, e un'etichetta "Cinque viaggi" con soglia 3 mentirebbe.
+// Le etichette sono un PARAMETRO (`config.labels`) e awardBadges le controlla con il
+// predicato di domain/badge-label.ts, lo stesso di parseParameters: una config scritta
+// a mano non produce un `Badge` con una promessa. Le etichette NON citano le soglie in
+// numeri: la soglia e' configurabile, e "Cinque viaggi" con soglia 3 mentirebbe.
 
 import type { Badge, BadgeId, Result } from '../domain';
-import { BADGE_IDS, err, ok } from '../domain';
+import { BADGE_IDS, err, isValidBadgeLabel, isValidBadgeThreshold, ok } from '../domain';
 import type { BadgeConfig } from './badge-config';
 import type { PersonalStats } from './compute-personal-stats';
 
@@ -32,21 +34,16 @@ type Metric = 'sharedTrips' | 'sharedLegs' | 'transportedColleagues' | 'sharedKm
 interface CatalogEntry {
   readonly family: BadgeFamily;
   readonly metric: Metric;
-  readonly label: string;
 }
 
-/** Per ogni badge: famiglia, metrica che lo assegna, testo in italiano. */
+/** Per ogni badge: famiglia e metrica che lo assegna. Il testo e' in `BadgeConfig.labels`. */
 export const BADGE_CATALOG: Readonly<Record<BadgeId, CatalogEntry>> = {
-  'primo-viaggio': { family: 'passenger', metric: 'sharedTrips', label: 'Primo viaggio condiviso' },
-  'cinque-viaggi': { family: 'passenger', metric: 'sharedTrips', label: 'Viaggiatore ricorrente' },
-  'dieci-viaggi': { family: 'passenger', metric: 'sharedTrips', label: 'Viaggiatore esperto' },
-  'primo-passaggio': { family: 'driver', metric: 'sharedLegs', label: 'Primo passaggio offerto' },
-  'cinque-colleghi': {
-    family: 'driver',
-    metric: 'transportedColleagues',
-    label: 'Compagno di strada',
-  },
-  'mille-km': { family: 'driver', metric: 'sharedKm', label: 'Lunga strada condivisa' },
+  'primo-viaggio': { family: 'passenger', metric: 'sharedTrips' },
+  'cinque-viaggi': { family: 'passenger', metric: 'sharedTrips' },
+  'dieci-viaggi': { family: 'passenger', metric: 'sharedTrips' },
+  'primo-passaggio': { family: 'driver', metric: 'sharedLegs' },
+  'cinque-colleghi': { family: 'driver', metric: 'transportedColleagues' },
+  'mille-km': { family: 'driver', metric: 'sharedKm' },
 };
 
 export type AwardBadgesError = {
@@ -59,8 +56,7 @@ export function awardBadges(
   config: BadgeConfig
 ): Result<readonly Badge[], AwardBadgesError> {
   for (const id of BADGE_IDS) {
-    const threshold = config.thresholds[id];
-    if (!Number.isInteger(threshold) || threshold < 1) {
+    if (!isValidBadgeThreshold(config.thresholds[id]) || !isValidBadgeLabel(config.labels[id])) {
       return err({ kind: 'invalid-config', badgeId: id });
     }
   }
@@ -69,7 +65,7 @@ export function awardBadges(
   for (const id of BADGE_IDS) {
     const entry = BADGE_CATALOG[id];
     if (stats[entry.metric] >= config.thresholds[id]) {
-      awarded.push({ id, label: entry.label });
+      awarded.push({ id, label: config.labels[id] });
     }
   }
   return ok(awarded);

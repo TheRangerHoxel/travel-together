@@ -96,10 +96,12 @@ I due progetti free sono: **staging** (test di integrazione) e **prod** (la demo
 ```
 app/src/
   core/
-    domain/      # Plant, Trip, TripLeg, SeatOffer, MatchRequest, Profile, Badge, PersonalBests
+    domain/      # Plant, Trip, TripLeg, SeatOffer, MatchRequest, Profile, Badge, PersonalBests,
+                 # tipi dei parametri (AppParameters) e parseParameters
                  # entità e regole pure — zero I/O, zero dipendenze esterne
     ports/       # interfacce: TripRepository, MatchRequestRepository,
-                 # ProfileRepository, PersonalBestsRepository, SessionGateway, Clock
+                 # ProfileRepository, PersonalBestsRepository, ParameterRepository,
+                 # SessionGateway, Clock
     usecases/    # createTrip, findMatches, requestSeat, acceptRequest,
                  # rejectRequest, computeCompanyKpi, computePersonalStats, awardBadges,
                  # refreshPersonalBests
@@ -108,8 +110,8 @@ app/src/
     memory/      # implementa i port in RAM → test veloci, offline, deterministici
     supabase/    # implementa i port con @supabase/supabase-js
   ui/            # schermate React Native — dipende da usecases/, MAI da adapters/
-  config/        # plant, distanze, costo noleggio/giorno, g CO₂/km, tolleranze
-                 # valori iniettati, nessun segreto
+  config/        # SEED_PARAMETERS: i valori iniziali dei parametri, in forma grezza
+                 # non è la fonte a runtime (lo è la tabella), nessun segreto
 ```
 
 ### Regole di dipendenza
@@ -128,23 +130,45 @@ Una violazione fa fallire `verify`: non apre una discussione.
 **Convenzione, non regola di lint:** un istante si legge solo con `normalizeUtcInstant`, in
 `instant.ts`. Il lint vieta `Date`, non un secondo parser scritto a mano: quello lo ferma il reviewer.
 
-**Lint e documento coincidono anche su `config/`.** Gli usecase dipendono **solo** da `domain/` e
-`ports/`: **il codice di produzione del core non importa `config/`**, i valori entrano come parametro,
-e il core resta compilabile ed eseguibile senza `config/`. Il lint lo impone: l'arco `usecases → config`
-non esiste nel grafo.
+**I parametri vengono da una tabella, non da `config/` (T07b).** Soglie, costi, tolleranze, distanze,
+limite e testo delle note, soglie **ed etichette** dei badge si leggono dal port `ParameterRepository`
+(`load()`, nessuna scrittura: modificarli è amministrazione, dalla dashboard). `parseParameters`, in
+`core/domain`, valida le righe grezze al confine e restituisce i tipi che gli usecase ricevono già
+(`MatchConfig`, `CreateTripConfig`, `KpiConfig`, `NoteConfig`, `CascadeConfig`, `BadgeConfig`, spostati in
+`core/domain` e riesportati invariati da `usecases/`). Un parametro mancante, non numerico, fuori
+intervallo, sconosciuto o un'etichetta vietata è `invalid-record` con la chiave come `id`; **nessun
+valore di default**. Gli usecase continuano a ricevere la config come parametro, mai dal port. Restano nel
+codice le **identità**: `PlantId`, gli stati, gli id dei badge, le chiavi dei parametri
+(`PARAMETER_KEYS`) e il catalogo famiglia/metrica dei badge; il parser rifiuta ciò che la tabella tenta
+di aggiungere. La lista delle parole vietate nei testi dei badge è una sola (`core/domain/badge-label.ts`).
 
-L'unico arco consentito è per i file `core/usecases/**/*.test.ts` (categoria di file
-`conformance-test`): qualunque test di usecase può importare `config/`, e oggi lo fanno solo i sei
-**test di conformità**, che importano i valori reali e li legano al tipo. I test di `domain/` non
-l'hanno. L'arco serve a una cosa sola: far diventare rosso `tsc --noEmit` se i valori in `config/`
-divergono dal tipo che il core si aspetta. Senza, `config/` esporterebbe un oggetto che nessuno
-confronta con niente, e un campo rinominato arriverebbe a runtime come `undefined` — che nei conti
-diventa `NaN`, e `NaN` fa fallire ogni confronto in silenzio.
+> **Inversione della decisione 3 di T03** (12 ottobre), registrata come tale. T03 teneva i valori come
+> letterali compilati perché una soglia letta a runtime è `unknown`, non verificabile a compile time, e
+> un campo mancante diventerebbe `NaN` facendo sparire i match in silenzio. T07b la rovescia, perché un
+> parametro che richiede una build EAS (15 al mese sul piano gratuito) non è configurabile. **Cosa si
+> perde:** un valore sbagliato non è più un errore di `tsc`, è un `invalid-record` al primo `load`.
+> **Cosa compensa:** `parseParameters` è esattamente la rete contro il caso che T03 temeva.
 
-**Nessun file di `src/` sta fuori dal grafo.** `src/__tests__/` è un elemento a sé (`harness`), senza
-alcun import verso il resto di `src/`, e `boundaries/no-unknown-files` fa fallire ogni file di `src/`
-che non appartiene a un elemento. Restano fuori dal grafo, dichiarato, la radice (`App.tsx`,
-`index.ts`) e `tests/`: c'è una voce in `IDEAS.md`.
+**`config/` è il seed, e nient'altro.** Contiene solo `SEED_PARAMETERS`, in forma grezza (le stesse righe
+che il parser riceve, nessun tipo del core). Serve all'ambiente memory, ai test e, a T08, alla migrazione
+di seed, che ne è derivata. **Non è un default a runtime**: dopo la prima migrazione la tabella può
+divergere dal seed, ed è voluto.
+
+**Lint e documento coincidono su `config/`.** Il codice di produzione del core non importa `config/`, e
+nemmeno `ui/`: l'arco `ui → config` non esiste nel grafo (la UI riceve i valori da `load()`, dopo
+l'accesso). L'arco `usecases → config` esiste solo per i file `core/usecases/**/*.test.ts` (categoria di
+file `conformance-test`), e oggi lo usa un test solo, `parameters-seed.test.ts`, che passa il seed da
+`parseParameters` e ne pinna i valori iniziali. I test di `domain/` non l'hanno. Gli `adapters/`
+importano `config/` solo nei test e nella suite di contratto: l'ambiente di contratto in RAM parte **vuoto**, e la suite scrive il
+seed nei suoi casi con `scriviParametriGrezzi(SEED_PARAMETERS)`.
+
+**Nessun file di `src/` sta fuori dal grafo.** `src/__tests__/` è un elemento a sé (`harness`) che vede
+`domain/`, `ports/`, `usecases/`, `adapters/` e `config/` — **non `ui/`** — per poter comporre in RAM il
+percorso adapter memory → `load` → usecase (`parameters-path.test.ts`). L'arco `ui/` ↔ `adapters/` resta
+chiuso anche per i test. Il vecchio vincolo (nessun import verso il resto di `src/`) è stato allargato con
+questa decisione scritta. `boundaries/no-unknown-files` fa fallire ogni file di `src/` che non appartiene
+a un elemento. Restano fuori dal grafo, dichiarato, la radice (`App.tsx`, `index.ts`) e `tests/`: c'è una
+voce in `IDEAS.md`.
 
 ### Dependency inversion sui punti che cambieranno
 
@@ -227,7 +251,7 @@ parametri e ritorno diretto. Due cambi:
 **Il punteggio è a dominanza, non a somma pesata.** Il criterio "l'offerta con stesso plant di
 appartenenza precede quella con plant diverso" è enunciato senza condizioni. Con pesi configurabili
 sarebbe vero solo finché il peso del plant supera l'escursione della vicinanza oraria: chi un domani
-abbassasse quel peso in `config/` invertirebbe la semantica di un criterio di accettazione **con tutti
+abbassasse quel peso nei parametri invertirebbe la semantica di un criterio di accettazione **con tutti
 i test verdi**, perché i test usano fixture di config e non i valori di produzione. Il bonus di plant
 è quindi derivato dalla finestra di tolleranza, non configurabile, e tutta l'aritmetica è intera —
 niente parità finte da virgola mobile.
@@ -253,7 +277,8 @@ Vincoli duri e punteggio morbido sono elencati in [PRD.md](PRD.md).
   `rejected` / `cancelled`), **`request_note`** (facoltativa), **`resolution_note`**, **`resolved_by`**
   (`owner` / `requester` / `system`; nota e `resolved_by` insieme o nessuno dei due). Foreign key
   composta `(trip_id, direction) → trip_legs`, che rende impossibile una candidatura sul rientro di una
-  trasferta senza rientro. Il limite di lunghezza delle note è in `config/`, misurato in code point.
+  trasferta senza rientro. Il limite di lunghezza delle note è nei **parametri** (tabella letta da
+  `ParameterRepository`, chiave `notes.maxLength`), misurato in code point.
   **`UNIQUE (trip_id, direction, requester_id)`** (T07g): un secondo id sulla stessa coppia (tratta,
   richiedente) è `invalid-record`, già imposto in RAM dalla suite di contratto. Visibile solo al
   richiedente e all'owner della trasferta; le policy in scrittura sono quelle di T07g, vincolanti per T08.

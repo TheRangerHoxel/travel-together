@@ -10,4 +10,5 @@ export type { TripRepository } from './trip-repository';
 export type { MatchRequestRepository } from './match-request-repository';
 export type { ProfileRepository } from './profile-repository';
 export type { PersonalBestsRepository } from './personal-bests-repository';
+export type { ParameterRepository } from './parameter-repository';
 export type { Session, SessionError, SessionGateway } from './session-gateway';

@@ -70,7 +70,11 @@ function codePointLength(testo: string): number {
   return Array.from(testo).length;
 }
 
-function validaNota(
+/**
+ * Il controllo di UNA nota (vuota, oltre il limite), esportato perche' lo usa anche
+ * parseParameters sul testo della nota automatica: una regola, un punto.
+ */
+export function validaNota(
   field: NoteField,
   nota: string | null,
   config: NoteConfig

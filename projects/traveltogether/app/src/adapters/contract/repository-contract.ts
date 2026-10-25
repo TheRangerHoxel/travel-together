@@ -28,6 +28,8 @@
 //    Postgres non da' not-found ma un errore di sintassi. Li fornisce l'ambiente.
 //  - provisioning dei profili: su Supabase nascono da auth.users, non da una insert
 //    del client. Non e' un'operazione del port.
+//  - scrittura dei parametri: il port ParameterRepository non scrive (e' amministrazione,
+//    dalla dashboard), quindi l'ambiente la fornisce a parte (`scriviParametriGrezzi`).
 //  - teardown: in RAM bastano oggetti nuovi; su uno staging condiviso le righe
 //    restano e i test si contaminano — e listOpenOffers, che non filtra, vedrebbe
 //    i residui di tutti i casi precedenti.
@@ -39,12 +41,15 @@ import type {
   PersonalBests,
   PlantId,
   ProfileId,
+  RawParameters,
   Trip,
   TripId,
 } from '../../core/domain';
+import { SEED_PARAMETERS } from '../../config';
 import { utc } from '../../core/domain/instant-fixture';
 import type {
   MatchRequestRepository,
+  ParameterRepository,
   PersonalBestsRepository,
   ProfileRepository,
   SessionGateway,
@@ -57,6 +62,7 @@ export interface AmbienteDiContratto {
   readonly profiles: ProfileRepository;
   readonly sessions: SessionGateway;
   readonly personalBests: PersonalBestsRepository;
+  readonly parameters: ParameterRepository;
 
   /**
    * Autentica le chiamate successive come quel profilo. In RAM registra l'identita'
@@ -112,9 +118,20 @@ export interface AmbienteDiContratto {
    * operazione del port. Su Supabase sara' una insert con credenziali di servizio.
    */
   seminaCandidaturaGrezza(request: MatchRequest): Promise<void>;
+
+  /**
+   * Sostituisce l'insieme INTERO delle righe dei parametri con quelle date, grezze
+   * (quelle che parseParameters riceve). Non e' un'operazione del port, che non
+   * scrive: modificare i parametri e' amministrazione (la dashboard). Su Supabase sara'
+   * una scrittura con credenziali di servizio. Nessun test legge senza averla chiamata.
+   */
+  scriviParametriGrezzi(righe: RawParameters): Promise<void>;
   /**
    * Riporta lo storage allo stato vuoto **e ripristina il guasto**: un test che cade
    * fra `guasta` e `ripristina` non deve lasciare l'`afterEach` eseguito sotto guasto.
+   * Fanno eccezione le tabelle dei parametri: tornano allo stato di prima del test,
+   * non vuote (su staging le semina la migrazione e possono contenere valori ritarati;
+   * criterio di T09).
    */
   pulisci(): Promise<void>;
 }
@@ -1662,6 +1679,101 @@ export function eseguiSuiteDiContratto(
           await amb.comeUtente(owner);
           expect(await leggi(altro)).toEqual(massimi(altro, 0, 0, 0, 0));
         });
+      });
+    });
+
+    // Solo casi RAPPRESENTABILI su Postgres con qualunque schema ragionevole: una riga
+    // che manca, un testo. I casi di tipo e di intervallo (una stringa al posto di un
+    // numero, un -1) li rende irrappresentabili una colonna tipizzata o un CHECK, e
+    // stanno nei test di parseParameters. P1 e' a esito noto su memory (l'adapter chiama
+    // lo stesso parser): serve a T09, dove prova che la traduzione delle righe non perde
+    // niente. Il guasto di questo port ha il suo test qui sotto, fuori dalla tabella dei
+    // quindici metodi.
+    describe('ParameterRepository', () => {
+      function senzaCoppia(a: string, b: string): RawParameters {
+        return {
+          ...SEED_PARAMETERS,
+          plantDistances: SEED_PARAMETERS.plantDistances.filter(
+            (d) => !(d.fromPlantId === a && d.toPlantId === b)
+          ),
+        };
+      }
+
+      it('scritto il seed, load e\' ok e i valori sono quelli scritti (pinnati come letterali)', async () => {
+        await amb.scriviParametriGrezzi(SEED_PARAMETERS);
+
+        const esito = await amb.parameters.load();
+
+        expect(esito.ok).toBe(true);
+        if (esito.ok) {
+          expect(esito.value.matching.toleranceMinutes).toBe(30);
+          expect(esito.value.kpi.rentalCostPerDay).toBe(120);
+          expect(esito.value.badges.labels['primo-viaggio']).toBe('Primo viaggio condiviso');
+        }
+      });
+
+      it('cambiata una riga, load restituisce il valore nuovo', async () => {
+        await amb.scriviParametriGrezzi(SEED_PARAMETERS);
+        const prima = await amb.parameters.load();
+        expect(prima.ok && prima.value.matching.toleranceMinutes).toBe(30);
+
+        await amb.scriviParametriGrezzi({
+          ...SEED_PARAMETERS,
+          values: { ...SEED_PARAMETERS.values, 'match.toleranceMinutes': 10 },
+        });
+        const dopo = await amb.parameters.load();
+
+        expect(dopo.ok && dopo.value.matching.toleranceMinutes).toBe(10);
+      });
+
+      it('tolta la riga di una coppia di distanze: invalid-record con la coppia come id', async () => {
+        await amb.scriviParametriGrezzi(senzaCoppia('pomigliano', 'foggia'));
+
+        const esito = await amb.parameters.load();
+
+        expect(esito.ok).toBe(false);
+        if (!esito.ok) {
+          expect(esito.error.kind).toBe('invalid-record');
+          if (esito.error.kind === 'invalid-record') {
+            expect(esito.error.id).toBe('distance:pomigliano-foggia');
+          }
+        }
+      });
+
+      it('un\'etichetta con una parola vietata: invalid-record con l\'etichetta come id', async () => {
+        await amb.scriviParametriGrezzi({
+          ...SEED_PARAMETERS,
+          badges: SEED_PARAMETERS.badges.map((b) =>
+            b.badgeId === 'mille-km' ? { ...b, label: 'Ticket restaurant' } : b
+          ),
+        });
+
+        const esito = await amb.parameters.load();
+
+        expect(esito.ok).toBe(false);
+        if (!esito.ok) {
+          expect(esito.error.kind).toBe('invalid-record');
+          if (esito.error.kind === 'invalid-record') {
+            expect(esito.error.id).toBe('badge:mille-km.label');
+          }
+        }
+      });
+
+      it('sotto guasto load ritorna storage-unavailable, e dopo ripristina() torna ok con gli stessi valori', async () => {
+        await amb.scriviParametriGrezzi(SEED_PARAMETERS);
+        const prima = await amb.parameters.load();
+        expect(prima.ok).toBe(true);
+
+        await amb.guasta();
+        const sotto = await amb.parameters.load();
+        await amb.ripristina();
+        const dopo = await amb.parameters.load();
+
+        expect(sotto.ok).toBe(false);
+        if (!sotto.ok) {
+          expect(sotto.error.kind).toBe('storage-unavailable');
+        }
+        expect(dopo).toEqual(prima);
       });
     });
 

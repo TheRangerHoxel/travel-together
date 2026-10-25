@@ -4744,3 +4744,137 @@ criterio di T07b non ha) — il primo task che chiama un usecase con config (ogg
 - Tre voci nuove in `IDEAS.md`: normalizzazione del testo prima del controllo delle parole vietate;
   storico delle modifiche ai parametri; quando l'app rilegge i parametri. Non duplicate: verificato
   sui titoli e sul contenuto di *"Il presidio sui testi dei badge"* e *"Accumulare gli errori"*.
+
+
+---
+
+## 2026-10-25, 15:17 — Il loop si è fermato sul limite di sessione, e il risveglio che mancava
+
+Il developer di T07b è terminato con *"You've hit your session limit · resets 3:10pm"* a metà dello
+step 2 (ultimo passo: `plant-distance.ts`). Il limite si è resettato alle 15:10 e **nessuno è
+ripartito**: l'orchestratore non aveva un turno attivo, e la fine di un limite non è un evento che
+qualcuno ascolta. È il caso già descritto in `CLAUDE.md` (*"il loop non si risveglia da sé"*), che
+diceva come renderlo economico ma non come **ripartire**. L'ha fatto notare l'umano.
+
+**Ripreso alle 15:17** con `SendMessage` allo stesso developer, che ha il suo contesto salvato, con
+l'istruzione di rileggere `git status` prima di continuare: il working tree è la verità.
+
+**Correzione strutturale:** un **heartbeat** ricorrente (`CronCreate`, minuti 7/22/37/52 di ogni ora),
+che scatta solo a sessione inattiva — riavvia un subagent fermato da un limite, esegue il passo
+successivo del ciclo se il loop è fermo senza una domanda all'umano in sospeso, altrimenti tace. La
+regola è in `CLAUDE.md` § Interruzioni e ripresa: si arma all'inizio di ogni sessione di loop.
+**Limiti dichiarati:** l'heartbeat vive quanto il processo di Claude Code (chiusa la finestra, la
+ripresa torna manuale) e scade da solo dopo 7 giorni; e non scavalca i checkpoint — su T08 si ferma ad
+aspettare l'umano.
+
+
+---
+
+## 2026-10-25 — T07b · esecuzione, sonde e primo giro di review
+
+`verify` completo **verde**: **651 test unitari in 29 suite** (base 548 in 31: sei `*-config.test.ts`
+fusi in `parameters-seed.test.ts`, suite nuove per il parser, la lista delle parole e il percorso), 1 di
+integrazione, 1 di smoke. Il ⛔ era sciolto per delega dell'umano. **Nessuna dipendenza nuova.**
+
+**Interruzione a metà:** il developer è stato fermato dal limite di sessione alla fine dello step 2, con
+la sonda 2c ancora applicata; ripreso alle 15:17, l'ha ripristinata prima di continuare. Il reviewer ha
+verificato **per lettura**, punto per punto, che nel diff non resta nessuna mutazione di sonda.
+
+### Cosa c'è adesso
+
+- **Port `ParameterRepository`**, un solo metodo `load(): Promise<Result<AppParameters, RepositoryError>>`,
+  nessuna scrittura. Errori dentro `RepositoryError`: guasto o permessi → `storage-unavailable`;
+  parametro mancante, malformato, sconosciuto o etichetta vietata → `invalid-record` con `id` = chiave e
+  `detail` = motivo. Nessun `kind` nuovo.
+- **`parseParameters`** in `core/domain`, invocato dall'adapter: chiavi sconosciute rifiutate, ordine
+  fisso del primo errore, **nessun default**, gli stessi predicati di intervallo che usano gli usecase.
+- **`MemoryParameterRepository`**: guasto → identità nulla (zero righe, come sotto una `SELECT`
+  riservata ad `authenticated`) → parser. La suite di contratto ha P1–P5 (seed letto, riga cambiata,
+  coppia di distanze mancante, etichetta con *"Ticket"*, guasto e ripristino), **solo additiva**.
+- **Lista unica delle parole vietate** in `core/domain/badge-label.ts`, con `'ricompens'`: *"Ricompense
+  per te"* oggi è rifiutata, ieri passava. Le etichette sono uscite da `BADGE_CATALOG` e stanno in
+  `BadgeConfig.labels`; `awardBadges` le valida.
+- **`config/` contiene solo `SEED_PARAMETERS`**, grezzo. Il core di produzione e `ui/` non lo importano
+  (imposto dal lint).
+- **Inversione della decisione 3 di T03**, registrata in `ARCHITECTURE.md`: i valori non sono più
+  letterali compilati, perché un parametro che richiede una build non è configurabile.
+
+### La fusione dei sei test di conformità, vecchio → nuovo
+
+Verificata dal reviewer contro HEAD. Righe di `parameters-seed.test.ts`.
+
+| Vecchio file | Vecchia asserzione | Dove sta ora |
+|---|---|---|
+| tutti e sei | *"X soddisfa XConfig"* | cade: il tipo non è più compilato contro un valore, lo controlla il parser |
+| badge | soglia intera ≥ 1 | r. 33, *"il seed passa `parseParameters`"* |
+| badge | valori dichiarati | r. 51 |
+| badge | config accettata da `awardBadges` | r. 75 |
+| cascade | nota non vuota ed entro `maxLength` in code point | r. 33 (via `validaNota`) |
+| cascade | nota accettata da `makeMatchRequest` | r. 83, invariata |
+| create-trip | posti intero ≥ 1 | r. 33 |
+| create-trip | massimo 8 | r. 41 |
+| kpi | 110 / 120 / 7,0 / 2,2 / 165 / 320 / 232 | rr. 43–50 |
+| kpi | coppie risolvibili nei due versi | r. 105, identica |
+| match | tolleranza intera ≥ 0 | r. 33; il pin di 30 è **nuovo** |
+| note | `maxLength` ≥ 1 | r. 33; il pin di 280 è **nuovo** |
+| — | etichette e nota automatica | r. 61, **nuovo** |
+
+### Le sonde
+
+| # | Mutazione | Esito |
+|---|---|---|
+| 1a | tolleranza `>= 0` → `>= 1` | 1 rosso in `find-matches.test.ts` (*tolleranza zero*) |
+| 1b | posti `>= 2` nel predicato (allo step 3) | 2 rossi, solo nel parser; `create-trip.test.ts` resta verde, come previsto |
+| 2a | tolto `'ticket'` dalla lista | 2 rossi (*Ticket restaurant*, predicato e `awardBadges`) |
+| 2b | `'ricompens'` → `'ricompensa'` | 3 rossi |
+| 2c | `awardBadges` senza controllo dell'etichetta | 18 rossi (16 vietate + 2 vuote) |
+| 3a | 1a rifatta col predicato condiviso | rossi **sia** `find-matches` sia il parser: il predicato è uno solo |
+| 3b | stringa convertita con `Number` | 7 rossi |
+| 3c | senza normalizzazione della coppia invertita | 2 rossi |
+| 3d | senza controllo nota / limite | 3 rossi |
+| 3e | senza controllo di `maxLength` | 4 rossi |
+| 3f | chiave sconosciuta ignorata | 2 rossi |
+| 4a | `import { SEED_PARAMETERS } from '../config'` in `ui/index.ts` | lint: *no policy … from "ui" to "config"* |
+| 4b | soglia di `primo-viaggio` a 0 nel seed | 6 rossi in `parameters-seed.test.ts`, più le suite memory che falliscono ad alta voce |
+| 5a | adapter che ignora le righe nuove | rosso solo P2 |
+| 5b | adapter che non segnala gli errori del parser | rossi P3, P4 e il test dell'identità nulla |
+| 5c | guasto ignorato | rosso P5 |
+| 5d | identità ignorata | rosso in `memory-conditions.test.ts` |
+| 6a | `awardBadges` con etichetta compilata | 2 rossi |
+| 6b | `import '../ui'` in `harness.test.ts` | lint: *no policy … from "harness" to "ui"* |
+
+Il reviewer ha rifatto le sonde di lint su contenuto virtuale (`--stdin`), tutte rosse, più due sue:
+usecase di produzione → `config` e test di `domain` → `config`. **Per decisione del piano la sonda 3a di
+T07h (`harness → adapters`) ora è verde:** `harness` vede anche `adapters` e `config`, per il test del
+percorso port → usecase.
+
+### Deviazioni dichiarate dal developer
+
+`validaNota` esportata da `match-request.ts` perché il parser riusa il controllo invece di duplicarlo;
+`MIN_SEATS_WITH_CAR` spostata in `domain/parameters.ts`; due costanti segnaposto in `parseParameters`
+per costruire il `Record<BadgeId, …>` senza `as` — il reviewer ha verificato che nessun segnaposto può
+uscire dalla funzione; commenti ritoccati in cinque file per renderli veri.
+
+### Primo giro: bocciato per testi e registro, non per il codice
+
+**N1**, questa voce mancava: la corrispondenza dei test e gli esiti delle sonde stavano solo nel report.
+**N2**, tre testi falsi sull'ambiente: *"l'ambiente di contratto parte dal seed"* in `ARCHITECTURE.md`
+(parte vuoto), *"il seed serve all'adapter memory"* nel `CLAUDE.md` di progetto (che suggeriva proprio il
+default vietato una riga dopo), e due doc dell'interfaccia di contratto falsi su staging. **N3**,
+`validaNota` esportata anche dall'indice di `domain` senza consumatori: un allargamento d'interfaccia
+senza motivo. **N4**, la regola dell'heartbeat taceva la scadenza dei 7 giorni.
+
+N1, N2 (documenti) e N4 li ha chiusi l'orchestratore; N2 sui doc dell'interfaccia e N3 il developer.
+È la terza bocciatura di oggi nata da **testi che promettono più del codice**: la regola c'è, il difetto
+si ripresenta, e lo trova solo una lettura.
+
+
+**Secondo giro: APPROVATO.** Il reviewer ha verificato sui file i sei punti e ha rilanciato lint,
+typecheck e `test:unit` (651/29). Una riserva sulla frase *"gli adapters importano `config/` solo nei
+test"* (la suite di contratto non è un `*.test.ts`) chiusa subito dall'orchestratore; le altre in
+`IDEAS.md`.
+
+**T07b chiuso**, commit unico. **Il blocco prima dello schema è finito.** Il prossimo è **T08 ⛔**:
+schema, migrazioni e RLS. Le migrazioni si possono scrivere e provare in locale, ma **applicarle a
+staging** richiede credenziali di amministrazione del database che l'agente non ha (la chiave nel
+`.env` è pubblica e non crea tabelle) ed è un cambio di schema: lì il loop si ferma e chiede all'umano.

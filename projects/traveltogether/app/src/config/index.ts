@@ -1,11 +1,7 @@
-// config — parametri iniettati: plant, distanze, costo noleggio/giorno,
-// g CO2/km, finestre di tolleranza, soglie dei badge.
-// Nessun segreto qui dentro: chiavi e codice invito arrivano da variabili
-// d'ambiente a runtime.
-// Un KPI che cambia modificando questi valori e' la prova che non e' hardcoded.
+// config — il seed dei parametri, in forma grezza.
+//
+// Non e' la fonte a runtime (lo e' la tabella, letta dal port ParameterRepository) e
+// non contiene segreti: chiavi e codice invito arrivano da variabili d'ambiente a
+// runtime. Serve all'ambiente memory, ai test e, a T08, alla migrazione di seed.
 
-export { MATCH_CONFIG } from './matching';
-export { CREATE_TRIP_CONFIG } from './trips';
-export { KPI_CONFIG } from './kpi';
-export { BADGE_CONFIG } from './badges';
-export { NOTE_CONFIG, CASCADE_CONFIG } from './notes';
+export { SEED_PARAMETERS } from './parameters';

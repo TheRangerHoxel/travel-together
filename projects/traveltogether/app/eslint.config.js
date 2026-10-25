@@ -34,12 +34,14 @@ const GRAFO = {
   // come parametro. L'arco verso config/ lo hanno solo i test di conformita'
   // (vedi CONFORMANCE e la policy dedicata).
   usecases: ['domain', 'ports', 'usecases'],
-  // src/__tests__/: nessun import verso il resto di src/. Un test end-to-end in
-  // RAM che cabli ui/ e adapters/ richiede di allargare questo elemento con una
-  // decisione scritta, non di scoprire che il lint tace.
-  harness: ['harness'],
+  // src/__tests__/: i test che compongono il percorso port -> usecase in RAM
+  // (T07b) vedono core/, adapters/ e config/. NON vedono ui/: l'arco ui/ <->
+  // adapters/ resta chiuso anche per i test. Allargato con una decisione scritta
+  // (PROGRESS.md, T07b), non scoprendo che il lint tace.
+  harness: ['harness', 'domain', 'ports', 'usecases', 'adapters', 'config'],
   adapters: ['domain', 'ports', 'adapters', 'config'],
-  ui: ['domain', 'ports', 'usecases', 'ui', 'config'],
+  // Niente config/: i valori arrivano da ParameterRepository.load(), non dal seed.
+  ui: ['domain', 'ports', 'usecases', 'ui'],
   config: ['config'],
 };
 

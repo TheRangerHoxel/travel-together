@@ -26,6 +26,11 @@ export type RepositoryError =
    * `findByLegAndRequester` e' una lettura singola, non una lista: una riga invalida
    * e' `invalid-record` e non `null`, perche' un `null` direbbe "non si e' mai
    * candidato".
+   *
+   * `ParameterRepository.load` legge l'insieme dei parametri come UN aggregato, non
+   * come una lista: un parametro mancante o malformato e' `invalid-record` con `id` =
+   * la sua chiave e `detail` = il motivo, e non si omette, perche' un default lo
+   * renderebbe silenzioso.
    */
   | { readonly kind: 'invalid-record'; readonly id: string; readonly detail: string }
   /**

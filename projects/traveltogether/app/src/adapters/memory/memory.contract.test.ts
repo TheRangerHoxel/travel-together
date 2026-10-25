@@ -7,15 +7,26 @@
 // Gira senza rete: la guardia in jest.setup.unit.js fa esplodere fetch,
 // XMLHttpRequest e WebSocket, quindi "senza rete" e' imposto, non promesso.
 
-import { NOTE_CONFIG } from '../../config';
+import { SEED_PARAMETERS } from '../../config';
 import type { MatchRequest, ProfileId } from '../../core/domain';
+import { parseParameters } from '../../core/domain';
 import { type AmbienteDiContratto, eseguiSuiteDiContratto } from '../contract/repository-contract';
 import { nuoveCondizioni } from './memory-conditions';
 import { MemoryMatchRequestRepository } from './memory-match-request-repository';
+import { MemoryParameterRepository } from './memory-parameter-repository';
 import { MemoryPersonalBestsRepository } from './memory-personal-bests-repository';
 import { MemoryProfileRepository } from './memory-profile-repository';
 import { MemorySessionGateway } from './memory-session-gateway';
 import { MemoryTripRepository } from './memory-trip-repository';
+
+/** Il limite delle note del seed, passato dal parser come ogni altro parametro. */
+function limiteNoteDelSeed(): number {
+  const parametri = parseParameters(SEED_PARAMETERS);
+  if (!parametri.ok) {
+    throw new Error(`il seed non passa parseParameters: ${parametri.error.key}`);
+  }
+  return parametri.value.notes.maxLength;
+}
 
 /**
  * Id di forma uuid anche in RAM.
@@ -43,9 +54,14 @@ eseguiSuiteDiContratto('memory', async (): Promise<AmbienteDiContratto> => {
   const trips = new MemoryTripRepository(profiles, condizioni);
   // Copia MUTABILE: l'adapter tiene il riferimento, quindi mutarla dal test e' il
   // modo di abbassare il limite dopo che le note sono state scritte.
-  const limiteNote: { maxLength: number } = { maxLength: NOTE_CONFIG.maxLength };
+  const limiteNote: { maxLength: number } = { maxLength: limiteNoteDelSeed() };
   const matchRequests = new MemoryMatchRequestRepository(limiteNote, { condizioni, trips });
   const sessions = new MemorySessionGateway();
+  // Nessuna riga all'inizio: niente seed implicito, ogni test scrive quelle che vuole.
+  const parameters = new MemoryParameterRepository(
+    { values: {}, plantDistances: [], badges: [] },
+    condizioni
+  );
 
   const prossimoId = creaGeneratoreDiId();
 
@@ -55,6 +71,7 @@ eseguiSuiteDiContratto('memory', async (): Promise<AmbienteDiContratto> => {
     profiles,
     sessions,
     personalBests: new MemoryPersonalBestsRepository(condizioni),
+    parameters,
 
     // In RAM le RLS non esistono, ma gli adapter ne imitano le policy scritte su T08:
     // l'identita' registrata qui decide cosa possono scrivere e vedere. Cosi' un test
@@ -88,6 +105,10 @@ eseguiSuiteDiContratto('memory', async (): Promise<AmbienteDiContratto> => {
 
     async seminaCandidaturaGrezza(request: MatchRequest) {
       matchRequests.seminaGrezzo(request);
+    },
+
+    async scriviParametriGrezzi(righe) {
+      parameters.sostituisci(righe);
     },
 
     async registraCodiceInvito(codice, profileId) {

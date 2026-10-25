@@ -11,7 +11,7 @@ import type {
   SeatOffer,
   TripRequest,
 } from '../domain';
-import { err, legDirectionRank, ok, utcInstantParts } from '../domain';
+import { err, isValidToleranceMinutes, legDirectionRank, ok, utcInstantParts } from '../domain';
 import type { MatchConfig } from './match-config';
 
 const MILLIS_PER_MINUTO = 60_000;
@@ -62,7 +62,7 @@ export function findMatches(
 
   // Si valida prima di usarla: un NaN qui non solleverebbe nulla, farebbe
   // semplicemente fallire ogni confronto e sparire tutti i match in silenzio.
-  if (!Number.isInteger(toleranceMinutes) || toleranceMinutes < 0) {
+  if (!isValidToleranceMinutes(toleranceMinutes)) {
     return err({ kind: 'invalid-tolerance', toleranceMinutes });
   }
 

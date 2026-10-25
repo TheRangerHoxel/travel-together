@@ -34,8 +34,38 @@ export { makeMatchRequest, validateMatchRequestStructure } from './match-request
 
 export type { NoteConfig } from './note-config';
 
+export type {
+  BadgeConfig,
+  CascadeConfig,
+  CreateTripConfig,
+  KpiConfig,
+  MatchConfig,
+  PlantDistanceTable,
+} from './parameters';
+export {
+  MIN_SEATS_WITH_CAR,
+  isNonNegativeFinite,
+  isValidBadgeThreshold,
+  isValidMaxSeatsOffered,
+  isValidNoteMaxLength,
+  isValidToleranceMinutes,
+} from './parameters';
+
+export type {
+  AppParameters,
+  ParameterError,
+  ParameterKey,
+  RawBadgeParameter,
+  RawParameters,
+  RawPlantDistance,
+} from './parse-parameters';
+export { PARAMETER_KEYS, parseParameters } from './parse-parameters';
+
 export type { Badge, BadgeId } from './badge';
 export { BADGE_IDS } from './badge';
+
+export type { BadgeLabelProblem } from './badge-label';
+export { FORBIDDEN_BADGE_WORDS, badgeLabelProblem, isValidBadgeLabel } from './badge-label';
 
 export type { PersonalBests } from './personal-bests';
 export { raisePersonalBests, zeroPersonalBests } from './personal-bests';

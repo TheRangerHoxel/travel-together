@@ -35,8 +35,20 @@ const THRESHOLDS: BadgeConfig['thresholds'] = {
   'mille-km': 1000,
 };
 
+const LABELS: BadgeConfig['labels'] = {
+  'primo-viaggio': 'Fixture: prima tappa',
+  'cinque-viaggi': 'Fixture: seconda tappa',
+  'dieci-viaggi': 'Fixture: terza tappa',
+  'primo-passaggio': 'Fixture: primo giro',
+  'cinque-colleghi': 'Fixture: compagnia',
+  'mille-km': 'Fixture: strada',
+};
+
 function configCon(thresholds: BadgeConfig['thresholds'] = THRESHOLDS): RefreshPersonalBestsConfig {
-  return { distances: { distanceKm: { pomigliano: { foggia: 200 } } }, badges: { thresholds } };
+  return {
+    distances: { distanceKm: { pomigliano: { foggia: 200 } } },
+    badges: { thresholds, labels: LABELS },
+  };
 }
 
 const ALTRUI = 'trip-altrui';

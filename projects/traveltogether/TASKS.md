@@ -987,12 +987,12 @@ automatica entro il limite) che con la tabella non proteggono più la produzione
 confine. Piano, forma del port e decisioni: `PROGRESS.md`, voce del 25 ottobre.
 
 **Criteri di accettazione**
-- [ ] *(25/10, diviso)* Un port nuovo, **`ParameterRepository`**, con un solo metodo
+- [x] *(25/10, diviso)* Un port nuovo, **`ParameterRepository`**, con un solo metodo
       `load(): Promise<Result<AppParameters, RepositoryError>>` e **nessun metodo di scrittura**, come
       `ProfileRepository`: l'app i parametri li legge e basta. Adapter memory che serve le righe grezze
       ricevute nel costruttore, senza valori impliciti. La suite di contratto lo copre (criterio sotto).
       *Motivo:* "uno Supabase che li legge dalla tabella" richiede T08 e T09; è un criterio di **T09**.
-- [ ] *(25/10, completato e reso verificabile)* Passano dal port **tutti** i valori di `config/` di oggi:
+- [x] *(25/10, completato e reso verificabile)* Passano dal port **tutti** i valori di `config/` di oggi:
       costo auto/giorno, prezzo carburante, consumo, **g CO₂/km** (la lista lo ometteva, ed è il numero
       della CO₂ in slide), distanze fra plant, tolleranza oraria, massimo posti offribili, limite delle
       note, testo della nota automatica, soglie **ed etichette** dei badge. `AppParameters` ha per campi
@@ -1005,7 +1005,7 @@ confine. Piano, forma del port e decisioni: `PROGRESS.md`, voce del 25 ottobre.
       c'è una schermata né una radice di composizione — quindi *"passano dalla tabella"* non poteva
       essere vero né falso. Oggi si può pretendere che i valori **non abbiano un'altra strada**: è il
       lint a chiuderla. Il chiamante vero è un criterio dei task di UI.
-- [ ] *(25/10, reso verificabile)* Restano nel codice le **identità**: `PlantId`, gli stati, gli id dei
+- [x] *(25/10, reso verificabile)* Restano nel codice le **identità**: `PlantId`, gli stati, gli id dei
       badge, le **chiavi dei parametri** (`PARAMETER_KEYS`) e il catalogo famiglia/metrica dei badge;
       restano costanti anche le unità e i minimi che definiscono un concetto (i 100 km del consumo, il
       posto minimo di un'auto, il bonus di plant derivato dalla finestra, T03). Verifica: un test pinna
@@ -1013,7 +1013,7 @@ confine. Piano, forma del port e decisioni: `PROGRESS.md`, voce del 25 ottobre.
       `PLANT_IDS`, o una chiave fuori da `PARAMETER_KEYS`: **la tabella non può creare un'identità**.
       *Motivo:* *"un test di conformità lo dichiara"* non diceva che cosa asserisce. Che un'identità
       resti nel codice si prova mostrando che la tabella non riesce ad aggiungerne una.
-- [ ] *(25/10, precisato)* **Un parametro mancante o malformato non passa in silenzio:** lo valida
+- [x] *(25/10, precisato)* **Un parametro mancante o malformato non passa in silenzio:** lo valida
       `parseParameters`, funzione pura in `core/domain`, che l'adapter **invoca** (su `memory` lo
       verifica il reviewer per lettura; a T09 l'equivalenza la prova la suite). Ogni caso ha un test in
       `core/domain`: chiave mancante; valore non numerico, **stringa `'30'` compresa**; fuori intervallo;
@@ -1029,22 +1029,22 @@ confine. Piano, forma del port e decisioni: `PROGRESS.md`, voce del 25 ottobre.
       garantite dai test di conformità sui valori compilati devono passare al confine. E un caso è
       concreto: **nessun usecase valida `NoteConfig.maxLength`**, e con `NaN` il confronto
       `length > maxLength` è sempre falso, cioè le note non avrebbero più limite.
-- [ ] `test:unit` continua a girare **senza rete**: gli usecase ricevono config come parametro, mai
+- [x] `test:unit` continua a girare **senza rete**: gli usecase ricevono config come parametro, mai
       dal port. *(25/10: invariato.)*
-- [ ] *(25/10, diviso)* **Cambiando una riga il risultato di un usecase cambia.** Oggi, su `memory`:
+- [x] *(25/10, diviso)* **Cambiando una riga il risultato di un usecase cambia.** Oggi, su `memory`:
       (a) nella suite di contratto, dopo `scriviParametriGrezzi` con una riga diversa, `load` restituisce
       il valore nuovo; (b) un test in `src/__tests__/` compone adapter memory → `load` → usecase: portata
       la tolleranza da 30 a 10, un'offerta a 20 minuti esce da `findMatches`; cambiata un'etichetta,
       `awardBadges` assegna il badge con il testo nuovo. Dichiarato: **su `memory` "senza ricompilare"
       non è dimostrabile**, perché la riga è un oggetto in RAM; lo è a T09 su staging (criterio lì).
       *Motivo:* la metà "senza ricompilare" richiede una tabella vera.
-- [ ] *(25/10, spostato su T08)* RLS: lettura per gli autenticati, **scrittura per nessuno** dall'app,
+- [x] *(25/10, spostato su T08)* RLS: lettura per gli autenticati, **scrittura per nessuno** dall'app,
       nessun ruolo admin e nessuna schermata di configurazione: è **T08**. Qui resta la metà
       verificabile: il port non ha metodi di scrittura (reviewer per lettura), e in RAM, con identità
       nulla, le righe dei parametri **non sono visibili**, come sotto RLS: `load` → `invalid-record`.
       Test in `memory-conditions.test.ts`, perché l'ambiente di contratto non sa tornare a identità nulla
       (voce *"Un hook esci"* di `IDEAS.md`).
-- [ ] *(25/10, precisato)* **Anche le etichette dei badge passano dal port** (decisione dell'umano, 14
+- [x] *(25/10, precisato)* **Anche le etichette dei badge passano dal port** (decisione dell'umano, 14
       ottobre 2026), e un testo con una parola vietata è **rifiutato con errore tipizzato al confine**
       (premi, buoni, euro, €, denaro, soldi, sconti, voucher, regali, bonus, rimborsi, ricompense,
       gratis, coupon, **ticket**, **welfare**). Oggi il criterio *"nessun badge implica premi, denaro o
@@ -1060,11 +1060,11 @@ confine. Piano, forma del port e decisioni: `PROGRESS.md`, voce del 25 ottobre.
       pretende il rifiuto.**
       *Motivo:* oggi la lista del test contiene `'ricompensa'`, che **non** intercetta *"ricompense"*:
       un'etichetta *"Ricompense per te"* passa. Il criterio elenca i plurali e il codice no.
-- [ ] *(25/10, reso verificabile)* La lista delle parole vietate vive in **un punto solo**,
+- [x] *(25/10, reso verificabile)* La lista delle parole vietate vive in **un punto solo**,
       `core/domain/badge-label.ts`, importata da `parseParameters`, da `awardBadges` e dai test: due
       liste divergerebbero, e divergerebbero in silenzio. Verifica: `rg -n "'voucher'" app/src` (test
       **inclusi**) trova una riga sola, in quel file
-- [ ] *(25/10, aggiunto)* **`config/` diventa il seed, e una fonte sola.** Contiene solo
+- [x] *(25/10, aggiunto)* **`config/` diventa il seed, e una fonte sola.** Contiene solo
       `SEED_PARAMETERS`, in forma **grezza** (le stesse righe che `parseParameters` riceve), e nessun
       valore tipizzato per gli usecase. Serve all'ambiente memory, al test di composizione e, a T08,
       alla migrazione di seed, che ne è **derivata** e non riscritta. I sei test `*-config.test.ts`
@@ -1073,7 +1073,7 @@ confine. Piano, forma del port e decisioni: `PROGRESS.md`, voce del 25 ottobre.
       *"l'annotazione è l'asserzione"*, che con un parser tipizzato non possono più fallire. I titoli
       dicono **seed**, non *produzione*: in produzione vale la tabella.
       *Motivo:* senza, a T08 il seed SQL e `config/` sarebbero due copie degli stessi numeri.
-- [ ] *(25/10, aggiunto)* **I test chiusi che cambiano sono elencati, e nessun altro:**
+- [x] *(25/10, aggiunto)* **I test chiusi che cambiano sono elencati, e nessun altro:**
       `award-badges.test.ts` (le config di fixture guadagnano `labels`; la lista locale delle parole
       lascia il posto all'import; il test sul catalogo si sposta sulle etichette in config),
       `refresh-personal-bests.test.ts` (`configCon` guadagna `labels`), i sei `*-config.test.ts`
@@ -1081,11 +1081,11 @@ confine. Piano, forma del port e decisioni: `PROGRESS.md`, voce del 25 ottobre.
       delle note viene dal seed, l'ambiente guadagna i due membri nuovi). Nessuna `expect` esistente
       della suite di contratto cambia: `git diff -U0 4a4bc11 --
       app/src/adapters/contract/repository-contract.ts | rg "^-.*expect"` non restituisce niente
-- [ ] *(25/10, aggiunto)* **L'inversione della decisione 3 di T03 è registrata come tale**: in
+- [x] *(25/10, aggiunto)* **L'inversione della decisione 3 di T03 è registrata come tale**: in
       `PROGRESS.md` e in `ARCHITECTURE.md` (§ Modularità: `config/` è il seed, il port nuovo,
       l'elemento `harness` allargato), con il motivo e cosa si perde — un valore sbagliato non è più un
       errore di compilazione ma un `invalid-record` al primo `load`
-- [ ] *(25/10, aggiunto)* **Criteri corrispondenti scritti su T08 e T09**, nella forma già usata da
+- [x] *(25/10, aggiunto)* **Criteri corrispondenti scritti su T08 e T09**, nella forma già usata da
       T07c, T07e, T07f e T07g: tabelle, RLS, seed derivato e CHECK compatibili con la suite su T08;
       adapter, ripristino dello staging e prova "senza ricompilare" su T09
 

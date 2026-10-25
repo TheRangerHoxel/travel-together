@@ -2,7 +2,8 @@
 //
 // Nessun badge implica premi, denaro o buoni: welfare e alberi piantati sono fuori
 // scope per decisione dell'umano (PRD). Il dominio modella l'identita' del badge;
-// le SOGLIE che lo assegnano stanno in config/ (T07), non qui.
+// le SOGLIE che lo assegnano e le ETICHETTE sono parametri (BadgeConfig, letti dal
+// port ParameterRepository), non stanno qui.
 
 // Due famiglie. Passeggero: viaggi condivisi. Conducente: chi ha offerto posti E ha
 // visto accettare almeno una candidatura (T07, "il conducente va riconosciuto").

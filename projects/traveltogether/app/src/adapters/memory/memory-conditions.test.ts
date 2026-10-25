@@ -1,19 +1,30 @@
 // Identita' nulla: il caso che la suite di contratto non puo' esprimere, perche'
 // l'hook `comeUtente` prende sempre un profilo e non ha modo di tornare a "nessuno".
 // Qui le condizioni sono cablate a mano. Con identita' nulla le policy IMPOSTE
-// rifiutano ogni scrittura e filtrano ogni lettura di massimi e candidature; restano
+// rifiutano ogni scrittura e filtrano ogni lettura di massimi, candidature e parametri; restano
 // fuori, come dichiarato, `adjustLegSeats` e le letture di trasferte e profili.
 
-import { NOTE_CONFIG } from '../../config';
+import { SEED_PARAMETERS } from '../../config';
 import type { MatchRequest, Trip } from '../../core/domain';
+import { parseParameters } from '../../core/domain';
 import { utc } from '../../core/domain/instant-fixture';
 import { nuoveCondizioni } from './memory-conditions';
 import { MemoryMatchRequestRepository } from './memory-match-request-repository';
+import { MemoryParameterRepository } from './memory-parameter-repository';
 import { MemoryPersonalBestsRepository } from './memory-personal-bests-repository';
 import { MemoryProfileRepository } from './memory-profile-repository';
 import { MemoryTripRepository } from './memory-trip-repository';
 
 const PROFILO = 'profilo-1';
+
+/** Il limite delle note del seed, passato dal parser come ogni altro parametro. */
+function limiteNoteDelSeed(): number {
+  const parametri = parseParameters(SEED_PARAMETERS);
+  if (!parametri.ok) {
+    throw new Error(`il seed non passa parseParameters: ${parametri.error.key}`);
+  }
+  return parametri.value.notes.maxLength;
+}
 
 function unaTrasferta(): Trip {
   return {
@@ -49,7 +60,7 @@ function ambiente() {
   const profiles = new MemoryProfileRepository(condizioni);
   const trips = new MemoryTripRepository(profiles, condizioni);
   const matchRequests = new MemoryMatchRequestRepository(
-    { maxLength: NOTE_CONFIG.maxLength },
+    { maxLength: limiteNoteDelSeed() },
     { condizioni, trips }
   );
   const personalBests = new MemoryPersonalBestsRepository(condizioni);
@@ -120,5 +131,22 @@ describe('con identita nulla', () => {
     }
     const lista = await matchRequests.listByRequester(PROFILO);
     expect(lista.ok && lista.value).toEqual([]);
+  });
+
+  it('le righe dei parametri non si vedono: load risponde invalid-record sulla prima chiave mancante', async () => {
+    const condizioni = nuoveCondizioni();
+    const parameters = new MemoryParameterRepository(SEED_PARAMETERS, condizioni);
+    // Con un'identita' le stesse righe si leggono: l'assenza che segue e' il filtro.
+    condizioni.identita = PROFILO;
+    const visti = await parameters.load();
+    expect(visti.ok).toBe(true);
+
+    condizioni.identita = null;
+    const esito = await parameters.load();
+
+    expect(esito).toEqual({
+      ok: false,
+      error: { kind: 'invalid-record', id: 'match.toleranceMinutes', detail: 'parametro mancante' },
+    });
   });
 });

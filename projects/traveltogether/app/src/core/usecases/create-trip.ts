@@ -15,7 +15,9 @@ import {
   type TripInvariantError,
   type UtcInstant,
   compareUtcInstants,
+  MIN_SEATS_WITH_CAR,
   err,
+  isValidMaxSeatsOffered,
   makeTrip,
   normalizeUtcInstant,
   ok,
@@ -69,9 +71,6 @@ export type CreateTripError =
   | { readonly kind: 'trip-invariant-violated'; readonly violation: TripInvariantError }
   | { readonly kind: 'storage-failed'; readonly cause: RepositoryError };
 
-/** Minimo di posti per dichiarare un'auto. Non configurabile: zero posti non e' un'offerta. */
-const MIN_SEATS_WITH_CAR = 1;
-
 /**
  * Crea e salva una trasferta.
  *
@@ -96,7 +95,7 @@ export async function createTrip(
   const { maxSeatsOffered } = config;
 
   // Si valida prima di usarla: un NaN renderebbe falso ogni confronto sui posti.
-  if (!Number.isInteger(maxSeatsOffered) || maxSeatsOffered < MIN_SEATS_WITH_CAR) {
+  if (!isValidMaxSeatsOffered(maxSeatsOffered)) {
     return err({ kind: 'invalid-config', maxSeatsOffered });
   }
 

@@ -614,3 +614,18 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — criteri di T10–T16, nessun cambio del port. Reversibile.
 - **Costo** — XS per decidere, S per un ricaricamento.
 - **Stato** — proposta
+
+
+### Un indice di test per l'harness
+- **Cosa** — un modulo di sola esportazione per i test (`adapters/memory/testing.ts` o simile) da cui `src/__tests__/` importa ambiente e condizioni, invece dei percorsi interni di `adapters/memory`.
+- **Perché** — dalla review di T07b: `parameters-path.test.ts` importa da file interni scavalcando l'indice, e `nuoveCondizioni` non è esportata dall'indice. Il lint lo permette; un refactor interno di `adapters/memory` romperebbe un test che non ne fa parte.
+- **Impatto** — solo file di test e un modulo nuovo in `adapters/memory`; nessun comportamento cambia. Si lega alla voce *"Un modulo di sola fixture importato dalla produzione"*.
+- **Costo** — XS.
+- **Stato** — proposta
+
+### Piccole imprecisioni lasciate da T07b
+- **Cosa** — tre ritocchi senza effetto a runtime: la parentesi di `memory-conditions.ts:19-21` che elenca le policy imposte e non nomina i parametri; le radici ridondanti della lista vietata (`'sconto'` già coperto da `'scont'`, `'regalo'`/`'regali'` riducibili a `'regal'`); il confine `maxSeatsOffered: 1` non coperto da `create-trip.test.ts` (lo copre il test del parser, per scelta del piano).
+- **Perché** — riserve non bloccanti della review di T07b, registrate per non perderle.
+- **Impatto** — un commento, la lista in `badge-label.ts` (la tabella delle 16 etichette va riletta dopo), un test.
+- **Costo** — XS.
+- **Stato** — proposta

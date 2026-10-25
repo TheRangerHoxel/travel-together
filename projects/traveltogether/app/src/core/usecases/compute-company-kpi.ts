@@ -39,7 +39,7 @@
 // (es. 2026-02-31) non e' piu' rappresentabile: lo impedisce il tipo `UtcInstant`.
 
 import type { MatchRequest, PlantId, Result, Trip } from '../domain';
-import { err, inclusiveDaysBetween, ok, utcInstantParts } from '../domain';
+import { err, inclusiveDaysBetween, isNonNegativeFinite, ok, utcInstantParts } from '../domain';
 import type { KpiConfig } from './kpi-config';
 import { lookupPlantDistance } from './plant-distance';
 
@@ -82,10 +82,6 @@ export type CompanyKpiError =
       readonly fromPlantId: PlantId;
       readonly toPlantId: PlantId;
     };
-
-function isNonNegativeFinite(value: number): boolean {
-  return Number.isFinite(value) && value >= 0;
-}
 
 const SCALARS = [
   'gramsCo2PerKm',

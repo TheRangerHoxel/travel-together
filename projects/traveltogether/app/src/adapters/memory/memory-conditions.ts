@@ -21,7 +21,8 @@ export interface CondizioniDiAmbiente {
    * scrittura e' rifiutata e ogni lettura filtrata, come una richiesta non
    * autenticata sotto RLS. Restano fuori, e non guardano l'identita':
    * `adjustLegSeats` (T08 non ha deciso chi lo esegue) e le letture di trasferte e
-   * profili.
+   * profili. Fra le LETTURE filtrate ci sono anche i parametri: senza identita'
+   * `ParameterRepository.load` vede zero righe.
    */
   identita: ProfileId | null;
   /** Lo storage non risponde: ogni metodo di ogni repository ritorna `storage-unavailable`. */
