@@ -507,3 +507,17 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — criteri di T15 e il contratto di `refreshPersonalBests` (un errore in più o un esito degradato nel tipo di ritorno). Additivo se deciso prima di T15.
 - **Costo** — S.
 - **Stato** — proposta
+
+### `Clock.now()` ritorna `UtcInstant`, non `string`
+- **Cosa** — portare il tipo brandizzato di T07f anche sul port `Clock`, così l'istante corrente entra nel dominio già canonico e l'errore `invalid-clock-now` di `createTrip` diventa irrappresentabile.
+- **Perché** — scoperto pianificando T07f. Il task brandizza `Trip`, `SeatOffer` e `TripRequest`, ma `Clock` non è fra le firme del ⛔ e resta `string`: quindi `createTrip` continua a normalizzare anche `clock.now()`, e ogni usecase futuro che legga l'orologio (T13: *"prossimi viaggi"*, filtro `departureAt >= now`) dovrà rifarlo. È la stessa forma del difetto che T07f chiude — una validazione ripetuta da ogni consumatore — su un port solo. Oggi è un chiamante, quindi è contenuto.
+- **Impatto** — `core/ports/clock.ts` (**rompe il port**: ⛔), `FixedClock` e il futuro orologio di sistema, `createTrip` e i suoi test sull'orologio non canonico, che diventerebbero irrappresentabili. Reversibile.
+- **Costo** — S.
+- **Stato** — proposta
+
+### Un modulo di sola fixture importato dalla produzione non lo ferma nessuno
+- **Cosa** — una regola di lint che vieti ai file non di test di importare i moduli di supporto dei test che vivono in cartelle di produzione: `core/usecases/request-test-fakes.ts` oggi, e il modulo di fixture degli istanti che T07f aggiunge in `core/domain`.
+- **Perché** — scoperto pianificando T07f. La collocazione in cartelle di produzione è **forzata** (vedi la voce *"Fake condivisi dei port"*: un `.test.ts` diventerebbe una suite vuota, una cartella nuova non è un elemento del grafo), e il modulo di fixture degli istanti **solleva** su input invalido — legittimo in un test, vietato nel dominio, dove gli errori sono tipi di ritorno. Oggi l'unica rete è un commento in testa al file e un `rg` del reviewer: un usecase che lo importasse per comodità avrebbe nel core di produzione una funzione che lancia, e `verify` resterebbe verde.
+- **Impatto** — `app/eslint.config.js` (un `no-restricted-imports` su quei percorsi, con eccezione per `**/*.test.ts` e per la suite di contratto). Reversibile, nessun effetto a runtime. Da provare violandola, come in F1.4. Si lega a **T07h**, che stringe il lint sullo stesso file.
+- **Costo** — XS.
+- **Stato** — proposta

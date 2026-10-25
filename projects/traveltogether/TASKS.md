@@ -664,30 +664,81 @@ lato dell'offerta.
 semantica delle colonne, i tipi generati dallo schema e il seed di T17. Dopo, è una seconda migrazione
 su uno schema già applicato — e la voce stessa si dà **S dentro, M scoperta dopo**.
 
+**Criteri riletti contro il codice il 25 ottobre 2026, prima di aprire il task** (planner). Sei
+correzioni e tre aggiunte, ciascuna con il motivo accanto e marcata *(25/10)*. La causa comune: i
+criteri erano scritti sul modello in cui il parser **rifiuta** tutto ciò che non è canonico, e T07f
+introduce un parser che **accetta e riporta**. Su quel modello nuovo, *"accettato dal parser"* non
+vuol più dire *"canonico"*, e sette test di task chiusi (T03, T04, T06, T07d) pinnano un
+comportamento che questo task rovescia apposta o rende irrappresentabile. Forma canonica, nomi e decisioni: `PROGRESS.md`, voce del 25 ottobre.
+
 **Criteri di accettazione**
-- [ ] Un punto solo normalizza e valida l'istante, in `core/domain`. Nessun consumatore ripete il
-      controllo: oggi lo fa T03 e ogni nuovo chiamante dovrebbe rifarlo
+- [ ] Un punto solo normalizza e valida l'istante, in `core/domain`: `normalizeUtcInstant`. Nessun
+      consumatore ripete il controllo. Lo chiamano **solo i confini da cui entra una stringa grezza** —
+      oggi `createTrip` (input del form e `Clock.now()`), da T09 l'adapter Supabase — e i consumatori
+      leggono data, millisecondi e ordine da funzioni **totali** sul tipo brandizzato.
+      Verifica: `rg "normalizeUtcInstant" app/src --glob '!*.test.ts'` elenca solo `instant.ts`,
+      `domain/index.ts`, `create-trip.ts` e il modulo di fixture; `rg "parseUtcInstant|ISTANTE_UTC"
+      app/src` non trova niente.
+      *(25/10: il criterio non diceva chi può chiamare il parser, e `createTrip` è un confine, non un
+      consumatore; resa verificabile con un comando.)*
 - [ ] `Trip`, `SeatOffer` e `TripRequest` portano un tipo che il compilatore **distingue** da `string`:
-      una stringa non normalizzata non è assegnabile. Rompe le firme, ed è la ragione del ⛔
-- [ ] Il parser accetta le forme che PostgREST produce — offset `+00:00` e frazioni oltre il
-      millisecondo — e le riporta a una forma sola. Un test le pinna come **stringhe letterali**:
-      è il formato di un sistema esterno, non un dettaglio di gusto
-- [ ] **La forma canonica è unica**, e fra due istanti canonici il confronto lessicografico coincide
-      con quello cronologico **senza eccezioni**. Oggi non è così: `...T06:00:00Z` e `...T06:00:00.000Z`
+      una stringa non normalizzata non è assegnabile. Rompe le firme, ed è la ragione del ⛔.
+      Verifica: un'asserzione di tipo per ciascuno dei quattro casi (il tipo stesso e i campi
+      d'istante delle tre entità) fa fallire `typecheck` se la stringa diventa assegnabile.
+      *(25/10: aggiunto il metodo di verifica. Un test a runtime non può vedere un tipo; un'asserzione
+      che il compilatore valuta sì, e può fallire.)*
+- [ ] Il parser accetta le forme che PostgREST produce — offset `+00:00` e frazioni da **uno a sei**
+      decimali, che Postgres scrive **senza gli zeri finali** (`.12`, non `.120000`) — e le riporta
+      a una forma sola, **troncando** oltre il millisecondo. Un test le pinna come **stringhe
+      letterali**: è il formato di un sistema esterno, non un dettaglio di gusto.
+      *(25/10: precisati gli zeri finali e il troncamento. Un parser che accettasse solo `.sss` e
+      `.ssssss` rifiuterebbe `2026-11-03T06:30:00.12+00:00`, cioè una riga su dieci a T09.)*
+- [ ] **La forma canonica è unica** — `YYYY-MM-DDTHH:mm:ss.sssZ`, sempre i millisecondi, larghezza
+      fissa di 24 caratteri — e fra due istanti canonici il confronto lessicografico coincide con
+      quello cronologico **senza eccezioni**. Oggi non è così: `...T06:00:00Z` e `...T06:00:00.000Z`
       sono entrambi canonici, sono lo stesso istante e si ordinano **al contrario** (`Z` è `0x5A`, `.`
-      è `0x2E`). Un test dimostra la coppia che oggi sbaglia, ed è la trappola che aspetta T13
+      è `0x2E`). Un test dimostra la coppia che oggi sbaglia (le due forme producono **la stessa
+      stringa**), un test di tabella dimostra che **ogni** uscita del parser ha la forma a larghezza
+      fissa, ed è la trappola che aspetta T13.
+      *(25/10: "senza eccezioni" non è verificabile come enunciato universale; lo diventa come
+      proprietà della forma, a larghezza fissa, provata su ogni uscita.)*
 - [ ] Le date impossibili (`2026-02-31`, il 29 febbraio di un anno non bisestile) sono rifiutate al
       confine con errore tipizzato. T04 è il primo punto che le **persiste**: senza questo, a T09 è
       Postgres a rifiutare l'INSERT con un errore grezzo lato adapter, l'opposto di dove questo
-      progetto vuole la validazione
-- [ ] La suite di contratto verifica che gli istanti che **escono** dai port siano accettati dal parser.
-      È il criterio che la voce di `IDEAS.md` chiedeva per T09, pagato una volta per tutte
+      progetto vuole la validazione. Un test su `createTrip` con `2026-02-31T…` → `invalid-departure-at`
+      e **zero scritture**
+- [ ] La suite di contratto verifica che gli istanti che **escono** dai port siano **già canonici**:
+      il parser li riporta **identici** (punto fisso), su ogni lettura che porta un istante —
+      `findById`, `listByOwner`, `listOpenOffers` — con almeno una fixture i cui millisecondi
+      finiscono con zero (`.120Z`), che è la forma che PostgREST restituisce accorciata.
+      *(25/10: "accettati dal parser" era la verifica giusta per il parser di oggi, che rifiuta. Con il
+      parser di T07f, che **accetta** `+00:00`, un adapter che lasciasse uscire la stringa grezza di
+      PostgREST passerebbe il criterio e romperebbe l'ordine lessicografico. Dichiarato: **su `memory`
+      questo test non può fallire per costruzione** — il compilatore impedisce già all'adapter di
+      emettere una stringa non brandizzata. Vale a T09, ed è lì che paga.)*
 - [ ] `test:unit` continua a girare **senza rete**
-- [ ] Le fixture scritte a mano e il seed si adeguano **in questo task**, non in T17: la voce dichiara
-      che stringere la forma le rompe, e lasciarle rotte sposterebbe il costo su un task che non lo sa
+- [ ] Le fixture scritte a mano si adeguano **in questo task**. **Il seed non esiste ancora** (T17):
+      il tipo lo obbligherà a passare dal parser, e lo si scrive come criterio di T17.
+      *(25/10: il criterio nominava un seed che nel repo non c'è.)*
+- [ ] *(25/10, aggiunto)* **I test chiusi che cambiano aspettativa sono elencati, uno per uno, con il
+      motivo**, e nessun altro cambia. Sono quelli che pinnano il comportamento che T07f rovescia per
+      decisione: in `create-trip.test.ts` *"una partenza / un rientro con microsecondi è rifiutato"* e
+      *"senza millisecondi … accettato e non riscritto"* (il titolo del `describe`, *"mai convertiti"*,
+      cade con loro); in `find-matches.test.ts` *"un'offerta con offset invece di Z viene omessa"* e
+      *"istante della richiesta malformato: errore"* (stati non più rappresentabili, la cui intenzione
+      passa ai test del parser); in `request-seat.test.ts` *"istante illeggibile nella trasferta
+      dichiarata"*; in `compute-company-kpi.test.ts` *"una data di calendario impossibile"*. Senza
+      questo criterio sarebbero modifiche a test per farli passare, che `CLAUDE.md` vieta
+- [ ] *(25/10, aggiunto)* `MatchError` perde `invalid-request-departure-at`, che diventa
+      **irrappresentabile**, e `ARCHITECTURE.md` (§ Il motore di matching) è aggiornato nello stesso
+      commit: un ramo che nessun input può raggiungere è un ramo che nessun test può verificare
+- [ ] *(25/10, aggiunto)* Criteri corrispondenti scritti su **T08** — colonne `timestamptz(3)`, così
+      il DB non conserva una precisione che il dominio tronca, e un confronto SQL e uno JS sugli
+      stessi due istanti non possono dare risposte diverse — e su **T17** — il seed passa da
+      `normalizeUtcInstant`, non da letterali
 
 ⛔ Checkpoint: rompe le firme di `Trip`, `SeatOffer` e `TripRequest` e di ogni adapter che le
-materializza.
+materializza. **Sciolto il 25 ottobre 2026 per delega dell'umano** (vedi `PROGRESS.md`).
 
 ## T07g La suite di contratto prova il guasto
 

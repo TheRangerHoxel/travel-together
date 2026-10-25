@@ -3616,3 +3616,279 @@ chiede e la esegue il developer.
 Le tre regole operative nuove sono in `CLAUDE.md` e in `OFFICINA.md`, non solo qui: il testo multilinea
 ai comandi nativi passa per un file, al reviewer non si chiede di mutare il sorgente, e la frase
 sull'indipendenza del reviewer non dichiara più una proprietà che il sistema non ha.
+
+
+---
+
+## 2026-10-25 — Ripresa su una macchina nuova · due prerequisiti, una rete giù, e la delega dell'umano
+
+**Macchina diversa dalla precedente.** Il repo è un clone fresco: niente `node_modules`, niente Node,
+niente `app/.env`. Il branch locale `auto/build` è stato creato a tracciare `origin/auto/build`
+(`0608d1f`), che è lo stato lasciato dalla sessione del 23 ottobre.
+
+**Delega dell'umano, valida per questa sessione:** procedere in automatico e, davanti a una decisione,
+scegliere l'opzione raccomandata dall'agente invece di fermarsi a chiedere. Ogni decisione presa così
+è registrata qui con la sua alternativa, perché l'umano possa rovesciarla.
+
+**Le due domande poste comunque**, perché nessuna raccomandazione le scioglie:
+- **Node** — installazione di software, ⛔ per F1.1. Risposta: lo installa l'agente, come in F1.1.
+  Node LTS **v24.22.1** da nodejs.org, **SHA256 verificato** contro `SHASUMS256.txt` di `latest-v24.x`
+  (`d2046d28…95fa5`, corrisponde), estratto in `%LOCALAPPDATA%\Programs\nodejs`, aggiunto al PATH
+  utente. Niente admin. Poi `npm ci` dal lockfile: **nessuna dipendenza nuova**, e i due install script
+  già valutati in Fase 1 (`@parcel/watcher`, `unrs-resolver`) restano non eseguiti.
+- **Credenziali di staging** — solo l'umano le ha. Risposta: crea lui `app/.env`.
+
+**`verify` alla ripresa, prima di toccare niente:** lint, typecheck, **448 unit in 30 suite** e smoke
+verdi; `test:int` rosso **per la ragione giusta** — *"mancano le variabili EXPO_PUBLIC_SUPABASE_URL,
+EXPO_PUBLIC_SUPABASE_ANON_KEY"*. Lo stato ereditato è quello dichiarato.
+
+### ⚠️ La seconda rete su git è giù su questa macchina
+
+L'hook `PreToolUse` in `.claude/settings.json` è `python -I "C:/D/Python Projects/officina-software/
+.claude/hooks/guard-git.py"`: **un percorso assoluto della macchina precedente**, e qui `python` è
+l'alias del Microsoft Store, non un interprete (quello vero è il launcher `py`, 3.12.10). L'hook quindi
+**fallisce senza bloccare**, e ogni comando passa: lo dimostra il fatto che questa sessione sta girando.
+Restano attive le **deny rules** (verificato: hanno fermato una lettura di `.env`) e la **branch
+protection** su `main`. **Non corretto**, perché `CLAUDE.md` vieta di toccare `.claude/settings.json`:
+la decisione è dell'umano. La via ovvia è un percorso relativo alla radice del repo e un interprete che
+esista su entrambe le macchine. Nel frattempo l'agente non usa nessuno dei comandi vietati, che è ciò
+che l'hook impone — ma è convenzione, non freno, e va detto.
+
+**Il reviewer non compare fra i tipi di agente caricati** in questa sessione, benché
+`.claude/agents/reviewer.md` esista. Non si tocca `.claude/`: la review la fa un agente generico con le
+istruzioni di `reviewer.md` lette parola per parola, su modello forte, e **senza** modificare file.
+
+**T07f ⛔ si apre per delega.** Il checkpoint chiedeva il via libera a rompere le firme di `Trip`,
+`SeatOffer` e `TripRequest`; è la raccomandazione dell'ultima sessione ed è reversibile con un
+`git revert`. Alternativa non scelta: fermarsi qui fino al via libera esplicito.
+
+---
+
+## 2026-10-25 — T07f · pianificazione
+
+Nessun codice. Il planner ha toccato **solo** `TASKS.md` (criteri di T07f), `IDEAS.md` (due voci) e
+questa voce. Letti prima: `instant.ts`, `calendar.ts`, le tre entità, `trip-leg.ts`, i quattro usecase
+che leggono istanti (`find-matches`, `create-trip`, `request-seat`, `compute-company-kpi`; gli altri —
+`leg-system-transitions`, `accept`/`reject`/`cancel`, `compute-personal-stats`, `refresh-personal-bests`
+— toccano solo `returnAt === null`), l'adapter memory, la suite di contratto, `request-test-fakes.ts`
+e i test che pinnano le forme.
+
+### I criteri, riletti contro il codice: sei correzioni e tre aggiunte
+
+**La causa comune è una sola, e va detta prima del dettaglio.** I criteri sono stati scritti sul modello
+in cui il parser **rifiuta** tutto ciò che non è canonico. T07f introduce un parser che **accetta e
+riporta** (`+00:00`, microsecondi, `Z` senza millisecondi). Su quel modello nuovo due cose cambiano di
+significato, e nessun test se ne accorgerebbe:
+
+1. **"Accettato dal parser" non vuol più dire "canonico".** Il criterio della suite di contratto,
+   preso alla lettera, sarebbe soddisfatto da un adapter Supabase che lascia uscire la stringa grezza
+   di PostgREST: `+00:00` è accettato. E quella stringa, confrontata come stringa con una `...Z`,
+   ordina male — cioè il criterio avrebbe promesso la proprietà che il task esiste per garantire, senza
+   verificarla. Riscritto come **punto fisso**: il parser riporta l'istante uscito **identico**.
+2. **Tre test chiusi di T04 pinnano il comportamento che T07f rovescia apposta.** `create-trip.test.ts` ha
+   *"una partenza con microsecondi è rifiutata"*, *"un rientro con microsecondi è rifiutato"* e
+   *"senza millisecondi ma con la Z è canonico: accettato e non riscritto"*, sotto un `describe`
+   intitolato *"rifiutati e mai convertiti"*. Il terzo criterio di T07f chiede l'opposto. Senza un
+   criterio che li elenchi, il developer avrebbe due scelte entrambe sbagliate: cambiarli in silenzio
+   (vietato da `CLAUDE.md`) o fermarsi davanti a un rosso che è il task stesso. Aggiunto il criterio
+   che li nomina uno per uno, più i tre test che diventano **irrappresentabili** (un'offerta con
+   `+01:00` in `findMatches`, la richiesta malformata, l'istante illeggibile della trasferta
+   dichiarata) e quello sulla data impossibile in `computeCompanyKpi`. L'intenzione di ciascuno passa
+   ai test del parser, che è dove ora vive la garanzia.
+
+Le altre correzioni, una riga ciascuna — il dettaglio è accanto a ogni criterio in `TASKS.md`:
+
+- **Criterio 1** non diceva chi può chiamare il parser: `createTrip` è un **confine** (entra la
+  stringa del form e quella dell'orologio), non un consumatore. Reso verificabile con due `rg`.
+- **Criterio 2** non diceva come si verifica un tipo: un test a runtime non vede i tipi. Ora è
+  un'asserzione che il compilatore valuta, e che **può** fallire.
+- **Criterio 3**: Postgres scrive i decimali **senza zeri finali** (`.12+00:00`, non `.120000`). Un
+  parser a tre o sei cifre fisse avrebbe rifiutato una riga su dieci a T09. Pinnato anche il
+  **troncamento**.
+- **Criterio 4**: *"senza eccezioni"* non è verificabile come enunciato universale; lo è come proprietà
+  della forma a **larghezza fissa**, provata su ogni uscita del parser.
+- **Criterio 8** nominava un **seed che non esiste**: diventa un criterio di T17.
+- **Aggiunti**: l'elenco dei test che cambiano (sopra); `MatchError` perde
+  `invalid-request-departure-at`, che diventa irrappresentabile, e `ARCHITECTURE.md` segue nello stesso
+  commit; i criteri corrispondenti su T08 (`timestamptz(3)`) e T17 (seed dal parser), nella forma che
+  T07c e T07e hanno già usato.
+
+### La forma canonica e il nome, pinnati
+
+**`YYYY-MM-DDTHH:mm:ss.sssZ`, sempre i millisecondi, 24 caratteri.** Tre ragioni, in ordine di peso:
+è la forma che `Clock.now()` promette già e che `toISOString()` produce, quindi l'orologio di sistema
+la emette senza conversione; è a **larghezza fissa**, che è l'unica proprietà da cui segue *"ordine
+lessicografico = ordine cronologico"* senza eccezioni (per anni a quattro cifre); ed è la forma in cui
+la suite di contratto scrive **già** tutte le sue fixture. Il millisecondo e non il microsecondo perché
+nessun conto del dominio scende sotto, e JS non rappresenta il microsecondo in un `number` d'epoca
+senza perdita.
+
+**Il tipo si chiama `UtcInstant`; il parser `normalizeUtcInstant`.** `Instant` esiste **già** — è
+l'interfaccia `{ date, millisOfDay }` che `parseUtcInstant` ritorna — e dare lo stesso nome al brand
+avrebbe messo due significati sotto un nome per tutta la durata del task. `UTC` nel nome dice da cosa
+dipende la garanzia. Il parser cambia nome perché cambia contratto (da `Instant | null` a
+`Result<UtcInstant, UtcInstantError>`), e un nome nuovo permette uno step 1 **additivo e verde**; il
+vecchio sparisce allo step 4, e `rg` lo dimostra.
+
+### Il piano, in cinque step
+
+**Step 1 — Il tipo e il parser, additivi.** Solo dominio; il vecchio parser resta intatto.
+- Deve esistere in `instant.ts`: `UtcInstant` (stringa marchiata con un `unique symbol`, così nessun
+  letterale d'oggetto può fingere il marchio); `UtcInstantError` (`malformed-instant` /
+  `non-utc-offset` / `impossible-date`, ciascuno con `value`); `normalizeUtcInstant`; due funzioni
+  **totali** sul tipo — `utcInstantParts` (data e millisecondi nel giorno, l'attuale `Instant`
+  rinominato `InstantParts`) e `compareUtcInstants`. La validità di calendario passa da
+  `civilDayNumber` di `calendar.ts` (dominio → dominio, nessun ciclo). Il marchio si ottiene con un
+  **type predicate** interno, non con `as`.
+- Deve esistere `core/domain/instant-fixture.ts`: `utc(raw)` per le fixture, che **solleva** su input
+  invalido. **Non** esportato da `domain/index.ts`; intestazione che lo dichiara solo-test.
+- Test, in `instant.test.ts`, con **stringhe letterali**: `…06:30:00Z` → `…06:30:00.000Z`;
+  `…06:30:00+00:00` → `.000Z`; `…06:30:00.12+00:00` → `.120Z`; `…06:30:00.5Z` → `.500Z`;
+  `…06:30:00.123999+00:00` → `.123Z`; `…23:59:59.999999+00:00` → `…23:59:59.999Z` **stesso giorno**.
+  Rifiutati: `+01:00`, `-01:00`, `-00:00` → `non-utc-offset`; sette decimali, senza fuso, spazio al
+  posto di `T`, `z` minuscola, `+0000`, `+00`, ore 24, minuti o secondi 60 → `malformed-instant`;
+  `2026-02-31`, `2026-02-29`, `2027-02-29`, `2100-02-29`, `2026-04-31` → `impossible-date`.
+  Accettati `2028-02-29` e `2000-02-29` (rete contro un parser troppo stretto). La coppia `Z` / `.000Z`
+  produce **la stessa stringa**. Ogni uscita della tabella ha 24 caratteri e la forma a larghezza
+  fissa. Una tabella di grezzi in ordine cronologico noto, normalizzati e ordinati con `sort()`
+  lessicografico, resta in quell'ordine, e `compareUtcInstants` concorda. I casi di
+  `utcInstantParts` (mezzanotte = 0, ultimo millisecondo = 86 399 999) portati dai test attuali.
+  Un'asserzione di tipo: `string` non è assegnabile a `UtcInstant`.
+- **Sonde, da chiedere nel brief del developer — tutte possono fallire:** arrotondare invece di
+  troncare (cadono `.123999` e `23:59:59.999999`); togliere il controllo di calendario (cadono le date
+  impossibili); non riempire a tre cifre (cade la larghezza fissa); `type UtcInstant = string`
+  (`typecheck` rosso).
+- File: `instant.ts`, `instant.test.ts`, `instant-fixture.ts` (nuovo), `domain/index.ts`.
+- Chiude con `verify` verde.
+
+**Step 2 — Le firme si rompono.** È l'unico step non spezzabile: entità, consumatori e fixture sono
+legati dalla compilazione, e un taglio a metà non compila.
+- `Trip`, `SeatOffer`, `TripRequest`: `departureAt: UtcInstant`, `returnAt: UtcInstant | null`.
+- `createTrip`: normalizza `input.departureAt`, `input.returnAt` e `clock.now()`; stessi `kind` di
+  errore di oggi, con `value` **grezzo** (è ciò che il chiamante ha mandato); il `Trip` salvato porta
+  la forma canonica; il `confronta` locale lascia il posto a `compareUtcInstants`.
+- `findMatches`: nessun parser, `utcInstantParts` su richiesta e offerta; **via** la riga
+  `if (!istanteOfferto) continue;` — che è il difetto per cui il task esiste — e via
+  `invalid-request-departure-at` da `MatchError`.
+- `requestSeat`: `trasfertaCompatibile` legge la data da `utcInstantParts`; via la guardia
+  sull'istante illeggibile e la voce del LIMITE corrispondente, perché la causa non esiste più. La
+  guardia `=== null` resta: è il rientro mancante, non un istante rotto.
+- `computeCompanyKpi`: `utcInstantParts`; via il controllo `civilDayNumber(start) === null`, che
+  diventa **irraggiungibile**; `invalid-trip-date` **resta**, perché il rientro precedente alla partenza
+  è ancora rappresentabile (`makeTrip` non lo vieta, `seminaGrezzo` lo scrive) e ha già il suo test.
+- Adapter memory: **nessuna logica cambia**. Se il developer si trova a cambiarne una, è un segnale e
+  si ferma.
+- Fixture: `request-test-fakes.ts` (`TripsOptions.returnAt` diventa `UtcInstant`), `unaTrasferta` di
+  `repository-contract.ts`, e ogni letterale d'istante in un `Trip`, `SeatOffer` o `TripRequest` dei
+  test, via `utc(…)`. `richiestaDel` in `request-seat.test.ts` perde il ripiego `?? ''`.
+- Test che cambiano aspettativa: **esattamente** l'elenco del criterio di `TASKS.md`. In
+  `create-trip.test.ts` i microsecondi diventano *"accettati e troncati"* con l'istante salvato
+  pinnato, il `Z` senza millisecondi diventa *"accettato e riportato a `.000Z`"*, il `describe` cambia
+  titolo; si aggiungono `+00:00` accettato e riportato, e `2026-02-31T…` → `invalid-departure-at` con
+  zero scritture. Il test su `departure-in-the-past` con `…07:00:00Z` **non** cambia: l'errore riporta
+  il valore grezzo.
+- Asserzioni di tipo sui campi d'istante delle tre entità (`string` non assegnabile).
+- Criteri: `verify` verde; `rg "as UtcInstant" app/src` vuoto; nel diff dei test nessuna aspettativa
+  cambiata oltre l'elenco (reviewer).
+- **Sonde:** riportare `SeatOffer.departureAt` a `string` (`typecheck` rosso: l'asserzione di tipo
+  diventa falsa); invertire il segno di `compareUtcInstants` in `createTrip` (cadono i confini di T04,
+  *"uguale ad adesso"* e *"un millisecondo prima"*). **Non** chiedere una sonda su *"`createTrip`
+  salva la stringa grezza"*: non compila, quindi la rete è il compilatore e una sonda a runtime non ha
+  niente da misurare.
+- File: `trip.ts`, `seat-offer.ts`, `trip-request.ts`, `create-trip.ts`, `find-matches.ts`,
+  `request-seat.ts`, `compute-company-kpi.ts`, `request-test-fakes.ts`, `repository-contract.ts`
+  (solo la fixture), e i test: `create-trip`, `find-matches`, `request-seat`, `compute-company-kpi`,
+  `compute-personal-stats`, `refresh-personal-bests`, `award-badges`, `kpi-config`, `trip`,
+  `memory-trip-repository`. Se il compilatore ne indica altri, si aggiungono e si dichiarano.
+
+**Step 3 — La suite di contratto pretende il punto fisso.** Additivo.
+- Test nuovi in `repository-contract.ts`: dopo `save`, ogni istante uscito da `findById`,
+  `listByOwner` e `listOpenOffers` (andata **e** ritorno) è identico al letterale scritto **e** è
+  punto fisso di `normalizeUtcInstant`. Fixture con millisecondi che finiscono in zero (`.120Z`), e i
+  due capi in **giorni diversi** — la lezione di T07d: capi indistinguibili nascondono i mutanti.
+- `memory.contract.test.ts` **non cambia**: è la prova che la modifica è additiva.
+- **Nessuna sonda, e va scritto perché.** Su `memory` il test non può fallire per costruzione: per
+  far uscire una stringa non canonica l'adapter dovrebbe produrre una `string`, e non compilerebbe.
+  Una sonda qui avrebbe esito noto a priori. Il test paga a T09, dove il marchio lo dà il parser e
+  non il compilatore.
+- File: `repository-contract.ts`.
+
+**Step 4 — Il vecchio parser sparisce.**
+- Eliminati `parseUtcInstant`, `Instant` e la regex `ISTANTE_UTC`; esportazioni di
+  `domain/index.ts` aggiornate. Commenti che li nominano o che descrivono il vecchio contratto:
+  intestazione di `calendar.ts` (*"il parser non verifica il calendario"*, ora falso), `clock.ts`,
+  `trip.ts`, `fixed-clock.test.ts`.
+- Criteri: i due `rg` del criterio 1 di `TASKS.md`; `verify` verde.
+- File: `instant.ts`, `domain/index.ts`, `calendar.ts`, `clock.ts`, `trip.ts`, `fixed-clock.test.ts`.
+
+**Step 5 — Documenti e criteri a valle.**
+- `ARCHITECTURE.md`, § Il motore di matching: `MatchError` senza `invalid-request-departure-at`, e il
+  paragrafo sul `Result` dice che la garanzia sull'istante è passata al tipo.
+- `TASKS.md`: criterio su T08 (`timestamptz(3)`) e su T17 (seed da `normalizeUtcInstant`). Li scrive
+  l'orchestratore, non il developer: sono criteri, non codice.
+- Criterio: `rg "invalid-request-departure-at" app ARCHITECTURE.md` vuoto.
+
+Stima: una ventina di test in più e sette in meno, **dichiarata come stima**.
+
+**DoD, da sapere prima di aprire:** `verify` comprende `test:int`, che su questa macchina è rosso
+finché l'umano non crea `app/.env`. Il commit di T07f aspetta quel file; il lavoro degli step no.
+
+### Le decisioni prese qui, con l'alternativa scartata
+
+- **Forma a millisecondi fissi.** Scartata: forma corta quando i millisecondi sono zero — è proprio la
+  doppia forma che ordina al contrario.
+- **Troncamento oltre il millisecondo.** Scartato l'arrotondamento: `23:59:59.9999` porterebbe il
+  riporto sul giorno, sul mese e sull'anno, cioè aritmetica di calendario per un millisecondo.
+- **Solo `Z` e `+00:00`; `+01:00` e ogni altro offset rifiutati con `non-utc-offset`, `-00:00` compreso**
+  (RFC 3339: offset locale ignoto). Scartata la conversione di qualunque offset: richiede l'inversa di
+  `civilDayNumber`, nessun produttore del sistema la usa (la sessione Supabase è UTC), e il test di T04
+  sul `+01:00` rifiutato resta valido. Un offset non nullo da PostgREST è una configurazione sbagliata,
+  da far vedere e non da assorbire.
+- **Da uno a sei decimali.** Scartati tre o sei fissi: Postgres toglie gli zeri finali.
+- **`Result` con errore tipizzato al posto di `null`.** Scartato `null`: il criterio sulle date
+  impossibili chiede un errore tipizzato al confine.
+- **Parser con nome nuovo e vecchio eliminato allo step 4.** Scartata la firma cambiata sul posto:
+  rompe tutti i consumatori in un colpo e lo step 1 non chiuderebbe verde.
+- **Marchio con `unique symbol` e type predicate, zero `as`.** Scartato `value as UtcInstant` nel
+  costruttore: le convenzioni vietano `as` per zittire il compilatore, e qui non serve.
+- **`Clock.now()` resta `string`; la normalizza `createTrip`.** Scartato brandizzare il port: allarga il
+  ⛔ a una firma che il checkpoint non nomina. Voce in `IDEAS.md`.
+- **`CreateTripInput` resta `string` e gli errori conservano i `kind` di oggi, senza un campo `reason`.**
+  Scartato portare il parser nella UI: T12 mapperà gli errori di T04 così come sono, e il form userà un
+  selettore di data che una data impossibile non la produce.
+- **`invalid-trip-date` resta.** Scartata la rimozione: il rientro rovesciato è ancora rappresentabile.
+- **Le fixture passano da un modulo in `core/domain` che solleva.** Scartato un aiuto per file: una
+  dozzina di copie in tre livelli, e `core/domain` è l'unico posto raggiungibile da tutti. Il rischio
+  — una funzione che lancia importabile dalla produzione — è dichiarato e ha una voce in `IDEAS.md`.
+- **Asserzioni di tipo con un tipo condizionale, non con `@ts-expect-error`.** Stessa forza (diventano
+  rosse se la stringa torna assegnabile), e non dipendono da come il lint tratta le direttive.
+
+### Le decisioni che spetterebbero all'umano, con la mia raccomandazione (applicata per delega)
+
+- **`MatchError` perde un `kind`, e `ARCHITECTURE.md` cambia.** È un contratto pubblico documentato.
+  Raccomando la rimozione: lasciarlo produrrebbe un ramo irraggiungibile e un documento che promette
+  un errore che nessun input può causare.
+- **Sette test di task chiusi (T03, T04, T06, T07d) cambiano o spariscono.** Raccomando di cambiarli,
+  con l'elenco scritto nei criteri: pinnano esattamente il comportamento che l'umano ha scelto di
+  rovesciare portando dentro le due voci.
+- **`timestamptz(3)` come criterio di T08.** Raccomandato: con la precisione di default Postgres
+  conserva i microsecondi che il dominio tronca, e due istanti distinti nel DB diventerebbero uguali
+  in JS — un `ORDER BY` e un ordinamento lato client darebbero risposte diverse sugli stessi dati.
+
+### Fuori da T07f, per non farlo cercare
+
+- **A T09** l'adapter Supabase passa ogni istante letto da `normalizeUtcInstant`; un istante che il
+  parser rifiuta è `invalid-record` in `findById` e un'omissione nelle liste — quest'ultima è già un
+  criterio di T07g. Su `memory` quel ramo diventa irraggiungibile, perché `seminaGrezzo` riceve un
+  `Trip` già marchiato.
+- La voce *"Il giorno del confronto è quello UTC"* resta aperta e non si muove: T07f cambia la forma
+  dell'istante, non il fuso del giorno.
+
+### Due voci nuove in `IDEAS.md`, dal planner
+
+`Clock.now()` che ritorna `UtcInstant` (l'unico punto d'ingresso dell'istante che resta `string`, e
+T13 lo leggerà); e una regola di lint che vieti alla produzione di importare i moduli di sola fixture
+— `request-test-fakes.ts` oggi, il modulo degli istanti domani, che **solleva**.
+
+**Prossimo passo:** review del piano, poi developer sullo Step 1, con le quattro sonde **scritte nel
+brief** e non lasciate alla sua iniziativa.
