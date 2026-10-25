@@ -4878,3 +4878,47 @@ test"* (la suite di contratto non è un `*.test.ts`) chiusa subito dall'orchestr
 schema, migrazioni e RLS. Le migrazioni si possono scrivere e provare in locale, ma **applicarle a
 staging** richiede credenziali di amministrazione del database che l'agente non ha (la chiave nel
 `.env` è pubblica e non crea tabelle) ed è un cambio di schema: lì il loop si ferma e chiede all'umano.
+
+
+---
+
+## 2026-10-25 — T08 ⛔ · la decisione dell'umano, e la Supabase CLI
+
+**Domanda posta all'umano** (un checkpoint vero, che la delega non copre: cambio di schema su un
+database remoto, con credenziali che l'agente non ha). Risposta: **applica l'agente, con la CLI**.
+Alternative non scelte: l'agente scrive e l'umano applica dal SQL Editor; fermarsi.
+
+**Conseguenze:**
+- **Una credenziale potente sulla macchina:** la stringa di connessione del database di staging, in
+  `app/.env` come **`SUPABASE_DB_URL`**, **senza** prefisso `EXPO_PUBLIC_` — le variabili con quel
+  prefisso finiscono nel bundle dell'app. La crea l'umano; l'agente non la legge (deny rules), la passa
+  solo alla CLI.
+- **Supabase CLI v2.120.0**, binario ufficiale per Windows da GitHub, **SHA256 verificato** contro
+  `checksums.txt` della release (`0db5224f…74c92e`, corrisponde), estratto in
+  `%LOCALAPPDATA%\Programs\supabase`, PATH utente, niente admin. **Scelta la release più recente con
+  almeno due settimane di vita** (6 ottobre), non l'ultima (v2.122.0, di due giorni fa): la stessa
+  prudenza sulla catena di fornitura usata per le dipendenze. Scartato il pacchetto npm `supabase`:
+  installa il binario con uno script di postinstall, che le regole di Fase 1 tengono bloccato.
+- **Sull'altra macchina** la CLI va installata allo stesso modo, e il `.env` va completato con la stessa
+  variabile.
+
+
+---
+
+## 2026-10-25 — F1.1 · i prerequisiti dentro il repo, perché si lavora su due macchine
+
+**Richiesta dell'umano:** tutto ciò che si scarica deve essere riproducibile sull'altra macchina, quindi
+dentro la cartella del repo. **I binari non possono stare in git:** `supabase.exe` pesa 112 MB, oltre il
+limite di 100 MB per file di GitHub, e un binario in git non si rivede.
+
+**Soluzione:** `tools/setup.py`, committato, solo stdlib di Python (l'interprete presente su entrambe le
+macchine, non soggetto all'ExecutionPolicy — la stessa ragione dell'hook guard). Contiene le **versioni
+e gli SHA256 fissati** — Node 24.22.1 e Supabase CLI 2.120.0, gli stessi verificati stamattina — e
+scarica in `tools/node` e `tools/supabase`, ignorati da git (`tools/*` tranne lo script). Un download
+che non corrisponde fa fallire lo script **prima** di estrarre. Idempotente: provato due volte, il
+secondo giro non scarica niente. `verify` verde (651/29) con il Node di `tools/`.
+
+**Sull'altra macchina:** `git pull`, `py tools/setup.py`, `npm ci` in `app/`, `tools/node` e
+`tools/supabase` in testa al PATH, e `SUPABASE_DB_URL` nel `.env`. La regola è in `CLAUDE.md` § Interruzioni
+e ripresa. Le copie installate stamattina in `%LOCALAPPDATA%\Programs` si rimuovono, con le loro voci nel
+PATH utente, appena nessun agente le usa.

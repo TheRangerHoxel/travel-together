@@ -136,6 +136,11 @@ impossibile: si rende **economica**.
 - **Il lavoro approvato si committa subito.** Un task verde e approvato dal reviewer **non** resta nel
   working tree mentre si fa altro: è l'unica cosa che un'interruzione può distruggere. Con questa
   regola si perde al massimo un giro di review in corso, che si rifà.
+- **Su una macchina nuova, o dopo un `git pull` che cambia `tools/setup.py`:** `py tools/setup.py` dalla
+  radice (Node e Supabase CLI in `tools/`, versioni e SHA256 fissati nello script, binari fuori da git),
+  poi `npm ci` in `app/`. Gli strumenti stanno **dentro il repo** perché il lavoro si alterna fra due
+  macchine; in ogni shell si mettono `tools/node` e `tools/supabase` in testa al PATH. Il `.env` non
+  viaggia: va creato su ciascuna macchina.
 - **Ripresa, in quest'ordine:** `CLAUDE.md`, `OFFICINA.md`, la **coda** di `PROGRESS.md`, `TASKS.md`,
   poi `git log -1` e `git status`, poi `npm run verify`. Lo stato vero è **il registro più il working
   tree**: non si ricostruisce a memoria, e non si riparte dal report di un subagent — un report dice

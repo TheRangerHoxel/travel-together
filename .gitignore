@@ -57,3 +57,7 @@ Desktop.ini
 MinGit-*.zip
 PortableGit-*.exe
 node-v*-win-x64.zip
+
+# === Strumenti scaricati da tools/setup.py (binari fuori da git, versioni e SHA256 nello script) ===
+tools/*
+!tools/setup.py
