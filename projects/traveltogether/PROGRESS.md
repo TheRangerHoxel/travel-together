@@ -4414,3 +4414,333 @@ coperta dalla voce di `IDEAS.md`, non toccata per non riaprire il codice dopo la
 
 **T07h chiuso**, commit unico. Con T07f, T07g e T07h il blocco di igiene prima dello schema è finito:
 il prossimo è **T07b ⛔** (parametri da tabella, un port nuovo), poi **T08 ⛔** (schema e migrazioni).
+
+
+---
+
+## 2026-10-25 — T07b · pianificazione
+
+Nessun codice. Il planner ha toccato **solo** `TASKS.md` (criteri di T07b), `IDEAS.md` (tre voci) e
+questa voce. Letti: i due `CLAUDE.md`, `OFFICINA.md`, `ARCHITECTURE.md`, le voci del 12/10 (decisione 3
+di T03), del 14/10 (*"tutto configurabile da tabelle"*, le etichette in tabella) e del 25/10;
+`src/config/*`, i sei `*-config.ts` e i sei `*-config.test.ts`, `plant-distance.ts`, `note-config.ts`,
+`badge.ts`, `award-badges.ts` e il suo test (le parole vietate), `leg-system-transitions.ts`, i port,
+`repository-error.ts`, gli adapter memory, `memory-conditions.ts`, la suite di contratto (ambiente,
+guasto, identità), `eslint.config.js`. Ogni import di `config/` in `src/`: **solo test** (sei di
+conformità, `memory.contract.test.ts`, `memory-conditions.test.ts`).
+
+**Il ⛔ di T07b è sciolto per delega dell'umano** (sessione del 25/10, *"scegli l'opzione
+raccomandata"*): port nuovo e inversione della decisione di T03 autorizzati, da registrare come
+inversione. È fatto qui sotto e nel criterio apposito.
+
+### L'inversione, scritta come tale
+
+La decisione 3 di T03 (12/10) diceva: *"i valori di config sono letterali, non variabili d'ambiente:
+una soglia letta da `.env` sarebbe `string | undefined` a runtime, non verificabile a compile time"*.
+T07b la rovescia: i valori arrivano da una tabella, a runtime. **Cosa si perde:** un valore sbagliato
+non è più un errore di `tsc`, è un `invalid-record` al primo `load`. **Cosa lo compensa:** il motivo di
+T03 era *"un campo mancante diventerebbe `NaN` e farebbe sparire tutti i match senza errori"*, e
+`parseParameters` è esattamente la rete contro quel caso — mancante, non numerico o fuori intervallo è
+un errore tipizzato con il nome della chiave, mai un default. Le **identità** restano compilate, come
+deciso con l'umano il 14/10.
+
+### I criteri, riletti contro il modello
+
+Tre cause, dettagliate in `TASKS.md` accanto a ogni criterio:
+
+1. **Vincolo di realtà.** Schema (T08) e dipendenza (T09) non esistono e sono ⛔ fuori dalla portata
+   dell'agente. Tre criteri li nominavano (adapter Supabase, RLS, *"senza ricompilare"*): divisi in una
+   metà verificabile oggi su `memory` e una metà scritta su T08/T09.
+2. **Il grafo.** `MatchConfig`, `KpiConfig`, `BadgeConfig` & co. stanno in `core/usecases`, e
+   `GRAFO.ports = ['domain', 'ports']`: un port che li restituisce non compila senza spostarli. Si
+   spostano in `core/domain`, come `NoteConfig` già è, con riesportazione invariata da `usecases/`.
+3. **I test di conformità proteggono valori compilati.** *"Ogni soglia ≥ 1"*, *"ogni coppia di plant
+   risolvibile nei due versi"*, *"la nota automatica sta entro il limite"* sono asserzioni su
+   `config/`: con la tabella non proteggono più la produzione, e diventano controlli di
+   `parseParameters`.
+
+Tre difetti trovati leggendo, non da `verify`:
+- **La lista del criterio ometteva g CO₂/km**, che è in `KPI_CONFIG` ed è il numero della CO₂ in slide.
+- **`'ricompensa'` non intercetta "ricompense"**: il test di oggi accetta *"Ricompense per te"*. Il
+  criterio elenca i plurali, il codice no. Il criterio ora pretende un test di tabella sulle sedici
+  parole del criterio.
+- **Nessun usecase valida `NoteConfig.maxLength`.** `makeMatchRequest` confronta `length >
+  config.maxLength`, e con `NaN` è sempre falso: le note non avrebbero limite. Con valori compilati era
+  irraggiungibile; da una tabella no.
+
+### Il port
+
+```ts
+// core/ports/parameter-repository.ts
+export interface ParameterRepository {
+  load(): Promise<Result<AppParameters, RepositoryError>>;
+}
+```
+
+- **Nome:** `ParameterRepository`, per coerenza con gli altri port di storage. `AppParameters` e non
+  `Parameters`, che è un tipo di utilità di TypeScript.
+- **Un metodo, nessuna scrittura**, come `ProfileRepository`: l'app non scrive parametri. Il percorso
+  di scrittura è amministrazione (dashboard), e nella suite è un hook dell'ambiente.
+- **Errori: `RepositoryError` così com'è, nessun `kind` nuovo.** Guasto e permessi →
+  `storage-unavailable`; parametro mancante, malformato, sconosciuto o etichetta vietata →
+  `invalid-record` con `id` = chiave (`'match.toleranceMinutes'`, `'distance:pomigliano-foggia'`,
+  `'badge:mille-km.label'`) e `detail` = motivo. Il contratto lo consente: il doc di `invalid-record`
+  copre già *"le letture di una singola entità, quando lo storage restituisce un record che il dominio
+  rifiuta"*, e l'insieme dei parametri si legge come **un aggregato**. Il doc guadagna una riga che
+  nomina `load`; il tipo no. Il **primo** errore in ordine fisso, non l'elenco (c'è già *"Accumulare
+  gli errori di validazione"* in `IDEAS.md`).
+- **Lettura negata = righe assenti**, come stabilito da T07g: con identità nulla `load` vede zero righe
+  e risponde `invalid-record` sulla prima chiave mancante. Il messaggio non dice *"non autenticato"*;
+  è il prezzo di specchiare le RLS invece di aggiungere logica all'adapter, ed è il motivo per cui i
+  task di UI devono chiamare `load` **dopo** l'accesso.
+
+**Validazione al confine:** `parseParameters(raw: RawParameters): Result<AppParameters,
+ParameterError>` in `core/domain`. `RawParameters` = `{ values: Record<string, unknown>; plantDistances:
+{fromPlantId, toPlantId, km}[]; badges: {badgeId, threshold, label}[] }`, tutto `unknown` dentro: è la
+forma neutra che una tabella chiave/valore e una riga a colonne tipizzate producono entrambe, quindi
+**non decide lo schema di T08**. `ParameterError` è un tipo di dominio (`domain/` non vede `ports/`);
+l'adapter lo traduce in `invalid-record`, come fa con gli errori di `makeTrip`.
+
+**Composizione con gli usecase: nessun usecase nuovo.** `AppParameters` ha per campi i tipi che gli
+usecase ricevono già — `matching`, `createTrip`, `kpi`, `notes`, `cascade`, `badges` — quindi il
+chiamante passa `p.matching` a `findMatches`, `{ ...p.notes, ...p.cascade }` ad `acceptRequest`,
+`{ distances: p.kpi, badges: p.badges }` a `refreshPersonalBests`. Un `loadParameters` che chiamasse il
+port e basta sarebbe un wrapper. **Il chiamante di produzione non esiste**, come per T07e: nessuna
+schermata, nessuna radice di composizione. Forma proposta, nell'ordine: oggi il lint toglie a `ui/`
+l'arco verso `config/` (l'unica altra strada per i valori); un test in `src/__tests__/` dimostra il
+percorso port → usecase; il chiamante vero è un criterio dei task di UI (testo sotto).
+
+**La lista unica delle parole vietate:** `core/domain/badge-label.ts` — `FORBIDDEN_BADGE_WORDS` e il
+predicato. La importano `parseParameters`, `awardBadges` e i test. In `domain/` perché il parser vive lì
+e `domain/` importa solo `domain/`.
+
+**Cosa resta in `config/`:** solo `SEED_PARAMETERS`, in forma **grezza**. `config/` non può importare il
+core, e la forma grezza è dati puri: nessun tipo da annotare. Usi: ambiente memory, test di
+composizione, test di conformità, e a T08 la sorgente della migrazione di seed. **Nessun valore di
+default a runtime:** un fallback sul seed renderebbe un parametro mancante un parametro silenzioso, cioè
+il difetto che il criterio vieta. **Due fonti non divergono** perché la seconda è derivata: il SQL di
+seed lo genera uno script da `SEED_PARAMETERS` e un test senza rete confronta il file committato con
+l'output (criterio di T08). Dopo la prima migrazione la tabella di staging **può** divergere dal seed,
+ed è voluto: è il punto della decisione. Per questo i test dicono *seed*, non *produzione*.
+
+**La suite di contratto**, additiva. L'ambiente guadagna `parameters: ParameterRepository` e
+`scriviParametriGrezzi(raw: RawParameters)`, che sostituisce l'insieme intero (su Supabase, credenziali
+di servizio). Un `describe('ParameterRepository')` nuovo:
+- **P1** — scritto il seed, `load` è `ok` e alcuni valori sono pinnati come **letterali** (30, 120,
+  `'Primo viaggio condiviso'`). *Esito noto su `memory`*: l'adapter chiama lo stesso parser. Paga a T09,
+  dove prova che la traduzione delle righe non perde niente.
+- **P2** — cambiata una riga (tolleranza 30 → 10), `load` restituisce 10.
+- **P3** — tolta la riga della coppia Pomigliano–Foggia: `invalid-record`, `id` = la coppia.
+- **P4** — un'etichetta con *"Ticket"*: `invalid-record`, `id` = l'etichetta.
+- **P5** — sotto guasto `storage-unavailable`; dopo `ripristina()` `load` è `ok` con gli stessi valori.
+
+Solo casi **rappresentabili** su Postgres con qualunque schema ragionevole (una riga che manca, un testo):
+i casi di tipo e intervallo, che un CHECK o una colonna `integer` rendono irrappresentabili, stanno nei
+test di `parseParameters`, come i test sulle trasferte invalide stanno in `memory-trip-repository.test.ts`
+(precedente di T07g). La tabella dei **quindici** metodi del guasto **non si tocca**: dice *"dei quattro
+repository"*, e allungarla a sedici cambierebbe un'`expect` esistente. Il guasto del port nuovo ha il
+suo test (P5). Il doc di `guasta()` (*"ogni metodo di ogni repository"*) resta vero.
+
+### Il piano, in sette step (un commit solo)
+
+**Step 1 — Tipi e predicati in `core/domain`, nessun comportamento cambia.** File:
+`core/domain/parameters.ts` (nuovo: `MatchConfig`, `CreateTripConfig`, `KpiConfig`,
+`PlantDistanceTable`, `CascadeConfig`, `BadgeConfig`, e i predicati: tolleranza intero ≥ 0, posti intero
+≥ 1, KPI finiti ≥ 0, soglia intero ≥ 1, `maxLength` intero ≥ 1), `domain/index.ts`; i cinque
+`usecases/*-config.ts` e `plant-distance.ts` diventano riesportazioni; `find-matches.ts`,
+`create-trip.ts`, `compute-company-kpi.ts`, `award-badges.ts` chiamano i predicati al posto del
+controllo in linea, **con gli stessi `kind` d'errore**. Verde da solo: sì. Prova: **nessun file di test
+cambia** e `test:unit` resta a 548 in 31.
+- *Sonda 1a:* nel predicato della tolleranza, `>= 0` → `>= 1`: rosso in `find-matches.test.ts` (il
+  confine a tolleranza zero). Rifatta allo step 3, deve rendere rossi **anche** i test del parser: è la
+  prova che il predicato è uno.
+- *Sonda 1b:* nel predicato dei posti, `>= 1` → `>= 2`: **resta verde** in `create-trip.test.ts`,
+  verificato leggendo: i test della config invalida usano `0, -1, 2.5, NaN` e nessuno usa
+  `maxSeatsOffered: 1`, cioè il confine valido più basso non è coperto. Non si corregge allo step 1
+  (nessun file di test cambia); lo copre allo step 3 il test del parser con `1` accettato, e la sonda
+  rifatta lì deve essere rossa.
+
+**Step 2 — Le etichette escono dal catalogo, e la lista delle parole è una.** File:
+`core/domain/badge-label.ts` (nuovo: `FORBIDDEN_BADGE_WORDS`, con `'ricompens'` al posto di
+`'ricompensa'`, e il predicato: non vuota e senza parole vietate), `domain/parameters.ts`
+(`BadgeConfig.labels: Readonly<Record<BadgeId, string>>`), `award-badges.ts` (`BADGE_CATALOG` perde
+`label`; l'etichetta viene da `config.labels[id]`; un'etichetta che il predicato rifiuta → il suo
+`invalid-config` con `badgeId`, stessa forma di oggi), `config/badges.ts` (le sei etichette di oggi,
+**identiche**, finché lo step 4 non lo sostituisce), `award-badges.test.ts`,
+`refresh-personal-bests.test.ts`, `badge-config.test.ts`. Verde da solo: sì.
+- Test nuovi: tabella sulle **sedici** parole del criterio, ognuna dentro un'etichetta, rifiutata dal
+  predicato e da `awardBadges`; *"Ricompense per te"* fra i casi.
+- *Sonda 2a:* togliere `'ticket'` dalla lista → rosso (*"Ticket restaurant"*).
+- *Sonda 2b:* `'ricompens'` → `'ricompensa'` → rosso: è il difetto di oggi rimesso.
+- *Sonda 2c:* `awardBadges` che salta il predicato → rosso nel suo test.
+- *Verifica:* `rg -n "'voucher'" app/src` (test **inclusi**) → una riga, in `badge-label.ts`.
+
+**Step 3 — `parseParameters`.** File: `core/domain/parse-parameters.ts` (nuovo: `PARAMETER_KEYS`,
+`RawParameters`, `AppParameters`, `ParameterError`, il parser), il suo test, `domain/index.ts`.
+Additivo, verde da solo. Un test per ogni caso del criterio, più: le otto chiavi pinnate; il caso valido
+che produce un `AppParameters` atteso scritto come letterale.
+- *Sonda 3a:* ripetere la 1a → rossi **sia** `find-matches.test.ts` **sia** il test del parser.
+- *Sonda 3b:* accettare `typeof value === 'string'` convertito con `Number` → rosso (il caso `'30'`).
+- *Sonda 3c:* togliere il controllo della coppia invertita → rosso.
+- *Sonda 3d:* togliere il controllo della nota automatica sotto il limite caricato → rosso.
+- *Sonda 3e:* togliere il controllo di `maxLength` → rosso (il caso `NaN` non arriva da JSON: si prova
+  con `0` e `1.5`).
+- *Sonda 3f:* ignorare una chiave sconosciuta invece di rifiutarla → rosso.
+
+**Step 4 — `config/` diventa il seed.** File: `config/parameters.ts` (nuovo, `SEED_PARAMETERS` grezzo,
+con il commento *"DA SOSTITUIRE"* sulla Pomigliano–Foggia che si porta dietro), `config/index.ts`; via
+`matching.ts`, `trips.ts`, `kpi.ts`, `badges.ts`, `notes.ts`; i sei `*-config.test.ts` sostituiti da
+`core/usecases/parameters-seed.test.ts`; `memory.contract.test.ts` e `memory-conditions.test.ts` (il
+limite delle note da `parseParameters(SEED_PARAMETERS)`); `eslint.config.js` (`GRAFO.ui` senza
+`config`). Verde da solo: sì.
+- *Mapping dei vecchi `it`* (da registrare qui dal developer, uno per uno): soglie intere ≥ 1, tolleranza
+  ≥ 0, posti ≥ 1, `maxLength` ≥ 1, nota automatica entro il limite → **il seed passa
+  `parseParameters`** (lo stesso controllo, al confine); valori pinnati (110, 120, 7,0, 2,2, 165, 320,
+  232, 8, soglie) → pinnati sul seed parsato; *"accettata da `awardBadges` / `computeCompanyKpi` /
+  `makeMatchRequest`"* e *"ogni coppia risolvibile nei due versi"* → invariati sul seed parsato;
+  *"X soddisfa XConfig"* (l'annotazione è l'asserzione) → **cadono**, perché il parser è tipizzato e la
+  riga non può più fallire. La voce di `IDEAS.md` *"Un test diretto del criterio «primo viaggio» con la
+  config di produzione"* resta fuori: è una proposta, non entra da sola.
+- *Sonda 4a:* `import { SEED_PARAMETERS } from '../config';` in `src/ui/index.ts` → `lint` rosso.
+- *Sonda 4b:* nel seed, la soglia di `primo-viaggio` a 0 → rosso in `parameters-seed.test.ts`.
+- *Verifica:* il comando `rg` del secondo criterio non trova niente.
+
+**Step 5 — Il port, l'adapter memory, la suite.** File: `core/ports/parameter-repository.ts`,
+`ports/index.ts`, `repository-error.ts` (una riga di doc), `adapters/memory/memory-parameter-repository.ts`
+(costruttore `(raw: RawParameters, condizioni?: CondizioniDiAmbiente)`, `sostituisci(raw)`, guasto in
+testa, identità nulla → zero righe, poi `parseParameters` e la traduzione in `invalid-record`),
+`memory/index.ts`, `memory-conditions.ts` (doc: i parametri fra le letture filtrate),
+`memory-conditions.test.ts` (identità nulla → `invalid-record`), `repository-contract.ts` (ambiente e
+P1–P5, `import { SEED_PARAMETERS }` dalla suite: `adapters → config` è nel grafo),
+`memory.contract.test.ts`. Verde da solo: sì.
+- *Sonda 5a:* l'adapter che ignora le righe e parsa sempre il seed del costruttore iniziale → rosso P2.
+- *Sonda 5b:* l'adapter che non chiama `parseParameters` (cast delle righe) → rossi P3 e P4.
+- *Sonda 5c:* l'adapter che ignora il guasto → rosso P5.
+- *Sonda 5d:* l'adapter che ignora l'identità → rosso in `memory-conditions.test.ts`.
+- *Verifica:* `git diff -U0 4a4bc11 -- app/src/adapters/contract/repository-contract.ts | rg
+  "^-.*expect"` vuoto.
+
+**Step 6 — Il percorso port → usecase.** File: `eslint.config.js` (`GRAFO.harness` = `['harness',
+'domain', 'ports', 'usecases', 'adapters', 'config']`, **senza `ui`**), `src/__tests__/parameters-path.test.ts`
+(nuovo). Verde da solo: sì. Due casi: tolleranza 30 → 10 e un'offerta a 20 minuti che esce da
+`findMatches`; un'etichetta cambiata che `awardBadges` restituisce. Ciascuno controlla anche il
+**prima**: senza, il test passerebbe con una tolleranza già a 10.
+- *Sonda 6a:* `awardBadges` che legge di nuovo un'etichetta compilata → rosso.
+- *Sonda 6b:* `import '../ui';` in `harness.test.ts` → rosso, come a T07h (3b): la decisione allarga
+  `harness` e lascia chiuso il buco che T07h voleva chiudere, `ui/` ↔ `adapters/`.
+- *Dichiarato:* la sonda 3a di T07h (`harness → adapters` rosso) **smette di esserlo, per decisione**.
+
+**Step 7 — Documenti.** `ARCHITECTURE.md`: albero dei moduli (port nuovo, `config/` come seed), §
+Modularità (il paragrafo su `config/` e sui sei test di conformità si riscrive; `harness` allargato; `ui/`
+senza `config/`), § Modello dati (*"il limite delle note è in `config/`"* → nei parametri). **Per
+l'orchestratore, non per il developer:** il `CLAUDE.md` di progetto dice *"soglie, costi, tolleranze e
+distanze stanno in `config/`. Un KPI che cambia modificando `config` è la prova…"* e *"parametri di
+`config` arrivano da `.env`"*: la prima diventa falsa con T07b, la seconda era già falsa dalla decisione
+3 di T03 (i valori erano letterali). Più i criteri qui sotto su T08, T09 e UI.
+
+**Chiusura:** `npm run verify` verde; ogni sonda eseguita **da sola** dal developer, con esito
+registrato qui, e ripristinata con Edit; niente worktree, niente scritture da shell. Il conteggio dei
+test cambia (sei suite di conformità ne diventano una, più parser, etichette, contratto, percorso): lo
+riporta il developer, non lo prevedo.
+
+### Decisioni, una riga ciascuna con l'alternativa
+
+- **Tipi in `core/domain/parameters.ts`, riesportati da `usecases/`.** Alt.: aggiornare tutti gli import e
+  togliere i `*-config.ts` (più pulito, più file toccati); o allargare `GRAFO.ports` a `usecases`
+  (inverte la freccia: scartata).
+- **Predicati estratti e condivisi da usecase e parser.** Alt.: parser solo strutturale (presenza, tipo)
+  e intervalli lasciati agli usecase: meno lavoro, ma un `maxLength` invalido non lo vedrebbe nessuno e
+  una soglia a 0 si scoprirebbe sulla dashboard, non al caricamento.
+- **`RawParameters` neutro rispetto allo schema.** Alt.: fissare ora tabella chiave/valore o colonne
+  tipizzate, che è una decisione di T08 (⛔ schema).
+- **Chiave sconosciuta rifiutata, non ignorata.** Alt.: ignorarla: in una tabella chiave/valore un refuso
+  accanto alla chiave giusta diventerebbe una riga che si modifica senza effetto.
+- **Primo errore, non elenco.** Alt.: elenco (voce già in `IDEAS.md`).
+- **Etichette in `BadgeConfig.labels`.** Alt.: `awardBadges` che ritorna solo id e testi uniti in UI:
+  cambia il tipo di ritorno e sposta in UI la garanzia sul testo.
+- **`awardBadges` valida anche le etichette.** Alt.: solo al confine: un `Badge` vietato resterebbe
+  costruibile da un chiamante con una config scritta a mano.
+- **`ricompens` nella lista.** Alt.: aggiungere `'ricompense'` accanto: due voci per una radice.
+- **Sei test di conformità consolidati in uno.** Alt.: lasciarli e cambiarne la sorgente: sei copie dello
+  stesso unwrap e sei asserzioni che non possono fallire.
+- **Guasto del port nuovo in un test suo, tabella dei quindici intatta.** Alt.: portarla a sedici,
+  cambiando un'`expect` di T07g.
+- **`harness` allargato, non un elemento nuovo.** Alt.: un elemento `composition`; T07h aveva scritto che
+  un test end-to-end in RAM sarebbe passato da qui con una decisione scritta, ed è questa.
+- **Identità nulla → righe invisibili in RAM.** Alt.: lasciarlo fuori, come le letture di trasferte in
+  T07g; scartata perché la policy di questa tabella la scrive T07b stesso.
+
+### ⛔ e raccomandazioni, applicate per delega
+
+1. **Port nuovo `ParameterRepository`** — raccomandato e applicato. Alt.: un parametro di costruzione
+   letto da `.env`, che è la strada che T03 aveva già scartato.
+2. **Inversione della decisione 3 di T03** — applicata, registrata sopra e in `ARCHITECTURE.md`.
+3. **I tipi di config cambiano modulo** (`usecases/` → `domain/`). La superficie pubblica di
+   `core/usecases` resta identica grazie alle riesportazioni. Raccomandato.
+4. **`BadgeConfig` guadagna `labels`, `BADGE_CATALOG` perde `label`.** È un'interfaccia pubblica
+   esportata da `usecases/index.ts`. Raccomandato: è l'unico modo di portare il testo nella tabella
+   senza cambiare il tipo di ritorno di `awardBadges`. Il criterio di T07e *"`awardBadges` non cambia
+   firma"* resta vero per i parametri; la forma di `BadgeConfig` cambia, dichiarato.
+5. **Grafo del lint**: `ui/` perde `config/`, `harness` guadagna cinque archi. Non è un'API, ma cambia un
+   freno provato a T07h: lo dichiaro come ⛔ di processo. Raccomandato.
+
+Nessun cambio di schema, nessuna dipendenza, nessuna installazione: restano su T08 e T09.
+
+### Criteri per l'orchestratore (step finale)
+
+**Su T08** — *Criteri aggiunti il 25 ottobre 2026, da T07b*
+- [ ] **Le tabelle dei parametri** (scalari, distanze fra plant, badge), nella forma decisa qui, con RLS
+      attiva: **`SELECT` per `authenticated`**, nessuna policy di `INSERT`/`UPDATE`/`DELETE` per i ruoli
+      dell'app, niente per `anon`. Il gate è la dashboard, che ha solo l'umano: nessun ruolo admin nel
+      modello. Un test di integrazione dimostra che un autenticato legge, che `anon` non legge, e che una
+      `UPDATE` dall'app **non cambia la riga** — sotto RLS una `UPDATE` senza policy tocca zero righe
+      senza errore, quindi il test rilegge il valore invece di aspettarsi un errore
+- [ ] **Il seed dei parametri è derivato da `SEED_PARAMETERS`**, non riscritto a mano: uno script genera
+      la migrazione di seed, e un test unitario senza rete confronta il file SQL committato con l'output
+      dello script. Così `config/` e la migrazione non divergono. Dopo l'applicazione, la tabella è la
+      fonte a runtime e può divergere dal seed per decisione dell'umano
+- [ ] I `CHECK` delle tabelle dei parametri sono compatibili con i casi della suite di contratto di T07b
+      (una coppia di distanze mancante, un'etichetta con una parola vietata), e **nessun CHECK replica
+      la lista delle parole vietate**: sarebbe la seconda lista, in un secondo linguaggio. Se un caso
+      diventa irrappresentabile, il test è dichiarato *solo memory* con il motivo
+- [ ] **Abbassare `note.maxLength` resta una migrazione** (decisione del 14 ottobre), ma con T07b è anche
+      una riga modificabile dalla dashboard: un trigger o un vincolo impedisce di portarlo sotto la
+      lunghezza della nota più lunga esistente, così l'unica via resta la procedura che accorcia e marca
+      le note. Un test di integrazione prova il rifiuto
+
+**Su T09** — *Criteri aggiunti il 25 ottobre 2026, da T07b*
+- [ ] L'adapter Supabase di `ParameterRepository` legge le tabelle di T08 e passa le righe a
+      `parseParameters`; **nessun fallback** e nessun valore di `config/` nell'adapter: `rg -n
+      "SEED_PARAMETERS" app/src/adapters/supabase` (test **inclusi**) non trova niente
+- [ ] L'ambiente di contratto Supabase implementa `scriviParametriGrezzi` con credenziali di servizio fuori
+      dall'app, e `pulisci()` riporta le tabelle dei parametri **allo stato di prima del test**
+      (fotografia), non al seed: lo staging può contenere valori ritarati dall'umano, e una suite che li
+      sovrascrivesse cambierebbe i numeri della demo
+- [ ] **"Senza ricompilare", la metà di T07b che serviva una tabella vera:** un test di integrazione
+      aggiorna una riga con le credenziali di servizio, una nuova `load` **dello stesso processo**
+      restituisce il valore nuovo e `findMatches` cambia risultato; poi ripristina
+- [ ] Una `load` senza sessione vede zero righe e torna `invalid-record`, la stessa mappatura di
+      `memory`: la suite non va adattata
+- [ ] L'adapter Supabase di `MatchRequestRepository` riceve il `NoteConfig` da `AppParameters.notes`
+      caricato, non da `config/`
+
+**Sui task di UI** (proposta per l'orchestratore, non richiesta dal brief: è il soggetto che il secondo
+criterio di T07b non ha) — il primo task che chiama un usecase con config (oggi T12, `createTrip`):
+- [ ] La config arriva da `ParameterRepository.load()` **dopo l'accesso**, mai da `config/` (il lint lo
+      impone già); se `load` fallisce la schermata mostra un errore esplicito, **nessun valore di
+      default**
+
+### Deviazioni e note
+
+- **Il brief chiedeva che cosa resta in `config/`, "fixture o default":** fixture e sorgente del seed sì,
+  **default no**. Un default è la forma esatta del difetto che il criterio vieta.
+- **Un criterio per la UI** oltre a T08 e T09: senza, il secondo criterio di T07b resterebbe senza
+  soggetto anche dopo T09.
+- **Due righe del `CLAUDE.md` di progetto** vanno corrette dall'orchestratore (step 7). La seconda era
+  già falsa prima di T07b.
+- **Rischio dichiarato per T09:** se staging è anche il progetto della demo, la suite di contratto
+  scrive sui parametri veri. Il criterio di ripristino lo contiene; separare i due progetti è una
+  scelta dell'umano.
+- Tre voci nuove in `IDEAS.md`: normalizzazione del testo prima del controllo delle parole vietate;
+  storico delle modifiche ai parametri; quando l'app rilegge i parametri. Non duplicate: verificato
+  sui titoli e sul contenuto di *"Il presidio sui testi dei badge"* e *"Accumulare gli errori"*.

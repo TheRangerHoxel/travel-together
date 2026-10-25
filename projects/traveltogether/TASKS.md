@@ -975,38 +975,127 @@ la propria config **come parametro** e la valida, con un errore tipizzato se è 
 (`invalid-config`, `invalid-tolerance`). Quindi il core non cambia: cambia solo **da dove arrivano i
 valori**. L'architettura aveva già anticipato questo passaggio senza che fosse il suo scopo.
 
+**Criteri riletti contro il modello il 25 ottobre 2026, prima di aprire il task** (planner). Sei
+correzioni, un criterio spostato e quattro aggiunte, ciascuna marcata *(25/10)* con il motivo accanto.
+Le cause sono tre. **Il vincolo di realtà:** lo schema non esiste (T08, ⛔ schema, e applicarlo a
+staging richiede credenziali che l'agente non ha) e `@supabase/supabase-js` non è installato (T09, ⛔
+dipendenza): ogni criterio che nominava la tabella, le RLS o l'adapter Supabase era insoddisfacibile qui,
+cioè un verde falso. **Il grafo:** i tipi di config stanno in `core/usecases`, e `ports/` può importare
+solo `domain/`, quindi un port non potrebbe restituirli senza spostarli. **I test di conformità:**
+proteggono proprietà dei valori **compilati** (soglie ≥ 1, ogni coppia di plant risolvibile, nota
+automatica entro il limite) che con la tabella non proteggono più la produzione, e vanno portate al
+confine. Piano, forma del port e decisioni: `PROGRESS.md`, voce del 25 ottobre.
+
 **Criteri di accettazione**
-- [ ] Un port nuovo per leggere i parametri, con un adapter memory che li serve da fixture e uno
-      Supabase che li legge dalla tabella
-- [ ] Passano dalla tabella: costo auto/giorno, prezzo carburante, consumo, distanze fra plant,
-      tolleranza oraria del matching, massimo posti offribili, limite lunghezza note, testo della nota
-      automatica, soglie dei badge
-- [ ] Restano nel codice, e un test di conformità lo dichiara: `PlantId`, gli stati, gli id dei badge
-- [ ] **Un parametro mancante o malformato nella tabella non passa in silenzio:** errore tipizzato al
-      confine, come per ogni altro dato che arriva dallo storage. È il rischio che la decisione di T03
-      voleva evitare tenendo i valori come letterali, e qui si paga con una validazione al confine
-- [ ] `test:unit` continua a girare **senza rete**: gli usecase ricevono config da fixture, mai dalla
-      tabella
-- [ ] Un test dimostra che **cambiando una riga della tabella** il risultato di un usecase cambia,
-      senza ricompilare
-- [ ] RLS: lettura per tutti gli autenticati, **scrittura per nessuno** dall'app. Il gate è l'accesso
-      alla dashboard Supabase, che ha solo l'umano: nessun ruolo admin nel modello e nessuna schermata
-      di configurazione nell'app
-- [ ] **Anche le etichette dei badge passano in tabella** (decisione dell'umano, 14 ottobre 2026), e
-      **l'adapter che le legge rifiuta con errore tipizzato** un testo che contiene una parola vietata
+- [ ] *(25/10, diviso)* Un port nuovo, **`ParameterRepository`**, con un solo metodo
+      `load(): Promise<Result<AppParameters, RepositoryError>>` e **nessun metodo di scrittura**, come
+      `ProfileRepository`: l'app i parametri li legge e basta. Adapter memory che serve le righe grezze
+      ricevute nel costruttore, senza valori impliciti. La suite di contratto lo copre (criterio sotto).
+      *Motivo:* "uno Supabase che li legge dalla tabella" richiede T08 e T09; è un criterio di **T09**.
+- [ ] *(25/10, completato e reso verificabile)* Passano dal port **tutti** i valori di `config/` di oggi:
+      costo auto/giorno, prezzo carburante, consumo, **g CO₂/km** (la lista lo ometteva, ed è il numero
+      della CO₂ in slide), distanze fra plant, tolleranza oraria, massimo posti offribili, limite delle
+      note, testo della nota automatica, soglie **ed etichette** dei badge. `AppParameters` ha per campi
+      i tipi che gli usecase già ricevono (`MatchConfig`, `CreateTripConfig`, `KpiConfig`, `NoteConfig`,
+      `CascadeConfig`, `BadgeConfig`), spostati in `core/domain` e riesportati invariati da
+      `core/usecases`. Verifica: `rg -n "from '(\.\./)+config'" app/src --glob '!**/*.test.ts' --glob
+      '!**/contract/**'` non trova niente (test e suite di contratto **esclusi**, dichiarato), e `ui/`
+      perde l'arco verso `config/` nel grafo del lint, provato da una sonda.
+      *Motivo:* il criterio non aveva soggetto. Nessun chiamante di produzione degli usecase esiste — non
+      c'è una schermata né una radice di composizione — quindi *"passano dalla tabella"* non poteva
+      essere vero né falso. Oggi si può pretendere che i valori **non abbiano un'altra strada**: è il
+      lint a chiuderla. Il chiamante vero è un criterio dei task di UI.
+- [ ] *(25/10, reso verificabile)* Restano nel codice le **identità**: `PlantId`, gli stati, gli id dei
+      badge, le **chiavi dei parametri** (`PARAMETER_KEYS`) e il catalogo famiglia/metrica dei badge;
+      restano costanti anche le unità e i minimi che definiscono un concetto (i 100 km del consumo, il
+      posto minimo di un'auto, il bonus di plant derivato dalla finestra, T03). Verifica: un test pinna
+      `PARAMETER_KEYS`; il parser rifiuta una riga con un `badgeId` o un plant fuori da `BADGE_IDS` /
+      `PLANT_IDS`, o una chiave fuori da `PARAMETER_KEYS`: **la tabella non può creare un'identità**.
+      *Motivo:* *"un test di conformità lo dichiara"* non diceva che cosa asserisce. Che un'identità
+      resti nel codice si prova mostrando che la tabella non riesce ad aggiungerne una.
+- [ ] *(25/10, precisato)* **Un parametro mancante o malformato non passa in silenzio:** lo valida
+      `parseParameters`, funzione pura in `core/domain`, che l'adapter **invoca** (su `memory` lo
+      verifica il reviewer per lettura; a T09 l'equivalenza la prova la suite). Ogni caso ha un test in
+      `core/domain`: chiave mancante; valore non numerico, **stringa `'30'` compresa**; fuori intervallo;
+      chiave, badge o plant sconosciuti; coppia di distanze mancante, duplicata (anche invertita) o con
+      plant uguali; etichetta vuota o con parola vietata; nota automatica che il controllo di lunghezza
+      di `makeMatchRequest` rifiuterebbe con il limite **caricato**. Gli intervalli sono gli **stessi
+      predicati** che gli usecase applicano già alla propria config, spostati una volta sola in
+      `core/domain` e chiamati da entrambi: la sonda che muta il predicato della tolleranza rende rossi
+      sia i test di `findMatches` sia quelli del parser. **Nessun valore di default**: un parametro
+      mancante non è mai sostituito dal seed. L'errore è `RepositoryError` **`invalid-record`** con `id`
+      = chiave del parametro e `detail` = motivo: nessun `kind` nuovo.
+      *Motivo:* il testo non diceva quali errori, dove vive il controllo, né che le proprietà oggi
+      garantite dai test di conformità sui valori compilati devono passare al confine. E un caso è
+      concreto: **nessun usecase valida `NoteConfig.maxLength`**, e con `NaN` il confronto
+      `length > maxLength` è sempre falso, cioè le note non avrebbero più limite.
+- [ ] `test:unit` continua a girare **senza rete**: gli usecase ricevono config come parametro, mai
+      dal port. *(25/10: invariato.)*
+- [ ] *(25/10, diviso)* **Cambiando una riga il risultato di un usecase cambia.** Oggi, su `memory`:
+      (a) nella suite di contratto, dopo `scriviParametriGrezzi` con una riga diversa, `load` restituisce
+      il valore nuovo; (b) un test in `src/__tests__/` compone adapter memory → `load` → usecase: portata
+      la tolleranza da 30 a 10, un'offerta a 20 minuti esce da `findMatches`; cambiata un'etichetta,
+      `awardBadges` assegna il badge con il testo nuovo. Dichiarato: **su `memory` "senza ricompilare"
+      non è dimostrabile**, perché la riga è un oggetto in RAM; lo è a T09 su staging (criterio lì).
+      *Motivo:* la metà "senza ricompilare" richiede una tabella vera.
+- [ ] *(25/10, spostato su T08)* RLS: lettura per gli autenticati, **scrittura per nessuno** dall'app,
+      nessun ruolo admin e nessuna schermata di configurazione: è **T08**. Qui resta la metà
+      verificabile: il port non ha metodi di scrittura (reviewer per lettura), e in RAM, con identità
+      nulla, le righe dei parametri **non sono visibili**, come sotto RLS: `load` → `invalid-record`.
+      Test in `memory-conditions.test.ts`, perché l'ambiente di contratto non sa tornare a identità nulla
+      (voce *"Un hook esci"* di `IDEAS.md`).
+- [ ] *(25/10, precisato)* **Anche le etichette dei badge passano dal port** (decisione dell'umano, 14
+      ottobre 2026), e un testo con una parola vietata è **rifiutato con errore tipizzato al confine**
       (premi, buoni, euro, €, denaro, soldi, sconti, voucher, regali, bonus, rimborsi, ricompense,
       gratis, coupon, **ticket**, **welfare**). Oggi il criterio *"nessun badge implica premi, denaro o
       buoni"* è imposto da un test su **costanti compilate**: se i testi diventano modificabili dalla
       dashboard senza che il controllo li segua, l'unica garanzia contro una promessa che il prodotto
       non può mantenere svanisce **nel momento di massimo rischio**, la sera prima del pitch e dalla
       sola persona che ha accesso a quella dashboard. È un caso del criterio "un parametro malformato
-      non passa in silenzio", non un meccanismo nuovo
-- [ ] La lista delle parole vietate vive in **un punto solo**, condiviso fra il test del catalogo e la
-      validazione dell'adapter: due liste divergerebbero, e divergerebbero in silenzio
+      non passa in silenzio", non un meccanismo nuovo. Forma: `BadgeConfig` guadagna `labels`,
+      `BADGE_CATALOG` perde `label`, e `awardBadges` rifiuta con il suo `invalid-config` un'etichetta
+      vietata, con lo stesso predicato: nessun percorso produce un `Badge` che prometta un premio.
+      `awardBadges` conserva la firma `(stats, config)`: cambia la forma di `BadgeConfig`, dichiarato.
+      **Un test di tabella passa ciascuna delle sedici parole di questo criterio dentro un'etichetta e
+      pretende il rifiuto.**
+      *Motivo:* oggi la lista del test contiene `'ricompensa'`, che **non** intercetta *"ricompense"*:
+      un'etichetta *"Ricompense per te"* passa. Il criterio elenca i plurali e il codice no.
+- [ ] *(25/10, reso verificabile)* La lista delle parole vietate vive in **un punto solo**,
+      `core/domain/badge-label.ts`, importata da `parseParameters`, da `awardBadges` e dai test: due
+      liste divergerebbero, e divergerebbero in silenzio. Verifica: `rg -n "'voucher'" app/src` (test
+      **inclusi**) trova una riga sola, in quel file
+- [ ] *(25/10, aggiunto)* **`config/` diventa il seed, e una fonte sola.** Contiene solo
+      `SEED_PARAMETERS`, in forma **grezza** (le stesse righe che `parseParameters` riceve), e nessun
+      valore tipizzato per gli usecase. Serve all'ambiente memory, al test di composizione e, a T08,
+      alla migrazione di seed, che ne è **derivata** e non riscritta. I sei test `*-config.test.ts`
+      diventano un test solo, che passa il seed da `parseParameters` e pinna i valori iniziali; il
+      mapping fra ogni vecchio `it` e il nuovo è in `PROGRESS.md`, e cadono soltanto le asserzioni
+      *"l'annotazione è l'asserzione"*, che con un parser tipizzato non possono più fallire. I titoli
+      dicono **seed**, non *produzione*: in produzione vale la tabella.
+      *Motivo:* senza, a T08 il seed SQL e `config/` sarebbero due copie degli stessi numeri.
+- [ ] *(25/10, aggiunto)* **I test chiusi che cambiano sono elencati, e nessun altro:**
+      `award-badges.test.ts` (le config di fixture guadagnano `labels`; la lista locale delle parole
+      lascia il posto all'import; il test sul catalogo si sposta sulle etichette in config),
+      `refresh-personal-bests.test.ts` (`configCon` guadagna `labels`), i sei `*-config.test.ts`
+      (consolidati, criterio sopra), `memory.contract.test.ts` e `memory-conditions.test.ts` (il limite
+      delle note viene dal seed, l'ambiente guadagna i due membri nuovi). Nessuna `expect` esistente
+      della suite di contratto cambia: `git diff -U0 4a4bc11 --
+      app/src/adapters/contract/repository-contract.ts | rg "^-.*expect"` non restituisce niente
+- [ ] *(25/10, aggiunto)* **L'inversione della decisione 3 di T03 è registrata come tale**: in
+      `PROGRESS.md` e in `ARCHITECTURE.md` (§ Modularità: `config/` è il seed, il port nuovo,
+      l'elemento `harness` allargato), con il motivo e cosa si perde — un valore sbagliato non è più un
+      errore di compilazione ma un `invalid-record` al primo `load`
+- [ ] *(25/10, aggiunto)* **Criteri corrispondenti scritti su T08 e T09**, nella forma già usata da
+      T07c, T07e, T07f e T07g: tabelle, RLS, seed derivato e CHECK compatibili con la suite su T08;
+      adapter, ripristino dello staging e prova "senza ricompilare" su T09
 
 ⛔ Checkpoint: port nuovo, e rovescia la decisione di T03 che teneva i valori come letterali
 verificabili a compile time. Il motivo per cui si rovescia è buono — un parametro che richiede una
-build non è configurabile — ma va registrato come inversione e non come dettaglio.
+build non è configurabile — ma va registrato come inversione e non come dettaglio. **Sciolto il 25
+ottobre 2026 per delega dell'umano** (*"scegli l'opzione raccomandata"*), insieme ai ⛔ emersi in
+pianificazione: i tipi di config spostati in `core/domain`, `BadgeConfig` con le etichette, il grafo
+del lint ristretto per `ui/` e allargato per `src/__tests__/`. Raccomandazioni e alternative:
+`PROGRESS.md`.
 
 ## T08 ⛔ Schema Supabase, migrazioni e RLS
 
@@ -1121,6 +1210,26 @@ Tabelle da `ARCHITECTURE.md`, come SQL versionato nel repo.
       o la riga seminata è rappresentabile sotto i CHECK, o il test che la usa è dichiarato
       *solo memory* con il motivo, come i test sulle liste invalide di trasferte e tratte
 
+**Criteri aggiunti il 25 ottobre 2026, da T07b**
+- [ ] **Le tabelle dei parametri** (scalari, distanze fra plant, badge), nella forma decisa qui, con RLS
+      attiva: **`SELECT` per `authenticated`**, nessuna policy di `INSERT`/`UPDATE`/`DELETE` per i ruoli
+      dell'app, niente per `anon`. Il gate è la dashboard, che ha solo l'umano: nessun ruolo admin nel
+      modello. Un test di integrazione dimostra che un autenticato legge, che `anon` non legge, e che una
+      `UPDATE` dall'app **non cambia la riga** — sotto RLS una `UPDATE` senza policy tocca zero righe
+      senza errore, quindi il test rilegge il valore invece di aspettarsi un errore
+- [ ] **Il seed dei parametri è derivato da `SEED_PARAMETERS`**, non riscritto a mano: uno script genera
+      la migrazione di seed, e un test unitario senza rete confronta il file SQL committato con l'output
+      dello script. Così `config/` e la migrazione non divergono. Dopo l'applicazione, la tabella è la
+      fonte a runtime e può divergere dal seed per decisione dell'umano
+- [ ] I `CHECK` delle tabelle dei parametri sono compatibili con i casi della suite di contratto di T07b
+      (una coppia di distanze mancante, un'etichetta con una parola vietata), e **nessun CHECK replica
+      la lista delle parole vietate**: sarebbe la seconda lista, in un secondo linguaggio. Se un caso
+      diventa irrappresentabile, il test è dichiarato *solo memory* con il motivo
+- [ ] **Abbassare `note.maxLength` resta una migrazione** (decisione del 14 ottobre), ma con T07b è anche
+      una riga modificabile dalla dashboard: un trigger o un vincolo impedisce di portarlo sotto la
+      lunghezza della nota più lunga esistente, così l'unica via resta la procedura che accorcia e marca
+      le note. Un test di integrazione prova il rifiuto
+
 ⛔ Checkpoint obbligatorio: cambio di schema DB.
 
 ## T09 Adapter Supabase
@@ -1145,6 +1254,22 @@ Implementazione dei port con `@supabase/supabase-js`.
       Su Postgres quel ramo nessun test condiviso lo può costruire (i CHECK e il tipo della colonna lo
       impediscono): lo si verifica con un test dell'adapter sulla funzione di traduzione, e il commento
       che accompagna l'omissione nomina il canale di osservabilità mancante come in `memory`
+
+**Criteri aggiunti il 25 ottobre 2026, da T07b**
+- [ ] L'adapter Supabase di `ParameterRepository` legge le tabelle di T08 e passa le righe a
+      `parseParameters`; **nessun fallback** e nessun valore di `config/` nell'adapter: `rg -n
+      "SEED_PARAMETERS" app/src/adapters/supabase` (test **inclusi**) non trova niente
+- [ ] L'ambiente di contratto Supabase implementa `scriviParametriGrezzi` con credenziali di servizio fuori
+      dall'app, e `pulisci()` riporta le tabelle dei parametri **allo stato di prima del test**
+      (fotografia), non al seed: lo staging può contenere valori ritarati dall'umano, e una suite che li
+      sovrascrivesse cambierebbe i numeri della demo
+- [ ] **"Senza ricompilare", la metà di T07b che serviva una tabella vera:** un test di integrazione
+      aggiorna una riga con le credenziali di servizio, una nuova `load` **dello stesso processo**
+      restituisce il valore nuovo e `findMatches` cambia risultato; poi ripristina
+- [ ] Una `load` senza sessione vede zero righe e torna `invalid-record`, la stessa mappatura di
+      `memory`: la suite non va adattata
+- [ ] L'adapter Supabase di `MatchRequestRepository` riceve il `NoteConfig` da `AppParameters.notes`
+      caricato, non da `config/`
 
 ⛔ Nuova dipendenza: `@supabase/supabase-js` va approvata.
 
@@ -1174,6 +1299,12 @@ Implementazione dei port con `@supabase/supabase-js`.
 - [ ] Ogni errore di validazione di T04 produce un messaggio visibile in schermata
 - [ ] A salvataggio avvenuto la trasferta appare nella lista personale
 - [ ] Render test su almeno un percorso completo di creazione
+
+**Criterio aggiunto il 25 ottobre 2026, da T07b** — il soggetto che il secondo criterio di T07b non
+aveva: questo è il primo task che chiama un usecase con config.
+- [ ] La config arriva da `ParameterRepository.load()` **dopo l'accesso**, mai da `config/` (il lint lo
+      impone già); se `load` fallisce la schermata mostra un errore esplicito, **nessun valore di
+      default**
 
 > **⚠️ I criteri di T13 e T14 precedono le decisioni del 13–14 ottobre 2026 e vanno riscritti prima di
 > aprirli**, come è stato fatto per T05. Non menzionano: le **note** (`requestNote` facoltativa quando

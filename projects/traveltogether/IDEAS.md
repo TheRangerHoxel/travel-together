@@ -593,3 +593,24 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — `app/eslint.config.js`. Reversibile.
 - **Costo** — XS.
 - **Stato** — proposta
+
+### Il controllo delle parole vietate è una sottostringa su testo minuscolo
+- **Cosa** — normalizzare l'etichetta prima del confronto (Unicode NFKD senza diacritici, spazi e punteggiatura tolti, cifre sostituite dalle lettere che imitano) e confrontare con la lista unica di T07b.
+- **Perché** — scoperto pianificando T07b. Oggi, e dopo T07b, *"B u o n o"*, *"Bùono"* o *"Pr3mi"* passano il controllo: il predicato è `label.toLowerCase().includes(word)`. Quando i testi stanno in una tabella modificabile dalla dashboard, il rischio non è l'aggiramento intenzionale ma il refuso o la formattazione creativa della sera prima del pitch. Con la lista in un punto solo, la normalizzazione è una riga in quel punto.
+- **Impatto** — `core/domain/badge-label.ts` e i suoi test. Nessuna firma cambia; può rifiutare etichette oggi accettate (falsi positivi da verificare sul seed). Reversibile.
+- **Costo** — S.
+- **Stato** — proposta
+
+### I parametri non hanno storia: chi ha cambiato cosa, e quando
+- **Cosa** — una colonna `updated_at` (e, se possibile, l'autore) sulle tabelle dei parametri, o una tabella di storico scritta da un trigger.
+- **Perché** — scoperto pianificando T07b. Con i valori in tabella, un numero della slide può cambiare **senza un commit**: oggi `git log` dice quando il costo noleggio è passato da 55 a 120, dopo T07b non lo dirà niente. Se in sede di pitch qualcuno chiede *"da quando questa cifra?"*, la risposta deve esistere.
+- **Impatto** — schema di T08 (⛔ schema), nessun effetto sul port o sul parser se lo storico non viene letto dall'app. Reversibile.
+- **Costo** — S.
+- **Stato** — proposta
+
+### Quando l'app rilegge i parametri
+- **Cosa** — decidere se i parametri si leggono una volta per sessione (all'accesso) o si ricaricano (al ritorno in primo piano, o su un comando), e scriverlo nei criteri dei task di UI.
+- **Perché** — scoperto pianificando T07b. Il port espone `load()` e basta, e il criterio *"cambiando una riga il risultato cambia senza ricompilare"* è vero solo se qualcuno chiama di nuovo `load`. Senza una decisione, una correzione fatta dalla dashboard la sera prima del pitch arriva sul telefono **solo dopo un riavvio dell'app**, e nessuno lo sa.
+- **Impatto** — criteri di T10–T16, nessun cambio del port. Reversibile.
+- **Costo** — XS per decidere, S per un ricaricamento.
+- **Stato** — proposta
