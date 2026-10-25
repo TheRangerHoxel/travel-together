@@ -7,6 +7,7 @@
 // solo risultato.
 
 import type { MatchRequest, SeatOffer, TripRequest } from '../domain';
+import { utc } from '../domain/instant-fixture';
 import { findMatches } from './find-matches';
 import type { MatchConfig } from './match-config';
 
@@ -22,7 +23,7 @@ function unaRichiesta(modifiche: Partial<TripRequest> = {}): TripRequest {
     requesterPlantId: 'pomigliano',
     fromPlantId: 'pomigliano',
     toPlantId: 'foggia',
-    departureAt: '2026-11-03T06:00:00.000Z',
+    departureAt: utc('2026-11-03T06:00:00.000Z'),
     ...modifiche,
   });
 }
@@ -35,7 +36,7 @@ function unOfferta(modifiche: Partial<SeatOffer> = {}): SeatOffer {
     ownerPlantId: 'pomigliano',
     fromPlantId: 'pomigliano',
     toPlantId: 'foggia',
-    departureAt: '2026-11-03T06:00:00.000Z',
+    departureAt: utc('2026-11-03T06:00:00.000Z'),
     seatsAvailable: 3,
     ...modifiche,
   });
@@ -108,7 +109,7 @@ describe('vincoli duri — tempo', () => {
     // delta sarebbe zero e il punteggio massimo.
     const esito = findMatches(
       unaRichiesta(),
-      [unOfferta({ departureAt: '2026-11-04T06:00:00.000Z' })],
+      [unOfferta({ departureAt: utc('2026-11-04T06:00:00.000Z') })],
       [],
       TOL30
     );
@@ -118,7 +119,7 @@ describe('vincoli duri — tempo', () => {
   it('orario fuori dalla finestra: nessun match', () => {
     const esito = findMatches(
       unaRichiesta(),
-      [unOfferta({ departureAt: '2026-11-03T06:31:00.000Z' })],
+      [unOfferta({ departureAt: utc('2026-11-03T06:31:00.000Z') })],
       [],
       TOL30
     );
@@ -129,7 +130,7 @@ describe('vincoli duri — tempo', () => {
     // Smaschera chi tronca ai minuti interi: 30:01 passerebbe.
     const esito = findMatches(
       unaRichiesta(),
-      [unOfferta({ departureAt: '2026-11-03T06:30:01.000Z' })],
+      [unOfferta({ departureAt: utc('2026-11-03T06:30:01.000Z') })],
       [],
       TOL30
     );
@@ -139,7 +140,7 @@ describe('vincoli duri — tempo', () => {
   it('esattamente al limite, DOPO: e un match (confine incluso)', () => {
     const esito = findMatches(
       unaRichiesta(),
-      [unOfferta({ departureAt: '2026-11-03T06:30:00.000Z' })],
+      [unOfferta({ departureAt: utc('2026-11-03T06:30:00.000Z') })],
       [],
       TOL30
     );
@@ -151,7 +152,7 @@ describe('vincoli duri — tempo', () => {
     // o cadrebbe per il motivo sbagliato.
     const esito = findMatches(
       unaRichiesta(),
-      [unOfferta({ departureAt: '2026-11-03T05:30:00.000Z' })],
+      [unOfferta({ departureAt: utc('2026-11-03T05:30:00.000Z') })],
       [],
       TOL30
     );
@@ -163,26 +164,17 @@ describe('vincoli duri — tempo', () => {
     // non un caso: chi un domani vorra' le finestre a cavallo della mezzanotte
     // dovra' far cadere questo test di proposito.
     const esito = findMatches(
-      unaRichiesta({ departureAt: '2026-11-03T23:50:00.000Z' }),
-      [unOfferta({ departureAt: '2026-11-04T00:10:00.000Z' })],
+      unaRichiesta({ departureAt: utc('2026-11-03T23:50:00.000Z') }),
+      [unOfferta({ departureAt: utc('2026-11-04T00:10:00.000Z') })],
       [],
       TOL30
     );
     expect(idsDiMatch(esito)).toEqual([]);
   });
 
-  it('un offerta con offset invece di Z viene omessa, non confrontata', () => {
-    // Il caso piu' importante della suite: 07:00+01:00 E' le 06:00Z, cioe' lo
-    // stesso istante della richiesta. Un parser permissivo la farebbe matchare
-    // con delta zero, e sembrerebbe giusto.
-    const esito = findMatches(
-      unaRichiesta(),
-      [unOfferta({ departureAt: '2026-11-03T07:00:00+01:00' })],
-      [],
-      TOL30
-    );
-    expect(idsDiMatch(esito)).toEqual([]);
-  });
+  // Rimosso in T07f: "un'offerta con offset invece di Z viene omessa". Lo stato
+  // non e' piu' rappresentabile (un `SeatOffer` porta un `UtcInstant`); l'intenzione
+  // — +01:00 non si confonde con Z — e' nei test di `normalizeUtcInstant`.
 });
 
 describe('vincoli duri — posti e identita', () => {
@@ -368,22 +360,9 @@ describe('vincoli duri — ingressi degeneri', () => {
     expect(idsDiMatch(esito)).toEqual([]);
   });
 
-  it('istante della richiesta malformato: errore, non lista vuota', () => {
-    // "Non ho potuto cercare" e "nessun collega compatibile" sono due risposte
-    // diverse. Confonderle significa mostrare in demo uno stato vuoto plausibile
-    // al posto di un errore diagnosticabile.
-    const esito = findMatches(
-      unaRichiesta({ departureAt: '2026-11-03 06:00' }),
-      [unOfferta()],
-      [],
-      TOL30
-    );
-
-    expect(esito.ok).toBe(false);
-    if (!esito.ok) {
-      expect(esito.error.kind).toBe('invalid-request-departure-at');
-    }
-  });
+  // Rimosso in T07f: "istante della richiesta malformato: errore, non lista vuota".
+  // Lo stato non e' piu' rappresentabile (un `TripRequest` porta un `UtcInstant`);
+  // l'intenzione passa ai test di `normalizeUtcInstant`, dove si rifiuta.
 
   it('tolleranza non valida: errore esplicito', () => {
     // NaN e' il caso temuto: ogni confronto con NaN e' false, quindi senza
@@ -402,8 +381,8 @@ describe('vincoli duri — ingressi degeneri', () => {
     const esito = findMatches(
       unaRichiesta(),
       [
-        unOfferta({ tripId: 'trip-esatta', departureAt: '2026-11-03T06:00:00.000Z' }),
-        unOfferta({ tripId: 'trip-vicina', departureAt: '2026-11-03T06:00:00.001Z', ownerId: B }),
+        unOfferta({ tripId: 'trip-esatta', departureAt: utc('2026-11-03T06:00:00.000Z') }),
+        unOfferta({ tripId: 'trip-vicina', departureAt: utc('2026-11-03T06:00:00.001Z'), ownerId: B }),
       ],
       [],
       { toleranceMinutes: 0 }
@@ -421,8 +400,8 @@ describe('punteggio', () => {
     const esito = findMatches(
       unaRichiesta(),
       [
-        unOfferta({ tripId: 'trip-lontana', departureAt: '2026-11-03T06:20:00.000Z' }),
-        unOfferta({ tripId: 'trip-vicina', departureAt: '2026-11-03T06:05:00.000Z', ownerId: B }),
+        unOfferta({ tripId: 'trip-lontana', departureAt: utc('2026-11-03T06:20:00.000Z') }),
+        unOfferta({ tripId: 'trip-vicina', departureAt: utc('2026-11-03T06:05:00.000Z'), ownerId: B }),
       ],
       [],
       TOL30
@@ -455,7 +434,7 @@ describe('punteggio', () => {
           tripId: 'trip-stesso',
           ownerPlantId: 'pomigliano',
           ownerId: B,
-          departureAt: '2026-11-03T06:30:00.000Z',
+          departureAt: utc('2026-11-03T06:30:00.000Z'),
         }),
       ],
       [],
@@ -466,7 +445,7 @@ describe('punteggio', () => {
 
   it('il punteggio e deterministico: due esecuzioni, stesso risultato', () => {
     const offerte = [
-      unOfferta({ tripId: 'trip-a', departureAt: '2026-11-03T06:10:00.000Z' }),
+      unOfferta({ tripId: 'trip-a', departureAt: utc('2026-11-03T06:10:00.000Z') }),
       unOfferta({ tripId: 'trip-b', ownerId: B, ownerPlantId: 'foggia' }),
     ];
 
@@ -549,7 +528,7 @@ describe('punteggio', () => {
           tripId: 'trip-lontana',
           ownerId: B,
           ownerPlantId: 'foggia',
-          departureAt: '2026-11-03T06:10:00.000Z',
+          departureAt: utc('2026-11-03T06:10:00.000Z'),
         }),
       ],
       [],
@@ -591,9 +570,9 @@ describe('purezza', () => {
     // mode. E' l'unico modo di vedere questo bug: nessuna asserzione sul solo
     // risultato lo rivelerebbe.
     const offerte = Object.freeze([
-      unOfferta({ tripId: 'trip-c', departureAt: '2026-11-03T06:20:00.000Z' }),
+      unOfferta({ tripId: 'trip-c', departureAt: utc('2026-11-03T06:20:00.000Z') }),
       unOfferta({ tripId: 'trip-a', ownerId: B }),
-      unOfferta({ tripId: 'trip-b', ownerId: B, departureAt: '2026-11-03T06:10:00.000Z' }),
+      unOfferta({ tripId: 'trip-b', ownerId: B, departureAt: utc('2026-11-03T06:10:00.000Z') }),
     ]);
 
     const esito = findMatches(unaRichiesta(), offerte, [], TOL30);

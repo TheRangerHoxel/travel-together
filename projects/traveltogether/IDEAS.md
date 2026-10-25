@@ -521,3 +521,11 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — `app/eslint.config.js` (un `no-restricted-imports` su quei percorsi, con eccezione per `**/*.test.ts` e per la suite di contratto). Reversibile, nessun effetto a runtime. Da provare violandola, come in F1.4. Si lega a **T07h**, che stringe il lint sullo stesso file.
 - **Costo** — XS.
 - **Stato** — proposta
+
+
+### Un criterio di verifica per assenza dichiara se i test sono inclusi
+- **Cosa** — quando un criterio si verifica con una ricerca (`rg`) che deve tornare vuota, il criterio dice esplicitamente se i file di test sono inclusi (`--glob '!*.test.ts'` oppure no).
+- **Perché** — scoperto nella review di T07f. Il criterio 1 lo specificava per la prima ricerca e non per la seconda: un commento in un test nominava ancora il parser eliminato, e la bocciatura N1 è nata da lì. Una ricerca il cui perimetro è ambiguo si soddisfa o si fallisce a seconda di chi la esegue.
+- **Impatto** — solo il modo di scrivere i criteri in `TASKS.md`; eventualmente una riga in `CLAUDE.md` del progetto. Nessun codice.
+- **Costo** — XS.
+- **Stato** — proposta

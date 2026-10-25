@@ -34,6 +34,7 @@ import type {
   Trip,
   TripId,
 } from '../../core/domain';
+import { utc } from '../../core/domain/instant-fixture';
 import type {
   MatchRequestRepository,
   PersonalBestsRepository,
@@ -124,8 +125,8 @@ export function eseguiSuiteDiContratto(
         ownerId: owner,
         fromPlantId: 'pomigliano',
         toPlantId: 'foggia',
-        departureAt: '2026-11-03T06:30:00.000Z',
-        returnAt: '2026-11-05T16:00:00.000Z',
+        departureAt: utc('2026-11-03T06:30:00.000Z'),
+        returnAt: utc('2026-11-05T16:00:00.000Z'),
         hasCar: true,
         seatsTotal: 3,
         seatsAvailable: 3,
@@ -428,6 +429,73 @@ export function eseguiSuiteDiContratto(
           const offerte = await offerteDi(id);
 
           expect(offerte.map((o) => o.direction).sort()).toEqual(['outbound', 'return']);
+        });
+      });
+
+      // T07f. Gli istanti che ESCONO dai port sono gia' canonici: il parser li
+      // riporta identici (punto fisso). "Accettati dal parser" non basterebbe: il
+      // parser accetta `+00:00` e i microsecondi, quindi un adapter che lasciasse
+      // uscire la stringa grezza di PostgREST passerebbe, e romperebbe l'ordine
+      // lessicografico. Dichiarato: su `memory` questo test non puo' fallire per
+      // costruzione (il compilatore impedisce di emettere una stringa non marchiata);
+      // paga a T09, dove il marchio lo da' il parser e non il compilatore.
+      //
+      // Fixture: millisecondi che finiscono in zero (`.120Z`, la forma che PostgREST
+      // restituisce accorciata, `.12`) e due capi in GIORNI diversi, cosi' un adapter
+      // che scambia andata e ritorno non resta nascosto.
+      describe('istanti canonici in uscita (punto fisso)', () => {
+        const PARTENZA = '2026-11-03T06:30:00.120Z';
+        const RIENTRO = '2026-11-05T16:00:00.500Z';
+
+        /** Identico al letterale scritto E punto fisso del parser (`utc` solleva se cambia forma). */
+        function canonico(istante: string, atteso: string): void {
+          expect(istante).toBe(atteso);
+          expect(utc(istante)).toBe(istante);
+        }
+
+        async function salvaConIstanti(): Promise<TripId> {
+          const id = amb.nuovoTripId();
+          await salvaTrasferta(unaTrasferta(id, { departureAt: utc(PARTENZA), returnAt: utc(RIENTRO) }));
+          return id;
+        }
+
+        it('findById', async () => {
+          const id = await salvaConIstanti();
+
+          const esito = await amb.trips.findById(id);
+
+          expect(esito.ok).toBe(true);
+          if (esito.ok) {
+            canonico(esito.value.departureAt, PARTENZA);
+            canonico(esito.value.returnAt ?? '', RIENTRO);
+          }
+        });
+
+        it('listByOwner', async () => {
+          const id = await salvaConIstanti();
+
+          const esito = await amb.trips.listByOwner(owner);
+
+          expect(esito.ok).toBe(true);
+          if (esito.ok) {
+            const trasferta = esito.value.find((t) => t.id === id);
+            expect(trasferta).toBeDefined();
+            canonico(trasferta?.departureAt ?? '', PARTENZA);
+            canonico(trasferta?.returnAt ?? '', RIENTRO);
+          }
+        });
+
+        it('listOpenOffers, andata e ritorno', async () => {
+          const id = await salvaConIstanti();
+
+          const esito = await amb.trips.listOpenOffers();
+
+          expect(esito.ok).toBe(true);
+          if (esito.ok) {
+            const offerte = esito.value.filter((o) => o.tripId === id);
+            canonico(offerte.find((o) => o.direction === 'outbound')?.departureAt ?? '', PARTENZA);
+            canonico(offerte.find((o) => o.direction === 'return')?.departureAt ?? '', RIENTRO);
+          }
         });
       });
 

@@ -1,9 +1,11 @@
 // Trip — una trasferta. E' l'entita' centrale del dominio.
 //
-// Il tempo e' una stringa ISO 8601 e non un Date: core/ non puo' usare l'orologio
-// di sistema (lo impone il lint), e un Date e' mutabile e porta con se' il fuso
-// della macchina. Qui le date sono DATI, confrontabili e deterministici.
+// Il tempo e' un `UtcInstant` (una stringa ISO 8601 normalizzata) e non un Date:
+// core/ non puo' usare l'orologio di sistema (lo impone il lint), e un Date e'
+// mutabile e porta con se' il fuso della macchina. Qui le date sono DATI,
+// confrontabili e deterministici.
 
+import type { UtcInstant } from './instant';
 import type { PlantId } from './plant';
 import type { ProfileId } from './profile';
 import { type Result, err, ok } from './result';
@@ -19,13 +21,13 @@ export interface Trip {
   readonly fromPlantId: PlantId;
   readonly toPlantId: PlantId;
   /**
-   * ISO 8601 **normalizzato UTC**, es. "2026-11-03T06:30:00.000Z".
-   * La `Z` non e' opzionale: il dominio confronta gli istanti come stringhe, e il
-   * confronto lessicografico coincide con quello cronologico solo a offset uguale.
+   * Istante normalizzato UTC, es. "2026-11-03T06:30:00.000Z". Il tipo
+   * `UtcInstant` non e' assegnabile da una `string`: si ottiene solo dal parser
+   * degli istanti, al confine da cui la stringa grezza entra.
    */
-  readonly departureAt: string;
-  /** Stesso formato di `departureAt`, oppure null se il rientro non e' pianificato. */
-  readonly returnAt: string | null;
+  readonly departureAt: UtcInstant;
+  /** Stesso tipo di `departureAt`, oppure null se il rientro non e' pianificato. */
+  readonly returnAt: UtcInstant | null;
   readonly hasCar: boolean;
   /** Posti totali dell'auto. Zero se non c'e' auto. */
   readonly seatsTotal: number;

@@ -178,9 +178,13 @@ interface ScoredMatch {
 }
 
 type MatchError =
-  | { kind: 'invalid-request-departure-at'; value: string }
   | { kind: 'invalid-tolerance'; toleranceMinutes: number };
 ```
+
+`TripRequest.departureAt` e `SeatOffer.departureAt` sono `UtcInstant`, non `string` (T07f): un istante
+malformato non è un errore del motore ma uno stato **irrappresentabile**, e per questo
+`invalid-request-departure-at` è stato rimosso da `MatchError`. L'istante grezzo si valida una volta
+sola, al confine da cui entra (`normalizeUtcInstant`: `createTrip` oggi, l'adapter Supabase da T09).
 
 **L'offerta è una tratta, non una trasferta (T04b).** Una trasferta con auto e rientro produce due
 `SeatOffer` (andata e ritorno, plant invertiti, orario di `returnAt`); l'identità è la coppia
@@ -203,9 +207,11 @@ parametri e ritorno diretto. Due cambi:
   riceveva quel dato. Le candidature entrano come dato, non da un port: la purezza resta intatta e `[]`
   è il caso di default. **La regola su quali stati marcano resta dentro il core**: passare un insieme di
   id già pre-filtrato sposterebbe una regola di dominio nel chiamante, cioè in UI o in un adapter.
-- **`Result`** — un `departureAt` malformato o una tolleranza incoerente devono essere distinguibili
-  da "nessun collega compatibile". Senza canale d'errore si presenterebbero come lista vuota, e in
-  demo sarebbero indistinguibili da un risultato legittimo.
+- **`Result`** — una tolleranza incoerente deve essere distinguibile da "nessun collega compatibile".
+  Senza canale d'errore si presenterebbe come lista vuota, e in demo sarebbe indistinguibile da un
+  risultato legittimo. La stessa ragione valeva per un `departureAt` malformato: da T07f quella
+  garanzia è passata al tipo `UtcInstant` (un'offerta con un istante illeggibile non esiste più, invece
+  di essere omessa in silenzio), e al `Result` resta la sola tolleranza.
 
 **Il punteggio è a dominanza, non a somma pesata.** Il criterio "l'offerta con stesso plant di
 appartenenza precede quella con plant diverso" è enunciato senza condizioni. Con pesi configurabili

@@ -10,15 +10,17 @@ export interface Clock {
    * Istante corrente in ISO 8601 **normalizzato UTC**, con suffisso `Z` e i
    * millisecondi: `2026-11-03T06:30:00.000Z`.
    *
-   * Il formato e' parte del contratto, non un dettaglio. Il dominio confronta gli
-   * istanti come stringhe, e il confronto lessicografico e' corretto **solo** a
-   * offset uguale: `2026-11-03T07:00:00+01:00` e `2026-11-03T06:00:00Z` sono lo
-   * stesso istante ma due stringhe diverse, e `<` darebbe la risposta sbagliata.
-   * Con tutto in UTC l'ordine lessicografico coincide con l'ordine cronologico.
+   * Il formato e' parte del contratto, non un dettaglio. Il dominio confronta come
+   * stringhe solo i `UtcInstant`, cioe' istanti normalizzati a **larghezza fissa**
+   * (24 caratteri, sempre i millisecondi): solo cosi' l'ordine lessicografico
+   * coincide con quello cronologico. Un offset diverso da `Z` o una forma corta
+   * (`...06:00:00Z` contro `...06:00:00.000Z`: lo stesso istante, ordinate al
+   * contrario) darebbero la risposta sbagliata, e per questo non si confrontano grezzi.
    *
-   * Vale per ogni istante che entra nel dominio, non solo per quelli prodotti qui:
-   * T03 (finestra di tolleranza, confine incluso) e T04 (partenza nel passato) ci
-   * si fondano. Normalizzare e' responsabilita' di chi scrive l'istante.
+   * Resta una `string`, non un `UtcInstant`: chi legge l'orologio per confrontare
+   * (oggi `createTrip`) la passa dal parser degli istanti, che e' il confine. Un
+   * orologio che producesse un'altra forma sarebbe cosi' rifiutato o riportato alla
+   * forma canonica, mai confrontato com'e'.
    */
   now(): string;
 }

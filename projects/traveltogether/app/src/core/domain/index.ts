@@ -17,8 +17,8 @@ export type { SeatOffer } from './seat-offer';
 
 export type { TripRequest } from './trip-request';
 
-export type { Instant } from './instant';
-export { parseUtcInstant } from './instant';
+export type { InstantParts, UtcInstant, UtcInstantError } from './instant';
+export { compareUtcInstants, normalizeUtcInstant, utcInstantParts } from './instant';
 
 export { civilDayNumber, inclusiveDaysBetween } from './calendar';
 

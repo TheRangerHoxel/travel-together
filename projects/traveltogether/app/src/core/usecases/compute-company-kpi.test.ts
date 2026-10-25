@@ -6,6 +6,7 @@
 // euro/km di carburante), Pomigliano-Foggia 200 km.
 
 import type { MatchRequest, MatchRequestStatus, LegDirection, Trip } from '../domain';
+import { utc } from '../domain/instant-fixture';
 import type { CompanyKpi, CompanyKpiError } from './compute-company-kpi';
 import { computeCompanyKpi } from './compute-company-kpi';
 import type { KpiConfig } from './kpi-config';
@@ -28,8 +29,8 @@ const OFFER: Trip = {
   ownerId: 'owner',
   fromPlantId: 'pomigliano',
   toPlantId: 'foggia',
-  departureAt: '2026-11-03T06:00:00.000Z',
-  returnAt: '2026-11-05T16:00:00.000Z',
+  departureAt: utc('2026-11-03T06:00:00.000Z'),
+  returnAt: utc('2026-11-05T16:00:00.000Z'),
   hasCar: true,
   seatsTotal: 3,
   seatsAvailable: 3,
@@ -42,8 +43,8 @@ const OWN: Trip = {
   ownerId: 'passenger',
   fromPlantId: 'pomigliano',
   toPlantId: 'foggia',
-  departureAt: '2026-11-03T06:30:00.000Z',
-  returnAt: '2026-11-05T17:00:00.000Z',
+  departureAt: utc('2026-11-03T06:30:00.000Z'),
+  returnAt: utc('2026-11-05T17:00:00.000Z'),
   hasCar: false,
   seatsTotal: 0,
   seatsAvailable: 0,
@@ -180,7 +181,7 @@ describe('computeCompanyKpi — la trasferta e quella indicata, non indovinata',
   it('con due trasferte identiche per plant e giorno conta quella indicata da requesterTripId', () => {
     // Il caso in cui l'euristica per plant e giorno sbaglia: stessa persona, due
     // trasferte sulla stessa tratta nello stesso giorno, una di 3 giorni e una di 6.
-    const twin: Trip = { ...OWN, id: 'own-twin', returnAt: '2026-11-08T17:00:00.000Z' };
+    const twin: Trip = { ...OWN, id: 'own-twin', returnAt: utc('2026-11-08T17:00:00.000Z') };
     const kpi = compute([OFFER, OWN, twin], [request('outbound', 'accepted', { requesterTripId: 'own-twin' })]);
     expect(kpi.avoidedCars).toBe(1);
     expect(kpi.avoidedRentalDays).toBe(6);
@@ -250,42 +251,37 @@ describe('computeCompanyKpi — giorni di noleggio', () => {
   });
 
   it('rientro lo stesso giorno: 1 giorno, non 0', () => {
-    const sameDay: Trip = { ...OWN, returnAt: '2026-11-03T18:00:00.000Z' };
+    const sameDay: Trip = { ...OWN, returnAt: utc('2026-11-03T18:00:00.000Z') };
     expect(compute([OFFER, sameDay], [request('outbound', 'accepted')]).avoidedRentalDays).toBe(1);
   });
 
   it('i giorni sono quelli della trasferta del passeggero, non quelli dell\'offerente', () => {
-    const longer: Trip = { ...OWN, returnAt: '2026-11-08T17:00:00.000Z' };
+    const longer: Trip = { ...OWN, returnAt: utc('2026-11-08T17:00:00.000Z') };
     expect(compute([OFFER, longer], [request('outbound', 'accepted')]).avoidedRentalDays).toBe(6);
   });
 
   it('attraversa un 29 febbraio bisestile e il cambio d\'anno', () => {
     const ownLeap: Trip = {
       ...OWN,
-      departureAt: '2028-02-28T06:30:00.000Z',
-      returnAt: '2028-03-01T17:00:00.000Z',
+      departureAt: utc('2028-02-28T06:30:00.000Z'),
+      returnAt: utc('2028-03-01T17:00:00.000Z'),
     };
     expect(compute([OFFER, ownLeap], [request('outbound', 'accepted')]).avoidedRentalDays).toBe(3);
 
     const ownYear: Trip = {
       ...OWN,
-      departureAt: '2026-12-31T06:30:00.000Z',
-      returnAt: '2027-01-01T17:00:00.000Z',
+      departureAt: utc('2026-12-31T06:30:00.000Z'),
+      returnAt: utc('2027-01-01T17:00:00.000Z'),
     };
     expect(compute([OFFER, ownYear], [request('outbound', 'accepted')]).avoidedRentalDays).toBe(2);
   });
 
-  it('una data di calendario impossibile e\' un errore tipizzato, non un conteggio', () => {
-    const impossible: Trip = { ...OWN, returnAt: '2026-02-31T17:00:00.000Z' };
-    expect(computeError([OFFER, impossible], [request('outbound', 'accepted')])).toEqual({
-      kind: 'invalid-trip-date',
-      tripId: 'own-1',
-      value: '2026-02-31T17:00:00.000Z',
-    });
-  });
+  // Rimosso in T07f: "una data di calendario impossibile e' un errore tipizzato". Lo
+  // stato non e' piu' rappresentabile (`Trip.returnAt` e' un `UtcInstant`, e `2026-02-31`
+  // e' rifiutata da `normalizeUtcInstant` con `impossible-date`, provato in `instant.test.ts`).
 
   it('un rientro precedente alla partenza e\' un errore tipizzato', () => {
-    const reversed: Trip = { ...OWN, returnAt: '2026-11-01T17:00:00.000Z' };
+    const reversed: Trip = { ...OWN, returnAt: utc('2026-11-01T17:00:00.000Z') };
     expect(computeError([OFFER, reversed], [request('outbound', 'accepted')]).kind).toBe(
       'invalid-trip-date'
     );

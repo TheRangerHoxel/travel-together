@@ -8,6 +8,7 @@
 // codice che nessun test tocca e' un ramo di cui non sappiamo nulla.
 
 import type { Trip } from '../../core/domain';
+import { utc } from '../../core/domain/instant-fixture';
 import { MemoryProfileRepository } from './memory-profile-repository';
 import { MemoryTripRepository } from './memory-trip-repository';
 
@@ -17,8 +18,8 @@ function unaTrasferta(modifiche: Partial<Trip> = {}): Trip {
     ownerId: 'owner-con-profilo',
     fromPlantId: 'pomigliano',
     toPlantId: 'foggia',
-    departureAt: '2026-11-03T06:30:00.000Z',
-    returnAt: '2026-11-05T16:00:00.000Z',
+    departureAt: utc('2026-11-03T06:30:00.000Z'),
+    returnAt: utc('2026-11-05T16:00:00.000Z'),
     hasCar: true,
     seatsTotal: 3,
     seatsAvailable: 3,

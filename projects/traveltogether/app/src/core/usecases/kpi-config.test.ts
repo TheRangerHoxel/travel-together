@@ -4,6 +4,7 @@
 // E' l'unico punto del core che importa config/ per i KPI.
 
 import { KPI_CONFIG } from '../../config';
+import { utc } from '../domain/instant-fixture';
 import { computeCompanyKpi } from './compute-company-kpi';
 import type { KpiConfig } from './kpi-config';
 
@@ -40,7 +41,7 @@ describe('i valori di config/kpi.ts sono conformi al tipo del core', () => {
               ownerId: 'someone',
               fromPlantId: from,
               toPlantId: to,
-              departureAt: '2026-11-03T06:00:00Z',
+              departureAt: utc('2026-11-03T06:00:00Z'),
               returnAt: null,
               hasCar: false,
               seatsTotal: 0,

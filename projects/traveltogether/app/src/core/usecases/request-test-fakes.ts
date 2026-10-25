@@ -22,10 +22,12 @@ import {
   type Trip,
   type TripId,
   type TripLeg,
+  type UtcInstant,
   legKey,
   raisePersonalBests,
   zeroPersonalBests,
 } from '../domain';
+import { utc } from '../domain/instant-fixture';
 import type {
   MatchRequestRepository,
   PersonalBestsRepository,
@@ -70,7 +72,7 @@ export interface TripsOptions {
    * `returnAt` cadono nello stesso giorno UTC e un confronto sul giorno non li separa.
    * Ignorato con `withReturn: false`.
    */
-  readonly returnAt?: string;
+  readonly returnAt?: UtcInstant;
   /** Numero (1-based) di chiamata a adjustLegSeats che fallisce con storage-unavailable. */
   readonly failAdjustOnCall?: number;
   /**
@@ -93,8 +95,8 @@ export function unTripsSpia(opzioni: TripsOptions = {}): TripsSpia {
     ownerId: OWNER,
     fromPlantId: 'pomigliano',
     toPlantId: 'foggia',
-    departureAt: '2026-11-03T07:00:00.000Z',
-    returnAt: opzioni.withReturn === false ? null : (opzioni.returnAt ?? '2026-11-03T17:00:00.000Z'),
+    departureAt: utc('2026-11-03T07:00:00.000Z'),
+    returnAt: opzioni.withReturn === false ? null : (opzioni.returnAt ?? utc('2026-11-03T17:00:00.000Z')),
     hasCar: true,
     seatsTotal,
     seatsAvailable,

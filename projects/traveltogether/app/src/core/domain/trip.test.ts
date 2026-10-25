@@ -1,6 +1,7 @@
 // Invarianti di Trip. Si testano i CONFINI, non solo il centro:
 // il caso interessante non e' "3 posti su 5", e' "5 su 5" contro "6 su 5".
 
+import { utc } from './instant-fixture';
 import { type Trip, makeTrip } from './trip';
 
 /** Base valida. Ogni test cambia solo il campo che sta mettendo alla prova. */
@@ -15,8 +16,8 @@ function trasfertaValida(modifiche: Partial<Trip> = {}): Trip {
     // file dipende dai due valori, quindi la cosa non rompeva niente qui — ma era
     // la base da cui T04 avrebbe copiato, e il confronto lessicografico fra un
     // offset e una Z da' risposte sbagliate e plausibili.
-    departureAt: '2026-11-03T06:30:00.000Z',
-    returnAt: '2026-11-05T16:00:00.000Z',
+    departureAt: utc('2026-11-03T06:30:00.000Z'),
+    returnAt: utc('2026-11-05T16:00:00.000Z'),
     hasCar: true,
     seatsTotal: 3,
     seatsAvailable: 3,

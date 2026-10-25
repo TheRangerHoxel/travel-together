@@ -247,11 +247,12 @@ describe('createTrip: partenza nel passato (Clock iniettato)', () => {
   });
 
   it('partenza senza millisecondi un millisecondo prima di adesso (Clock conforme) e rifiutata', async () => {
-    // Entrambi i lati sono legali: departureAt senza millisecondi e' canonico per
-    // CreateTripInput, e now() con i millisecondi e' quanto promette Clock.
-    // 07:00:00Z precede 07:00:00.001Z, ma come stringhe "...00Z" > "...00.001Z"
-    // (la Z, 0x5A, segue il punto, 0x2E): un confronto lessicografico la
-    // accetterebbe.
+    // Entrambi i lati sono accettati dal confine: departureAt senza millisecondi
+    // viene riportato a ".000Z", e now() con i millisecondi e' quanto promette Clock.
+    // Come stringhe grezze "...00Z" > "...00.001Z" (la Z, 0x5A, segue il punto,
+    // 0x2E), quindi un confronto sui grezzi la accetterebbe. Il test prova che la
+    // normalizzazione avviene PRIMA del confronto, che e' poi quello di
+    // compareUtcInstants su stringhe a larghezza fissa. L'errore riporta il grezzo.
     const { error, repo } = await rifiutata(unInput({ departureAt: '2026-11-03T07:00:00Z' }), {
       istante: '2026-11-03T07:00:00.001Z',
     });
@@ -330,7 +331,7 @@ describe('createTrip: rientro', () => {
   });
 });
 
-describe('createTrip: istanti non canonici, rifiutati e mai convertiti', () => {
+describe('createTrip: l istante grezzo e normalizzato al confine, oppure rifiutato (mai convertito di fuso)', () => {
   it('una partenza con offset +01:00 e rifiutata', async () => {
     const { error, repo } = await rifiutata(unInput({ departureAt: '2026-11-03T07:00:00+01:00' }));
 
@@ -338,10 +339,29 @@ describe('createTrip: istanti non canonici, rifiutati e mai convertiti', () => {
     expect(repo.salvate).toHaveLength(0);
   });
 
-  it('una partenza con microsecondi e rifiutata', async () => {
-    const { error } = await rifiutata(unInput({ departureAt: '2026-11-03T07:00:00.123456Z' }));
+  it('una partenza con microsecondi e accettata e troncata al millisecondo', async () => {
+    // Cambia aspettativa in T07f: era "rifiutata". PostgREST serializza al
+    // microsecondo, e il dominio tronca invece di respingere quello che il DB produce.
+    const repo = unRepoSpia();
+    const r = await createTrip(unInput({ departureAt: '2026-11-03T07:00:00.123456Z' }), conRepo(repo), CONFIG);
 
-    expect(error).toEqual({ kind: 'invalid-departure-at', value: '2026-11-03T07:00:00.123456Z' });
+    expect(r.ok).toBe(true);
+    expect(repo.salvate[0]?.departureAt).toBe('2026-11-03T07:00:00.123Z');
+  });
+
+  it('una partenza con +00:00 e accettata e riportata alla forma canonica', async () => {
+    const repo = unRepoSpia();
+    const r = await createTrip(unInput({ departureAt: '2026-11-03T07:00:00+00:00' }), conRepo(repo), CONFIG);
+
+    expect(r.ok).toBe(true);
+    expect(repo.salvate[0]?.departureAt).toBe('2026-11-03T07:00:00.000Z');
+  });
+
+  it('una data di calendario impossibile e rifiutata con errore tipizzato, senza scrivere', async () => {
+    const { error, repo } = await rifiutata(unInput({ departureAt: '2026-02-31T07:00:00.000Z' }));
+
+    expect(error).toEqual({ kind: 'invalid-departure-at', value: '2026-02-31T07:00:00.000Z' });
+    expect(repo.salvate).toHaveLength(0);
   });
 
   it('un rientro con offset e rifiutato', async () => {
@@ -350,10 +370,13 @@ describe('createTrip: istanti non canonici, rifiutati e mai convertiti', () => {
     expect(error).toEqual({ kind: 'invalid-return-at', value: '2026-11-03T18:00:00+01:00' });
   });
 
-  it('un rientro con microsecondi e rifiutato', async () => {
-    const { error } = await rifiutata(unInput({ returnAt: '2026-11-03T18:00:00.123456Z' }));
+  it('un rientro con microsecondi e accettato e troncato al millisecondo', async () => {
+    // Cambia aspettativa in T07f: era "rifiutato". Stessa ragione della partenza.
+    const repo = unRepoSpia();
+    const r = await createTrip(unInput({ returnAt: '2026-11-03T18:00:00.123456Z' }), conRepo(repo), CONFIG);
 
-    expect(error.kind).toBe('invalid-return-at');
+    expect(r.ok).toBe(true);
+    expect(repo.salvate[0]?.returnAt).toBe('2026-11-03T18:00:00.123Z');
   });
 
   it('una partenza senza la Z e rifiutata', async () => {
@@ -362,12 +385,14 @@ describe('createTrip: istanti non canonici, rifiutati e mai convertiti', () => {
     expect(error.kind).toBe('invalid-departure-at');
   });
 
-  it('senza millisecondi ma con la Z e canonico: accettato e non riscritto', async () => {
+  it('senza millisecondi ma con la Z e accettato e riportato a .000Z', async () => {
+    // Cambia aspettativa in T07f: era "accettato e non riscritto". La forma
+    // canonica e' una sola, a larghezza fissa: la forma corta non si salva.
     const repo = unRepoSpia();
     const r = await createTrip(unInput({ departureAt: '2026-11-03T07:00:00Z' }), conRepo(repo), CONFIG);
 
     expect(r.ok).toBe(true);
-    expect(repo.salvate[0]?.departureAt).toBe('2026-11-03T07:00:00Z');
+    expect(repo.salvate[0]?.departureAt).toBe('2026-11-03T07:00:00.000Z');
   });
 
   it('un istante non canonico da clock.now() e rifiutato', async () => {

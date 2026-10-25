@@ -20,7 +20,7 @@ import {
   err,
   makeMatchRequest,
   ok,
-  parseUtcInstant,
+  utcInstantParts,
 } from '../domain';
 import type { MatchRequestRepository, RepositoryError, TripRepository } from '../ports';
 
@@ -109,11 +109,7 @@ export type RequesterTripRejection =
  * - confronta il giorno (UTC) senza la finestra di tolleranza di `findMatches`,
  *   perche' `requestSeat` non ha `MatchConfig`: e' piu' lasco dei vincoli duri del
  *   matching, non piu' stretto, e non verifica l'orario;
- * - non verifica che la candidatura sia stata davvero proposta dall'app;
- * - un istante illeggibile su un capo dell'OFFERENTE da' `leg-incompatible`, cioe' un
- *   messaggio che incolpa il richiedente per un dato rotto dell'offerta. NON e' gestito:
- *   e' un limite, da rimuovere in T07f (la causa) prima di T09, dove PostgREST
- *   serializza `+00:00` e `parseUtcInstant` lo rifiuta.
+ * - non verifica che la candidatura sia stata davvero proposta dall'app.
  */
 function trasfertaCompatibile(dichiarata: Trip, offerente: Trip, direction: LegDirection): boolean {
   if (dichiarata.fromPlantId !== offerente.fromPlantId) return false;
@@ -124,11 +120,7 @@ function trasfertaCompatibile(dichiarata: Trip, offerente: Trip, direction: LegD
   // Rientro chiesto senza averne dichiarato uno (o tratta senza rientro): nessun giorno da confrontare.
   if (capoDichiarata === null || capoOfferente === null) return false;
 
-  const giornoDichiarata = parseUtcInstant(capoDichiarata);
-  const giornoOfferente = parseUtcInstant(capoOfferente);
-  // Un istante illeggibile non coincide con niente.
-  if (!giornoDichiarata || !giornoOfferente) return false;
-  return giornoDichiarata.date === giornoOfferente.date;
+  return utcInstantParts(capoDichiarata).date === utcInstantParts(capoOfferente).date;
 }
 
 function rifiutoTrasferta(

@@ -5,6 +5,7 @@
 // Le sue trasferte da passeggero entrano come `otherTrips`.
 
 import type { BadgeId, LegDirection, MatchRequest, PersonalBests, Trip } from '../domain';
+import { utc } from '../domain/instant-fixture';
 import { awardBadges } from './award-badges';
 import type { BadgeConfig } from './badge-config';
 import type { RefreshPersonalBestsConfig } from './refresh-personal-bests';
@@ -47,7 +48,7 @@ function miaTrasferta(i: number, status: Trip['status'] = 'published'): Trip {
     ownerId: OWNER,
     fromPlantId: 'pomigliano',
     toPlantId: 'foggia',
-    departureAt: '2026-11-03T06:00:00.000Z',
+    departureAt: utc('2026-11-03T06:00:00.000Z'),
     returnAt: null,
     hasCar: false,
     seatsTotal: 0,

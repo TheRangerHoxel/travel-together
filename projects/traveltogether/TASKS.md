@@ -672,7 +672,7 @@ vuol più dire *"canonico"*, e sette test di task chiusi (T03, T04, T06, T07d) p
 comportamento che questo task rovescia apposta o rende irrappresentabile. Forma canonica, nomi e decisioni: `PROGRESS.md`, voce del 25 ottobre.
 
 **Criteri di accettazione**
-- [ ] Un punto solo normalizza e valida l'istante, in `core/domain`: `normalizeUtcInstant`. Nessun
+- [x] Un punto solo normalizza e valida l'istante, in `core/domain`: `normalizeUtcInstant`. Nessun
       consumatore ripete il controllo. Lo chiamano **solo i confini da cui entra una stringa grezza** —
       oggi `createTrip` (input del form e `Clock.now()`), da T09 l'adapter Supabase — e i consumatori
       leggono data, millisecondi e ordine da funzioni **totali** sul tipo brandizzato.
@@ -681,19 +681,19 @@ comportamento che questo task rovescia apposta o rende irrappresentabile. Forma 
       app/src` non trova niente.
       *(25/10: il criterio non diceva chi può chiamare il parser, e `createTrip` è un confine, non un
       consumatore; resa verificabile con un comando.)*
-- [ ] `Trip`, `SeatOffer` e `TripRequest` portano un tipo che il compilatore **distingue** da `string`:
+- [x] `Trip`, `SeatOffer` e `TripRequest` portano un tipo che il compilatore **distingue** da `string`:
       una stringa non normalizzata non è assegnabile. Rompe le firme, ed è la ragione del ⛔.
       Verifica: un'asserzione di tipo per ciascuno dei quattro casi (il tipo stesso e i campi
       d'istante delle tre entità) fa fallire `typecheck` se la stringa diventa assegnabile.
       *(25/10: aggiunto il metodo di verifica. Un test a runtime non può vedere un tipo; un'asserzione
       che il compilatore valuta sì, e può fallire.)*
-- [ ] Il parser accetta le forme che PostgREST produce — offset `+00:00` e frazioni da **uno a sei**
+- [x] Il parser accetta le forme che PostgREST produce — offset `+00:00` e frazioni da **uno a sei**
       decimali, che Postgres scrive **senza gli zeri finali** (`.12`, non `.120000`) — e le riporta
       a una forma sola, **troncando** oltre il millisecondo. Un test le pinna come **stringhe
       letterali**: è il formato di un sistema esterno, non un dettaglio di gusto.
       *(25/10: precisati gli zeri finali e il troncamento. Un parser che accettasse solo `.sss` e
       `.ssssss` rifiuterebbe `2026-11-03T06:30:00.12+00:00`, cioè una riga su dieci a T09.)*
-- [ ] **La forma canonica è unica** — `YYYY-MM-DDTHH:mm:ss.sssZ`, sempre i millisecondi, larghezza
+- [x] **La forma canonica è unica** — `YYYY-MM-DDTHH:mm:ss.sssZ`, sempre i millisecondi, larghezza
       fissa di 24 caratteri — e fra due istanti canonici il confronto lessicografico coincide con
       quello cronologico **senza eccezioni**. Oggi non è così: `...T06:00:00Z` e `...T06:00:00.000Z`
       sono entrambi canonici, sono lo stesso istante e si ordinano **al contrario** (`Z` è `0x5A`, `.`
@@ -702,12 +702,12 @@ comportamento che questo task rovescia apposta o rende irrappresentabile. Forma 
       fissa, ed è la trappola che aspetta T13.
       *(25/10: "senza eccezioni" non è verificabile come enunciato universale; lo diventa come
       proprietà della forma, a larghezza fissa, provata su ogni uscita.)*
-- [ ] Le date impossibili (`2026-02-31`, il 29 febbraio di un anno non bisestile) sono rifiutate al
+- [x] Le date impossibili (`2026-02-31`, il 29 febbraio di un anno non bisestile) sono rifiutate al
       confine con errore tipizzato. T04 è il primo punto che le **persiste**: senza questo, a T09 è
       Postgres a rifiutare l'INSERT con un errore grezzo lato adapter, l'opposto di dove questo
       progetto vuole la validazione. Un test su `createTrip` con `2026-02-31T…` → `invalid-departure-at`
       e **zero scritture**
-- [ ] La suite di contratto verifica che gli istanti che **escono** dai port siano **già canonici**:
+- [x] La suite di contratto verifica che gli istanti che **escono** dai port siano **già canonici**:
       il parser li riporta **identici** (punto fisso), su ogni lettura che porta un istante —
       `findById`, `listByOwner`, `listOpenOffers` — con almeno una fixture i cui millisecondi
       finiscono con zero (`.120Z`), che è la forma che PostgREST restituisce accorciata.
@@ -716,11 +716,11 @@ comportamento che questo task rovescia apposta o rende irrappresentabile. Forma 
       PostgREST passerebbe il criterio e romperebbe l'ordine lessicografico. Dichiarato: **su `memory`
       questo test non può fallire per costruzione** — il compilatore impedisce già all'adapter di
       emettere una stringa non brandizzata. Vale a T09, ed è lì che paga.)*
-- [ ] `test:unit` continua a girare **senza rete**
-- [ ] Le fixture scritte a mano si adeguano **in questo task**. **Il seed non esiste ancora** (T17):
+- [x] `test:unit` continua a girare **senza rete**
+- [x] Le fixture scritte a mano si adeguano **in questo task**. **Il seed non esiste ancora** (T17):
       il tipo lo obbligherà a passare dal parser, e lo si scrive come criterio di T17.
       *(25/10: il criterio nominava un seed che nel repo non c'è.)*
-- [ ] *(25/10, aggiunto)* **I test chiusi che cambiano aspettativa sono elencati, uno per uno, con il
+- [x] *(25/10, aggiunto)* **I test chiusi che cambiano aspettativa sono elencati, uno per uno, con il
       motivo**, e nessun altro cambia. Sono quelli che pinnano il comportamento che T07f rovescia per
       decisione: in `create-trip.test.ts` *"una partenza / un rientro con microsecondi è rifiutato"* e
       *"senza millisecondi … accettato e non riscritto"* (il titolo del `describe`, *"mai convertiti"*,
@@ -729,10 +729,10 @@ comportamento che questo task rovescia apposta o rende irrappresentabile. Forma 
       passa ai test del parser); in `request-seat.test.ts` *"istante illeggibile nella trasferta
       dichiarata"*; in `compute-company-kpi.test.ts` *"una data di calendario impossibile"*. Senza
       questo criterio sarebbero modifiche a test per farli passare, che `CLAUDE.md` vieta
-- [ ] *(25/10, aggiunto)* `MatchError` perde `invalid-request-departure-at`, che diventa
+- [x] *(25/10, aggiunto)* `MatchError` perde `invalid-request-departure-at`, che diventa
       **irrappresentabile**, e `ARCHITECTURE.md` (§ Il motore di matching) è aggiornato nello stesso
       commit: un ramo che nessun input può raggiungere è un ramo che nessun test può verificare
-- [ ] *(25/10, aggiunto)* Criteri corrispondenti scritti su **T08** — colonne `timestamptz(3)`, così
+- [x] *(25/10, aggiunto)* Criteri corrispondenti scritti su **T08** — colonne `timestamptz(3)`, così
       il DB non conserva una precisione che il dominio tronca, e un confronto SQL e uno JS sugli
       stessi due istanti non possono dare risposte diverse — e su **T17** — il seed passa da
       `normalizeUtcInstant`, non da letterali
@@ -952,6 +952,13 @@ Tabelle da `ARCHITECTURE.md`, come SQL versionato nel repo.
       atomico dei posti: in RAM la monotonia è una funzione pura del dominio, e su Postgres sarebbe la
       seconda rete
 
+**Criterio aggiunto il 25 ottobre 2026, da T07f**
+- [ ] Ogni colonna istante è **`timestamptz(3)`**, non `timestamptz`. Il dominio tronca al
+      millisecondo (`normalizeUtcInstant`), e una colonna a microsecondi conserverebbe una precisione
+      che il dominio butta: due istanti uguali per `compareUtcInstants` potrebbero essere diversi per un
+      `WHERE` o un `ORDER BY` in SQL, e lo stesso confronto darebbe due risposte a seconda di dove gira.
+      Un test di integrazione scrive un istante con frazione oltre il millisecondo e lo rilegge troncato
+
 ⛔ Checkpoint obbligatorio: cambio di schema DB.
 
 ## T09 Adapter Supabase
@@ -1073,6 +1080,10 @@ Dataset sintetico sulle tratte del pilota, **disattivabile**.
 - [ ] Eseguito due volte non duplica i dati (idempotente)
 - [ ] Esiste un modo documentato per svuotare i dati di seed
 - [ ] L'app funziona correttamente **anche** con il seed non applicato
+- [ ] *(25/10, da T07f)* Gli istanti del seed passano da `normalizeUtcInstant`, non da letterali
+      assegnati a mano: il tipo `UtcInstant` lo impone sul percorso che attraversa il dominio, ma uno
+      script che scrivesse direttamente in SQL lo aggirerebbe, ed è lì che una forma non canonica
+      entrerebbe senza resistenza
 
 ## T18 ⛔ Build APK e prova su device
 

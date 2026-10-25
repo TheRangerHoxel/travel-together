@@ -34,11 +34,12 @@
 // plausibile e al ribasso; l'errore costringe a completare la tabella. E' la
 // stessa scelta di findMatches ("non ho potuto calcolare" != "il risultato e' 0").
 //
-// DATA IMPOSSIBILE (es. 2026-02-31) in una trasferta che entra nel conto: errore
-// tipizzato `invalid-trip-date`, per lo stesso motivo.
+// RIENTRO PRECEDENTE ALLA PARTENZA in una trasferta che entra nel conto: errore
+// tipizzato `invalid-trip-date`, per lo stesso motivo. Una data impossibile
+// (es. 2026-02-31) non e' piu' rappresentabile: lo impedisce il tipo `UtcInstant`.
 
 import type { MatchRequest, PlantId, Result, Trip } from '../domain';
-import { civilDayNumber, err, inclusiveDaysBetween, ok, parseUtcInstant } from '../domain';
+import { err, inclusiveDaysBetween, ok, utcInstantParts } from '../domain';
 import type { KpiConfig } from './kpi-config';
 import { lookupPlantDistance } from './plant-distance';
 
@@ -138,15 +139,14 @@ export function computeCompanyKpi(
   let km = 0;
 
   for (const trip of avoided.values()) {
-    const start = parseUtcInstant(trip.departureAt)?.date;
-    if (start === undefined || civilDayNumber(start) === null) {
-      return err({ kind: 'invalid-trip-date', tripId: trip.id, value: trip.departureAt });
-    }
+    // Le date sono di istanti normalizzati, quindi esistono in calendario. Resta
+    // rappresentabile un rientro PRECEDENTE alla partenza: lo coglie il conteggio.
+    const start = utcInstantParts(trip.departureAt).date;
 
     let tripDays = 1;
     if (trip.returnAt !== null) {
-      const end = parseUtcInstant(trip.returnAt)?.date;
-      const count = end === undefined ? null : inclusiveDaysBetween(start, end);
+      const end = utcInstantParts(trip.returnAt).date;
+      const count = inclusiveDaysBetween(start, end);
       if (count === null) {
         return err({ kind: 'invalid-trip-date', tripId: trip.id, value: trip.returnAt });
       }

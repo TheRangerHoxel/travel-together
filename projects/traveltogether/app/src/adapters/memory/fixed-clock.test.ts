@@ -31,9 +31,10 @@ describe('iniezione del Clock in chi lo consuma', () => {
   // E' questo che il criterio di T02 chiede di dimostrare: la stessa domanda sugli
   // stessi dati da' esiti opposti a seconda dell'orologio iniettato. Con Date.now()
   // l'esito dipenderebbe da quando gira la suite, e il test andrebbe riscritto ogni anno.
-  // Tutti gli istanti sono in UTC normalizzato, come prescrive il doc di Clock:
-  // il confronto lessicografico qui sotto coincide con quello cronologico solo
-  // a offset uguale, e mescolare `Z` con `+01:00` darebbe la risposta sbagliata.
+  // Tutti gli istanti sono in UTC normalizzato a larghezza fissa, come prescrive
+  // il doc di Clock: il confronto lessicografico qui sotto coincide con quello
+  // cronologico solo cosi', e mescolare forme diverse (`+01:00`, o `Z` senza
+  // millisecondi) darebbe la risposta sbagliata.
   const partenza = '2026-11-05T06:30:00.000Z';
 
   it('con un orologio fermo PRIMA della partenza, la partenza e futura', () => {

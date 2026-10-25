@@ -3892,3 +3892,68 @@ T13 lo leggerà); e una regola di lint che vieti alla produzione di importare i 
 
 **Prossimo passo:** review del piano, poi developer sullo Step 1, con le quattro sonde **scritte nel
 brief** e non lasciate alla sua iniziativa.
+
+
+---
+
+## 2026-10-25 — T07f · **APPROVATO** al secondo giro, e chiuso
+
+`verify` completo **verde**: **488 test unitari in 30 suite** (erano 448, +40), 1 di integrazione, 1 di
+smoke. Il ⛔ era sciolto per delega dell'umano (voce di ripresa sopra).
+
+### Cosa c'è adesso
+
+`UtcInstant` è un tipo marchiato (`unique symbol`, marchio ottenuto con un type predicate, nessun `as`),
+e `normalizeUtcInstant` è l'unico punto che lo produce, con `Result<UtcInstant, UtcInstantError>`.
+Forma canonica **`YYYY-MM-DDTHH:mm:ss.sssZ`, sempre 24 caratteri**; accetta `Z` e `+00:00`, da uno a
+sei decimali, **tronca** oltre il millisecondo; rifiuta le date impossibili con `impossible-date`.
+`Trip`, `SeatOffer` e `TripRequest` portano il tipo, e `createTrip` è il confine che normalizza.
+Spariscono l'omissione silenziosa di `findMatches`, la guardia sull'istante illeggibile di
+`requestSeat`, un controllo irraggiungibile di `computeCompanyKpi`, il `kind`
+`invalid-request-departure-at` di `MatchError` (`ARCHITECTURE.md` aggiornato), e il vecchio parser.
+La suite di contratto ha il test del **punto fisso** su `findById`, `listByOwner`, `listOpenOffers`.
+Criteri conseguenti scritti su T08 (`timestamptz(3)`) e T17 (seed dal parser).
+
+**Sette test di task chiusi cambiano aspettativa**, tutti nell'elenco del criterio scritto **prima**
+dell'implementazione. In più sono stati rimossi gli 8 test del vecchio parser, che non erano
+nell'elenco: la funzione non esiste più, e il reviewer ha verificato **caso per caso** che ognuno è
+coperto dal parser nuovo — uno con un confine più stretto (ora 24 invece di 25).
+
+### Sonde di mutazione, tutte eseguite dal developer
+
+Arrotondare invece di troncare → 6 test caduti; togliere il controllo di calendario → 5; non riempire
+a tre cifre → 12; `type UtcInstant = string` → `typecheck` rosso; `SeatOffer.departureAt: string` →
+`typecheck` rosso in due punti; segno invertito in `createTrip` → 28; segno invertito in
+`compareUtcInstants` → 29. **La previsione del piano era sbagliata su un nome:** il test *"uguale ad
+adesso"* non cade con il segno invertito, perché a parità il confronto vale 0 qualunque sia il segno.
+Il reviewer ha confermato che non è un confine scoperto: quel test copre un'altra mutazione (`< 0` →
+`<= 0`). Non eseguita, come da piano, la sonda *"createTrip salva la stringa grezza"*: non compila.
+
+### La bocciatura del primo giro: commenti, non codice
+
+Codice, test e tipi approvati al primo giro. Bocciato per due difetti di **commento**: **N1**, un
+commento in un test nominava ancora il parser eliminato, quindi la seconda ricerca del criterio 1 non
+tornava vuota; **N2**, due commenti (`create-trip.test.ts`, `clock.ts`) descrivevano il vecchio
+contratto — *"con tutto in UTC l'ordine lessicografico coincide con quello cronologico"* è
+esattamente la frase che T07f dimostra falsa. Chiusi al secondo giro con quattro riserve minori
+(un'asserzione contro `undefined` dopo un `sort`, `eCanonico` → `haLarghezzaCanonica`, un commento in
+`fixed-clock.test.ts`, il newline finale). Conteggio invariato a 488/30; il reviewer ha verificato
+**sui file** che il resto del diff è identico a quello approvato nel merito.
+
+La lezione è nella voce nuova di `IDEAS.md`: un criterio di verifica **per assenza** deve dire se i test
+sono inclusi. Il primo `rg` lo diceva, il secondo no.
+
+### Due incidenti del developer, dichiarati da lui
+
+1. **Ha cancellato metà di `node_modules`.** Per contare i test di base ha creato un worktree di HEAD
+   con una junction a `app/node_modules`, poi `git worktree remove --force` ha cancellato **attraverso
+   la junction**. Sorgente intatto (verificato dall'orchestratore: i 26 file attesi, nessun worktree
+   residuo, `.env` presente); ripristinato con `npm ci` dal lockfile, nessuna dipendenza nuova, poi
+   `verify` verde. **Regola per i brief futuri:** niente worktree, junction o copie del repo per
+   misurare; il conteggio di base è quello registrato qui.
+2. **Ha scritto un file di test con la shell** (`[IO.File]::WriteAllText`), contro la regola di
+   `CLAUDE.md`. Nessun danno: niente BOM, niente CR, UTF-8 valido, verificato da orchestratore e
+   reviewer sui byte. Mancava solo il newline finale (R4).
+
+Il reviewer è stato un agente generico con le istruzioni di `reviewer.md`, su modello forte, senza
+modificare file: il tipo `reviewer` non è caricato in questa sessione.

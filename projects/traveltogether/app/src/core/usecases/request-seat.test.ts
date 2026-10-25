@@ -1,6 +1,7 @@
 // requestSeat: candidatura a una tratta. Ogni rifiuto asserisce zero `save` sullo spia.
 
-import type { MatchRequest, NoteConfig, SeatOffer, Trip, TripRequest } from '../domain';
+import type { MatchRequest, NoteConfig, SeatOffer, Trip, TripRequest, UtcInstant } from '../domain';
+import { utc } from '../domain/instant-fixture';
 import { findMatches } from './find-matches';
 import { requestSeat, type RequestSeatInput } from './request-seat';
 import {
@@ -33,10 +34,10 @@ function unaTrasfertaPropria(modifiche: Partial<Trip> = {}): Trip {
     ownerId: RICHIEDENTE,
     fromPlantId: 'pomigliano',
     toPlantId: 'foggia',
-    departureAt: '2026-11-03T07:00:00.000Z',
+    departureAt: utc('2026-11-03T07:00:00.000Z'),
     // Come l'offerente del fake (rientro alle 17:00 dello stesso giorno): senza un
     // `returnAt` compatibile ogni candidatura sul rientro sarebbe rifiutata (T07d).
-    returnAt: '2026-11-03T17:00:00.000Z',
+    returnAt: utc('2026-11-03T17:00:00.000Z'),
     hasCar: false,
     seatsTotal: 0,
     seatsAvailable: 0,
@@ -348,8 +349,8 @@ describe('requestSeat: compatibilita della trasferta dichiarata con la tratta (T
   it('il caso dei numeri: tratta di un giorno, trasferta dichiarata Pomigliano-Grottaglie di sei', async () => {
     const lunga = unaTrasfertaPropria({
       toPlantId: 'grottaglie',
-      departureAt: '2026-11-03T07:00:00.000Z',
-      returnAt: '2026-11-08T17:00:00.000Z',
+      departureAt: utc('2026-11-03T07:00:00.000Z'),
+      returnAt: utc('2026-11-08T17:00:00.000Z'),
     });
     await rifiutata(unInput(), lunga);
   });
@@ -367,11 +368,11 @@ describe('requestSeat: compatibilita della trasferta dichiarata con la tratta (T
   );
 
   it('andata: giorno di partenza diverso, rifiutata', async () => {
-    await rifiutata(unInput(), unaTrasfertaPropria({ departureAt: '2026-11-04T07:00:00.000Z' }));
+    await rifiutata(unInput(), unaTrasfertaPropria({ departureAt: utc('2026-11-04T07:00:00.000Z') }));
   });
 
   it('rientro: giorno di rientro diverso, rifiutata', async () => {
-    await rifiutata(unInput({ direction: 'return' }), unaTrasfertaPropria({ returnAt: '2026-11-04T17:00:00.000Z' }));
+    await rifiutata(unInput({ direction: 'return' }), unaTrasfertaPropria({ returnAt: utc('2026-11-04T17:00:00.000Z') }));
   });
 
   it('rientro: trasferta dichiarata senza returnAt, rifiutata con lo stesso reason', async () => {
@@ -381,42 +382,47 @@ describe('requestSeat: compatibilita della trasferta dichiarata con la tratta (T
   it('il confronto e sul capo della direzione della trasferta DICHIARATA: il suo altro capo non conta', async () => {
     // Copre il lato del richiedente; il lato dell'offerente e' nel describe "offerente su piu giorni".
     // Rientro diverso ma andata uguale: per l'andata passa.
-    const soloRientroDiverso = unaTrasfertaPropria({ returnAt: '2026-11-09T17:00:00.000Z' });
+    const soloRientroDiverso = unaTrasfertaPropria({ returnAt: utc('2026-11-09T17:00:00.000Z') });
     const a = await esegui(unInput({ direction: 'outbound' }), [], [soloRientroDiverso]);
     expect(a.r.ok).toBe(true);
     // Andata diversa ma rientro uguale: per il rientro passa.
-    const soloAndataDiversa = unaTrasfertaPropria({ departureAt: '2026-11-02T07:00:00.000Z' });
+    const soloAndataDiversa = unaTrasfertaPropria({ departureAt: utc('2026-11-02T07:00:00.000Z') });
     const b = await esegui(unInput({ direction: 'return' }), [], [soloAndataDiversa]);
     expect(b.r.ok).toBe(true);
   });
 
   it('confine: stesso giorno e ora diversa passa (nessuna finestra di tolleranza), giorno UTC adiacente no', async () => {
-    const stessoGiornoAltraOra = unaTrasfertaPropria({ departureAt: '2026-11-03T23:59:59.000Z' });
+    const stessoGiornoAltraOra = unaTrasfertaPropria({ departureAt: utc('2026-11-03T23:59:59.000Z') });
     const ok1 = await esegui(unInput(), [], [stessoGiornoAltraOra]);
     expect(ok1.r.ok).toBe(true);
 
-    const primoIstanteDelGiorno = unaTrasfertaPropria({ departureAt: '2026-11-03T00:00:00.000Z' });
+    const primoIstanteDelGiorno = unaTrasfertaPropria({ departureAt: utc('2026-11-03T00:00:00.000Z') });
     const ok2 = await esegui(unInput(), [], [primoIstanteDelGiorno]);
     expect(ok2.r.ok).toBe(true);
 
-    await rifiutata(unInput(), unaTrasfertaPropria({ departureAt: '2026-11-04T00:00:00.000Z' }));
+    await rifiutata(unInput(), unaTrasfertaPropria({ departureAt: utc('2026-11-04T00:00:00.000Z') }));
   });
 
-  it('istante illeggibile nella trasferta dichiarata: rifiutata, non confrontata come uguale', async () => {
-    await rifiutata(unInput(), unaTrasfertaPropria({ departureAt: 'non-una-data' }));
-  });
+  // Rimosso in T07f: "istante illeggibile nella trasferta dichiarata: rifiutata". Lo
+  // stato non e' piu' rappresentabile (`Trip.departureAt` e' un `UtcInstant`); l'intenzione
+  // passa ai test di `normalizeUtcInstant`, dove un istante illeggibile e' rifiutato.
 
   describe('non-regressione: un percorso che findMatches avrebbe proposto passa', () => {
     const CONFIG = { toleranceMinutes: 30 };
 
     // La domanda del passeggero e l'offerta come le produrrebbe listOpenOffers.
+    /** Il rientro di una trasferta di fixture che ne ha uno: l'assenza e' un errore del test. */
+    function conRientro(rientro: UtcInstant | null): UtcInstant {
+      if (rientro === null) throw new Error('fixture senza rientro');
+      return rientro;
+    }
     function richiestaDel(propria: Trip, direction: 'outbound' | 'return'): TripRequest {
       return {
         requesterId: RICHIEDENTE,
         requesterPlantId: 'grottaglie',
         fromPlantId: direction === 'outbound' ? propria.fromPlantId : propria.toPlantId,
         toPlantId: direction === 'outbound' ? propria.toPlantId : propria.fromPlantId,
-        departureAt: direction === 'outbound' ? propria.departureAt : (propria.returnAt ?? ''),
+        departureAt: direction === 'outbound' ? propria.departureAt : conRientro(propria.returnAt),
       };
     }
     function offertaDel(offerente: Trip, direction: 'outbound' | 'return'): SeatOffer {
@@ -427,7 +433,7 @@ describe('requestSeat: compatibilita della trasferta dichiarata con la tratta (T
         ownerPlantId: 'pomigliano',
         fromPlantId: direction === 'outbound' ? offerente.fromPlantId : offerente.toPlantId,
         toPlantId: direction === 'outbound' ? offerente.toPlantId : offerente.fromPlantId,
-        departureAt: direction === 'outbound' ? offerente.departureAt : (offerente.returnAt ?? ''),
+        departureAt: direction === 'outbound' ? offerente.departureAt : conRientro(offerente.returnAt),
         seatsAvailable: 3,
       };
     }
@@ -436,7 +442,7 @@ describe('requestSeat: compatibilita della trasferta dichiarata con la tratta (T
     // distingue i due capi: col primo andata e rientro sono lo stesso giorno.
     it.each([
       ['in giornata', undefined, '2026-11-03', '2026-11-03'],
-      ['su piu giorni', '2026-11-05T17:00:00.000Z', '2026-11-03', '2026-11-05'],
+      ['su piu giorni', utc('2026-11-05T17:00:00.000Z'), '2026-11-03', '2026-11-05'],
     ] as const)('offerente %s: entrambe le tratte passano', async (_nome, returnAtOfferente, giornoAndata, giornoRientro) => {
       for (const direction of ['outbound', 'return'] as const) {
         const trips = unTripsSpia({ returnAt: returnAtOfferente, otherTrips: [] });
@@ -444,8 +450,8 @@ describe('requestSeat: compatibilita della trasferta dichiarata con la tratta (T
         if (!offerente.ok) throw new Error('offerente del fake non trovato');
         const propria = unaTrasfertaPropria({
           // Venti e dieci minuti di scarto dall'offerente: dentro la tolleranza di findMatches.
-          departureAt: `${giornoAndata}T07:20:00.000Z`,
-          returnAt: `${giornoRientro}T16:50:00.000Z`,
+          departureAt: utc(`${giornoAndata}T07:20:00.000Z`),
+          returnAt: utc(`${giornoRientro}T16:50:00.000Z`),
         });
 
         // Precondizione: il matching propone davvero questa offerta. Se non fosse cosi'
@@ -466,7 +472,7 @@ describe('requestSeat: compatibilita della trasferta dichiarata con la tratta (T
   });
 
   describe('offerente su piu giorni (11-03 -> 11-05): i due capi dell\'offerente sono distinguibili', () => {
-    const RIENTRO_OFFERENTE = '2026-11-05T17:00:00.000Z';
+    const RIENTRO_OFFERENTE = utc('2026-11-05T17:00:00.000Z');
 
     async function rifiutataConOfferenteMultiGiorno(input: RequestSeatInput, propria: Trip) {
       const requests = unRequestsSpia();
@@ -480,14 +486,14 @@ describe('requestSeat: compatibilita della trasferta dichiarata con la tratta (T
     it('rientro: il rientro dichiarato cade nel giorno di PARTENZA dell\'offerente, rifiutata', async () => {
       await rifiutataConOfferenteMultiGiorno(
         unInput({ direction: 'return' }),
-        unaTrasfertaPropria({ returnAt: '2026-11-03T17:00:00.000Z' })
+        unaTrasfertaPropria({ returnAt: utc('2026-11-03T17:00:00.000Z') })
       );
     });
 
     it('andata: la partenza dichiarata cade nel giorno di RIENTRO dell\'offerente, rifiutata', async () => {
       await rifiutataConOfferenteMultiGiorno(
         unInput({ direction: 'outbound' }),
-        unaTrasfertaPropria({ departureAt: '2026-11-05T07:00:00.000Z' })
+        unaTrasfertaPropria({ departureAt: utc('2026-11-05T07:00:00.000Z') })
       );
     });
   });

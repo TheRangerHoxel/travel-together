@@ -7,17 +7,18 @@
 // divergono.
 
 import {
-  type Instant,
   type PlantId,
   type ProfileId,
   type Result,
   type Trip,
   type TripId,
   type TripInvariantError,
+  type UtcInstant,
+  compareUtcInstants,
   err,
   makeTrip,
+  normalizeUtcInstant,
   ok,
-  parseUtcInstant,
 } from '../domain';
 import type { Clock, RepositoryError, TripRepository } from '../ports';
 import type { CreateTripConfig } from './create-trip-config';
@@ -34,9 +35,11 @@ export interface CreateTripInput {
   readonly fromPlantId: PlantId;
   readonly toPlantId: PlantId;
   /**
-   * Istante gia' in forma canonica UTC con la `Z`. **Non viene convertito**: la
-   * conversione dal fuso locale e' onere di chi chiama (il form di T12). Un valore
-   * non canonico e' rifiutato con 'invalid-departure-at'.
+   * Istante grezzo, in UTC (`Z` o `+00:00`, da zero a sei decimali): createTrip lo
+   * **normalizza** alla forma canonica e salva quella. **Non viene convertito dal
+   * fuso locale**: e' onere di chi chiama (il form di T12), e un offset diverso e'
+   * rifiutato. Un valore illeggibile o una data impossibile e' rifiutato con
+   * 'invalid-departure-at', che riporta il valore grezzo.
    */
   readonly departureAt: string;
   /** Stessa forma di `departureAt`, oppure null se il rientro non e' pianificato. */
@@ -70,21 +73,6 @@ export type CreateTripError =
 const MIN_SEATS_WITH_CAR = 1;
 
 /**
- * Confronto cronologico fra due istanti canonici: negativo, zero o positivo.
- *
- * Non si confrontano le stringhe: `parseUtcInstant` accetta i millisecondi
- * opzionali, e "06:00:00Z" contro "06:00:00.000Z" e' lo stesso istante ma, come
- * stringhe, la `Z` (0x5A) segue il `.` (0x2E), quindi il primo risulterebbe
- * maggiore. Proprio sul confine "partenza uguale a adesso" darebbe la risposta
- * sbagliata. Data (YYYY-MM-DD, confrontabile come stringa) e millisecondi nel
- * giorno bastano, senza aritmetica di calendario.
- */
-function confronta(a: Instant, b: Instant): number {
-  if (a.date !== b.date) return a.date < b.date ? -1 : 1;
-  return a.millisOfDay - b.millisOfDay;
-}
-
-/**
  * Crea e salva una trasferta.
  *
  * Ritorna `err` per ogni rifiuto, mai un'eccezione, e **non salva** nulla in quel
@@ -112,37 +100,40 @@ export async function createTrip(
     return err({ kind: 'invalid-config', maxSeatsOffered });
   }
 
-  // Il confronto "nel passato" e' corretto solo se entrambi i lati sono canonici:
-  // vale anche per l'orologio, perche' un confronto silenziosamente sbagliato e'
-  // il guasto che questa guardia previene.
+  // createTrip e' un CONFINE: da qui entrano due stringhe grezze (il form e
+  // l'orologio) e si normalizzano una volta sola. Il confronto "nel passato" e'
+  // corretto solo se entrambi i lati sono istanti normalizzati: vale anche per
+  // l'orologio, perche' un confronto silenziosamente sbagliato e' il guasto che
+  // questa guardia previene.
   const adesso = deps.clock.now();
-  const istanteAdesso = parseUtcInstant(adesso);
-  if (!istanteAdesso) {
+  const istanteAdesso = normalizeUtcInstant(adesso);
+  if (!istanteAdesso.ok) {
     return err({ kind: 'invalid-clock-now', value: adesso });
   }
 
-  const partenza = parseUtcInstant(input.departureAt);
-  if (!partenza) {
+  const partenza = normalizeUtcInstant(input.departureAt);
+  if (!partenza.ok) {
     return err({ kind: 'invalid-departure-at', value: input.departureAt });
   }
 
-  let rientro: Instant | null = null;
+  let rientro: UtcInstant | null = null;
   if (input.returnAt !== null) {
-    rientro = parseUtcInstant(input.returnAt);
-    if (!rientro) {
+    const normalizzato = normalizeUtcInstant(input.returnAt);
+    if (!normalizzato.ok) {
       return err({ kind: 'invalid-return-at', value: input.returnAt });
     }
+    rientro = normalizzato.value;
   }
 
   if (input.fromPlantId === input.toPlantId) {
     return err({ kind: 'same-plant', plantId: input.fromPlantId });
   }
 
-  if (confronta(partenza, istanteAdesso) < 0) {
+  if (compareUtcInstants(partenza.value, istanteAdesso.value) < 0) {
     return err({ kind: 'departure-in-the-past', departureAt: input.departureAt, now: adesso });
   }
 
-  if (rientro && input.returnAt !== null && confronta(rientro, partenza) < 0) {
+  if (rientro !== null && input.returnAt !== null && compareUtcInstants(rientro, partenza.value) < 0) {
     return err({
       kind: 'return-before-departure',
       departureAt: input.departureAt,
@@ -174,8 +165,8 @@ export async function createTrip(
     ownerId: input.ownerId,
     fromPlantId: input.fromPlantId,
     toPlantId: input.toPlantId,
-    departureAt: input.departureAt,
-    returnAt: input.returnAt,
+    departureAt: partenza.value,
+    returnAt: rientro,
     hasCar: input.hasCar,
     seatsTotal: seatsOffered,
     // Alla creazione nessun posto e' ancora stato accettato.

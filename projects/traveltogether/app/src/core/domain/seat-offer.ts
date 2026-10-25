@@ -6,6 +6,7 @@
 // Un tipo piu' stretto rende impossibile, non solo sconsigliato, far dipendere il
 // punteggio da un campo che non c'entra.
 
+import type { UtcInstant } from './instant';
 import type { PlantId } from './plant';
 import type { ProfileId } from './profile';
 import type { TripId } from './trip';
@@ -27,11 +28,11 @@ export interface SeatOffer {
   /** Arrivo di QUESTA tratta: sul ritorno e' la partenza della trasferta. */
   readonly toPlantId: PlantId;
   /**
-   * ISO 8601. Orario di QUESTA tratta (`departureAt` della trasferta per l'andata,
-   * `returnAt` per il ritorno). La vicinanza a questo orario e' la componente
-   * principale del punteggio.
+   * Istante normalizzato UTC. Orario di QUESTA tratta (`departureAt` della
+   * trasferta per l'andata, `returnAt` per il ritorno). La vicinanza a questo
+   * orario e' la componente principale del punteggio.
    */
-  readonly departureAt: string;
+  readonly departureAt: UtcInstant;
   /** Posti liberi su QUESTA tratta, dal suo contatore e non da `Trip`. */
   readonly seatsAvailable: number;
 }

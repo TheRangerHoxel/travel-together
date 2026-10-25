@@ -3,6 +3,7 @@
 
 import type { BadgeId, LegDirection, MatchRequest, Trip } from '../domain';
 import { BADGE_IDS } from '../domain';
+import { utc } from '../domain/instant-fixture';
 import { awardBadges, BADGE_CATALOG } from './award-badges';
 import type { BadgeConfig } from './badge-config';
 import { computePersonalStats } from './compute-personal-stats';
@@ -192,8 +193,8 @@ describe('end-to-end: dai dati alle statistiche ai badge', () => {
       ownerId,
       fromPlantId: 'pomigliano',
       toPlantId: 'foggia',
-      departureAt: '2026-11-03T06:00:00.000Z',
-      returnAt: '2026-11-05T16:00:00.000Z',
+      departureAt: utc('2026-11-03T06:00:00.000Z'),
+      returnAt: utc('2026-11-05T16:00:00.000Z'),
       hasCar: false,
       seatsTotal: 0,
       seatsAvailable: 0,

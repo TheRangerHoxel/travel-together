@@ -11,7 +11,7 @@ import type {
   SeatOffer,
   TripRequest,
 } from '../domain';
-import { err, legDirectionRank, ok, parseUtcInstant } from '../domain';
+import { err, legDirectionRank, ok, utcInstantParts } from '../domain';
 import type { MatchConfig } from './match-config';
 
 const MILLIS_PER_MINUTO = 60_000;
@@ -35,9 +35,7 @@ export interface ScoredMatch {
   readonly requestStatus: MatchRequestStatus | null;
 }
 
-export type MatchError =
-  | { readonly kind: 'invalid-request-departure-at'; readonly value: string }
-  | { readonly kind: 'invalid-tolerance'; readonly toleranceMinutes: number };
+export type MatchError = { readonly kind: 'invalid-tolerance'; readonly toleranceMinutes: number };
 
 /**
  * Le offerte compatibili con la richiesta, ordinate dalla migliore alla peggiore.
@@ -48,10 +46,11 @@ export type MatchError =
  * dalla proiezione che le produce (`listOpenOffers` emette una offerta per tratta,
  * e la tratta e' unica per costruzione), ma va dichiarato.
  *
- * Ritorna `err` quando la domanda stessa non ha senso — istante malformato,
- * tolleranza incoerente — invece di una lista vuota: "nessun collega compatibile"
- * e "non ho potuto cercare" sono due risposte diverse, e confonderle significa
- * mostrare in demo uno stato vuoto plausibile al posto di un errore.
+ * Ritorna `err` quando la domanda stessa non ha senso — tolleranza incoerente —
+ * invece di una lista vuota: "nessun collega compatibile" e "non ho potuto
+ * cercare" sono due risposte diverse, e confonderle significa mostrare in demo
+ * uno stato vuoto plausibile al posto di un errore. Un istante malformato non e'
+ * piu' un caso: la garanzia e' passata al tipo `UtcInstant`.
  */
 export function findMatches(
   richiesta: TripRequest,
@@ -67,10 +66,7 @@ export function findMatches(
     return err({ kind: 'invalid-tolerance', toleranceMinutes });
   }
 
-  const istanteRichiesto = parseUtcInstant(richiesta.departureAt);
-  if (!istanteRichiesto) {
-    return err({ kind: 'invalid-request-departure-at', value: richiesta.departureAt });
-  }
+  const istanteRichiesto = utcInstantParts(richiesta.departureAt);
 
   const finestra = toleranceMinutes * MILLIS_PER_MINUTO;
 
@@ -90,11 +86,9 @@ export function findMatches(
     if (offerta.toPlantId !== richiesta.toPlantId) continue;
 
     // --- Vincoli duri: tempo ---
-    const istanteOfferto = parseUtcInstant(offerta.departureAt);
-    // Un'offerta con un istante illeggibile si omette: e' un dato incoerente di
-    // una riga, e far fallire l'intera ricerca per quella riga sarebbe un degrado
-    // sproporzionato. Stessa scelta dell'inner join in listOpenOffers.
-    if (!istanteOfferto) continue;
+    // L'istante e' un `UtcInstant`: la sua validita' e' garantita dal tipo, quindi
+    // qui non c'e' un ramo "illeggibile" da omettere in silenzio.
+    const istanteOfferto = utcInstantParts(offerta.departureAt);
     if (istanteOfferto.date !== istanteRichiesto.date) continue;
 
     const millisApart = Math.abs(istanteOfferto.millisOfDay - istanteRichiesto.millisOfDay);

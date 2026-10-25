@@ -10,6 +10,7 @@
 // risolve su ownerId === requesterId. Un campo che nessun vincolo usa e' un campo
 // che un domani il punteggio potrebbe usare per sbaglio.
 
+import type { UtcInstant } from './instant';
 import type { PlantId } from './plant';
 import type { ProfileId } from './profile';
 
@@ -19,6 +20,6 @@ export interface TripRequest {
   readonly requesterPlantId: PlantId;
   readonly fromPlantId: PlantId;
   readonly toPlantId: PlantId;
-  /** ISO 8601 normalizzato UTC con `Z`, nella stessa forma di `Clock.now()`. */
-  readonly departureAt: string;
+  /** Istante normalizzato UTC. */
+  readonly departureAt: UtcInstant;
 }

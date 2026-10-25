@@ -1,13 +1,10 @@
 // Aritmetica di calendario, senza Date.
 //
-// PERCHE' UN FILE A PARTE E NON DENTRO instant.ts. `parseUtcInstant` dichiara di
-// fermarsi al giorno e di NON verificare la validita' di calendario (`2026-02-31`
-// passa): e' un contratto scritto, su cui poggia findMatches, e T03 ha i suoi test
-// su quella tolleranza. Mettere qui una funzione che invece la verifica nello stesso
-// file darebbe al lettore due nozioni di "data valida" a dieci righe di distanza.
-// Sono due responsabilita': leggere un istante (forma) vs. contare i giorni
-// (calendario). Il parser resta com'e'; questo modulo lavora sulla parte `date`
-// che il parser restituisce.
+// PERCHE' UN FILE A PARTE E NON DENTRO instant.ts. Sono due responsabilita':
+// riconoscere la forma di un istante (instant.ts) vs. contare i giorni e sapere
+// quali date esistono (calendario). Il parser degli istanti passa da `civilDayNumber`
+// per rifiutare le date impossibili (`2026-02-31`), dominio -> dominio e senza cicli;
+// questo modulo lavora sulla parte `date` (`YYYY-MM-DD`) di un istante.
 //
 // DATA IMPOSSIBILE: queste funzioni ritornano `null`, mai un numero. Un conteggio
 // di giorni calcolato su `2026-02-31` darebbe una risposta plausibile (come il

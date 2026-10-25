@@ -2,6 +2,7 @@
 // Foggia-Grottaglie 300 km (dichiarate una volta, nel verso che capita).
 
 import type { LegDirection, MatchRequest, MatchRequestStatus, Trip } from '../domain';
+import { utc } from '../domain/instant-fixture';
 import type { PersonalStats, PersonalStatsError } from './compute-personal-stats';
 import { computePersonalStats } from './compute-personal-stats';
 import type { PlantDistanceConfig } from './plant-distance';
@@ -19,8 +20,8 @@ function trip(id: string, ownerId: string, overrides: Partial<Trip> = {}): Trip 
     ownerId,
     fromPlantId: 'pomigliano',
     toPlantId: 'foggia',
-    departureAt: '2026-11-03T06:00:00.000Z',
-    returnAt: '2026-11-05T16:00:00.000Z',
+    departureAt: utc('2026-11-03T06:00:00.000Z'),
+    returnAt: utc('2026-11-05T16:00:00.000Z'),
     hasCar: false,
     seatsTotal: 0,
     seatsAvailable: 0,
