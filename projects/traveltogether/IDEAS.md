@@ -347,6 +347,7 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — `core/usecases` di T05, migrazioni di T08.
 - **Costo** — M.
 - **Stato** — proposta
+- **Nota (25 ottobre 2026, dalla pianificazione di T08) — il prezzo ora ha anche un lato di sicurezza.** `adjust_leg_seats` deve autorizzare il **richiedente** di una candidatura `accepted` a fare +1, perché `cancelRequest` restituisce il posto prima di scrivere `cancelled`. Ma la funzione non sa *perché* viene chiamata: finché la sua riga è `accepted`, un client ostile può ripetere il +1 e gonfiare i posti liberi della tratta fino a `seats_total` (il `CHECK` lo ferma lì, non prima), così l'owner accetterebbe più passeggeri di quanti ne porta. È lo stesso difetto di questa voce visto da un altro lato: il delta non è legato al cambio di stato. Per la demo, su dati sintetici e con un APK firmato, è un rischio dichiarato; per un pilota con dati veri la forma giusta è quella di questa voce — stato e posti in un'operazione sola.
 
 ### Vietare agli agenti di manipolare i file di testo via shell
 - **Cosa** — una regola operativa: i file si modificano con gli **strumenti di modifica**, non con comandi di shell. In particolare, negli script PowerShell non si usano nomi di variabile o di comando di **una sola lettera**, e non si fanno round-trip di lettura/riscrittura di un file di testo.
@@ -399,6 +400,7 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — `core/ports/match-request-repository.ts` (metodo **additivo**, non rompe firme, ma è un ⛔ sul contratto), i due adapter, la suite di contratto, e gli usecase di T05 come chiamanti. Si lega alla voce *"Atomicità e idempotenza dell'accettazione"*: quella lega stato e posti, questa lega fra loro le righe della stessa cascata.
 - **Costo** — M.
 - **Stato** — proposta
+- **Nota (25 ottobre 2026, dalla pianificazione di T08) — per il reintegro non è più un'ottimizzazione, è correttezza.** Con le RLS di T08, `cancelRequest` gira come **richiedente**: `listByLeg` vede solo la sua riga e la `save` sulle righe degli altri è vietata, quindi il reintegro torna `ok([])` in silenzio e i rifiutati dal sistema restano fuori per sempre. T08 scrive la funzione `restore_system_rejected(trip_id, direction)` (`security definer`, agisce solo se la tratta ha posti liberi, restituisce gli id), ma l'usecase non la può chiamare senza un metodo del port. Proposta minima, solo per la metà reintegro: `MatchRequestRepository.restoreSystemRejected(tripId, direction): Promise<Result<readonly MatchRequestId[], RepositoryError>>`, con la **definizione** della transizione (quali righe, in cosa diventano) come funzione pura in `core/domain`, invocata dall'adapter memory e riespressa in SQL — lo stesso schema di `raisePersonalBests` / `GREATEST` di T07e, e la stessa prova di equivalenza nella suite di contratto, eseguita con l'identità del **richiedente**. Il reintegro diventa anche una scrittura sola. Da schedulare **prima di T09**, perché T09 implementa il port: un task a sé (⛔ interfaccia), non dentro T08. La metà cascata non ne ha bisogno: la esegue l'owner, che vede e chiude le righe della sua tratta.
 
 ### `src/__tests__/` è fuori dal grafo dei confini
 - **Cosa** — o dichiarare `src/__tests__/**` come elemento nel grafo di `eslint-plugin-boundaries` (con un suo insieme di import permessi), o attivare `boundaries/no-unknown-files` così che un file fuori dagli elementi dichiarati faccia fallire il lint.
@@ -628,4 +630,25 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Perché** — riserve non bloccanti della review di T07b, registrate per non perderle.
 - **Impatto** — un commento, la lista in `badge-label.ts` (la tabella delle 16 etichette va riletta dopo), un test.
 - **Costo** — XS.
+- **Stato** — proposta
+
+### I KPI aziendali hanno bisogno di candidature che la RLS non lascia leggere
+- **Cosa** — decidere come la dashboard aziendale (T16) ottiene le candidature `accepted` e le trasferte di **tutti**: una vista o una funzione `security definer` che restituisce solo i campi che `computeCompanyKpi` usa (niente note), oppure i KPI calcolati nel DB, oppure un port di lettura aggregata.
+- **Perché** — scoperto pianificando T08. La policy di lettura di `match_requests` (richiedente e owner, decisa con l'umano per le note) fa vedere a ciascun collega solo le proprie candidature. `computeCompanyKpi` è una funzione pura che riceve le liste: chiamata con ciò che un utente vede, produce **KPI parziali con `verify` verde**, cioè il numero in cima alla slide sbagliato senza che niente protesti. Calcolare i KPI nel DB duplicherebbe la logica di T06 in SQL; una vista senza note li lascia nel core.
+- **Impatto** — schema (una vista o una funzione, ⛔ schema), forse un port nuovo (⛔), T16. Nessun effetto su T08 se deciso prima di T16.
+- **Costo** — S per una vista senza note, M per un port.
+- **Stato** — proposta
+
+### Nessun task applica le migrazioni a prod
+- **Cosa** — un task, prima di T17/T18, che applichi le migrazioni di T08 al progetto **prod** (la demo), con lo stesso wrapper, lo stesso controllo preventivo e la stessa prova di revert in transazione.
+- **Perché** — scoperto pianificando T08. `ARCHITECTURE.md` dice che i progetti sono due, staging per i test e prod per la demo, e T08 parla solo di staging. Senza un task, la sera prima del pitch prod non ha tabelle, oppure le riceve con un'operazione fatta a mano e non registrata. È un'azione su un database remoto: ⛔ come l'applicazione a staging, e con una seconda stringa di connessione.
+- **Impatto** — nessun codice; un passo ⛔ e una variabile in `.env`. Si lega a T17 (il seed va dove gira la demo) e a T18.
+- **Costo** — S.
+- **Stato** — proposta
+
+### Come cambia il seed dei parametri dopo la prima migrazione
+- **Cosa** — decidere cosa significa modificare `SEED_PARAMETERS` dopo T08: solo l'ambiente memory e i test (la tabella resta com'è), oppure una migrazione nuova generata dallo stesso script che aggiorna le righe.
+- **Perché** — scoperto pianificando T08. Il criterio *"il seed SQL è derivato da `SEED_PARAMETERS`, un test confronta il file con l'output dello script"* regge finché la migrazione non è applicata: dopo, il file non si può riscrivere (la CLI non riapplica un file già registrato, e riscriverlo farebbe divergere repo e DB). Il primo che corregge la distanza Pomigliano–Foggia (*"DA SOSTITUIRE"*) troverà il test rosso e due vie sbagliate per farlo tornare verde: riscrivere una migrazione applicata, o allentare il test.
+- **Impatto** — lo script di seed e il suo test (uno per migrazione di seed, oppure un confronto con la sola ultima), `config/parameters.ts`. Nessun port. Reversibile.
+- **Costo** — S.
 - **Stato** — proposta

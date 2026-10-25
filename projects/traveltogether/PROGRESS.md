@@ -4922,3 +4922,386 @@ secondo giro non scarica niente. `verify` verde (651/29) con il Node di `tools/`
 `tools/supabase` in testa al PATH, e `SUPABASE_DB_URL` nel `.env`. La regola è in `CLAUDE.md` § Interruzioni
 e ripresa. Le copie installate stamattina in `%LOCALAPPDATA%\Programs` si rimuovono, con le loro voci nel
 PATH utente, appena nessun agente le usa.
+
+
+---
+
+## 2026-10-25 — T08 · pianificazione
+
+Nessun codice, nessun SQL. Il planner ha toccato **solo** `TASKS.md` (T08, più criteri corrispondenti su
+T09, T10, T16, T17), `IDEAS.md` (tre voci, due note) e questa voce. Letti: i due `CLAUDE.md`,
+`OFFICINA.md`, `ARCHITECTURE.md`, le voci del 25/10 (T07f, T07g, T07b, la decisione dell'umano sulla CLI,
+`tools/setup.py`), T08–T17; il codice di `core/domain` (trip, trip-leg, match-request, personal-bests,
+plant, profile, parse-parameters), i port, gli adapter memory (`memory-conditions.ts` e le policy in
+RAM), la suite di contratto (ambiente e `seminaCandidaturaGrezza`), `accept-`/`cancel-request.ts`,
+`leg-system-transitions.ts`, `config/parameters.ts`, la configurazione di jest, `package.json`,
+`eslint.config.js`, i due `.gitignore`.
+
+**Deviazione dichiarata:** il brief permetteva `supabase --help` in sola lettura, ma in questo ruolo non
+ho uno strumento shell. Le affermazioni sulla CLI qui sotto sono **da confermare allo step 0**, e il
+piano dice cosa cambia se non reggono.
+
+### Due cose da sapere prima di tutto il resto
+
+1. **`supabase gen types typescript --db-url` gira in Docker** (esegue `postgres-meta` in un container,
+   per quanto ne so della CLI v2), e su questa macchina Docker non c'è e non si installa senza admin.
+   Le alternative chiedono una **credenziale nuova** — un token personale per `--project-id`, valido su
+   **tutti** i progetti dell'account, prod compresa — o un **passo umano** (download dei tipi dalla
+   dashboard). È un ⛔ che la delega non copre: una credenziale con quel raggio la decide l'umano, come
+   ha deciso `SUPABASE_DB_URL`. **Raccomandazione:** il passo umano, perché il raggio del token è
+   sproporzionato a un file di tipi; la deriva fra file e schema la tiene un test sugli enum (sotto).
+   Alternativa: il token, se l'umano preferisce l'automazione piena.
+2. **Il reintegro sotto RLS ha bisogno di un cambio di port.** T08 scrive la funzione del DB, ma
+   l'usecase reintegra con `listByLeg` + `save` e continuerebbe a tornare `ok([])` in silenzio. Il
+   metodo del port è un task a sé, da fare prima di T09 (nota del 25/10 su *"La cascata e il reintegro
+   scrivono N righe una alla volta"* in `IDEAS.md`). **Dipendenza mancante, segnalata e non risolta.**
+
+### I criteri, riletti: cosa ho cambiato e perché
+
+Dettaglio accanto a ogni criterio, marcato *(25/10)*.
+
+- **Duplicati fusi.** La concorrenza c'era due volte (blocco base e 13/10); le RLS di scrittura su
+  `trips` e `match_requests` due volte (13/10 e T07g); `maxLength` due volte (13/10 e T07b). Restano
+  scritti, con il rimando a quello che li contiene.
+- **Due forme SQL che PostgREST non esprime.** `SET seats_available = seats_available + :delta` e
+  `GREATEST` dentro un upsert: con `supabase-js` non si scrivono. Diventano funzioni del DB
+  (`adjust_leg_seats`, `raise_personal_bests`), e quindi **cambiano il contratto di T09**, che le chiama
+  invece di fare `PATCH`/`upsert`. Scritto su T09.
+- **Un'affermazione falsa.** *"Foreign key + policy… impossibile anche per il seed e per le migrazioni"*:
+  migrazioni, seed e dashboard girano come `postgres`, che scavalca le RLS. Diventa una foreign key
+  **composta** `(requester_trip_id, requester_id) → trips(id, owner_id)`, più la policy, che scatta
+  prima e dà all'app l'esito di `memory`.
+- **Un tipo che arrotonda.** `timestamptz(3)` arrotonda al millisecondo, non tronca: `23:59:59.9996`
+  diventa il giorno dopo, e il confronto per giorno di T07d darebbe due risposte. Sostituito da
+  `timestamptz` + `CHECK (col = date_trunc('milliseconds', col))`: rifiuto invece di arrotondamento. Il
+  test di T07f diceva *"lo rilegge troncato"*: con questa forma lo vede **rifiutato**, ed è il motivo
+  della correzione.
+- **Un metodo non disponibile:** i tipi generati (sopra).
+- **Verifiche senza perimetro rese verificabili:** "applicabili su un progetto vuoto" (senza un secondo
+  progetto: test di revert + migrazioni in una transazione annullata), "RLS su ogni tabella" (dal
+  catalogo, schemi `public` e `private`, nessun elenco scritto a mano), "oltre a quanto previsto" (la
+  tabella delle letture è scritta), "nessun *T08 non ha deciso*" (un `rg`, test inclusi).
+- **Una contraddizione fra blocchi.** I `CHECK` sulle candidature (invarianti di
+  `validateMatchRequestStructure`) rendono irrappresentabile la riga che la suite semina con
+  `seminaCandidaturaGrezza`: il blocco di T07g lo prevedeva, ora è deciso (i quattro test vanno *solo
+  memory*, l'hook esce).
+- **Criteri che i port chiedevano già e T08 non aveva:** `trips.owner_id → profiles` e la lettura delle
+  offerte per tutti (doc di `listOpenOffers`), la materializzazione delle tratte (doc di `save`).
+- **Ambito delle tabelle.** *"Tabelle da `ARCHITECTURE.md`"* comprendeva `invite_codes` e `plants`: il
+  primo passa a T10 (il flusso d'accesso non è disegnato), il secondo diventa un tipo enumerato.
+
+### Lo schema, nella forma decisa
+
+Tipi enumerati per **ogni** union di letterali del dominio: `plant_id`, `badge_id`, `parameter_key`,
+`leg_direction`, `trip_status`, `match_request_status`, `resolved_by`. Sono un secondo elenco, ed è il
+prezzo che T07e rifiutava per le metriche; qui lo si paga perché i tipi generati li espongono come union,
+e un'asserzione di tipo li tiene **uguali nei due versi** alle union del dominio. Un `CHECK … IN (…)`
+sarebbe lo stesso elenco, invisibile ai tipi generati.
+
+| Tabella | Colonne e vincoli | Lettura | Scrittura dall'app |
+|---|---|---|---|
+| `profiles` | `id` → `auth.users` (cascade), `display_name`, `plant_id` | `authenticated` | nessuna (T10) |
+| `trips` | `id` uuid, `owner_id` → `profiles` (restrict), plant, `departure_at`/`return_at` timestamptz al ms (CHECK), `has_car`, `seats_total`, `seats_available`, `status`; CHECK di `makeTrip`; `UNIQUE (id, owner_id)` | `authenticated` | owner, upsert compreso |
+| `trip_legs` | PK `(trip_id, direction)`, `trip_id` → `trips` (cascade: la tratta è una proiezione), CHECK `BETWEEN` | `authenticated` | nessuna: trigger e `adjust_leg_seats` |
+| `match_requests` | `id`, `(trip_id, direction)` → `trip_legs` (**restrict**), `requester_id` → `profiles`, `(requester_trip_id, requester_id)` → `trips(id, owner_id)` (restrict), stato, note, `resolved_by`, `notes_shortened`; `UNIQUE (trip_id, direction, requester_id)`; CHECK della struttura | richiedente e owner | due attori, più il trigger sulla riga vecchia |
+| `personal_bests` | `profile_id` → `profiles` (cascade), quattro metriche ≥ 0 (interi; km `double precision`) | solo la propria | solo la propria, via `raise_personal_bests` |
+| `parameters` | `key parameter_key` PK, `value jsonb` (numero o testo) | `authenticated` | nessuna |
+| `plant_distances` | due `plant_id` diversi, coppia non ordinata unica, `km` finito ≥ 0 | `authenticated` | nessuna |
+| `badge_parameters` | `badge_id` PK, `threshold` intero ≥ 1, `label` | `authenticated` | nessuna |
+
+`anon`: zero righe ovunque (nessuna policy, nessuna `REVOKE` di `SELECT`: deve essere *"riga assente"*,
+non un errore, come chiede T09).
+
+**Funzioni.** In `public`, perché l'app le chiama: `adjust_leg_seats` (definer: owner, o richiedente con
+candidatura `accepted` sulla tratta; esistenza → identità → limiti; zero righe fuori limite),
+`restore_system_rejected` (definer: solo se la tratta ha posti liberi; restituisce gli id),
+`raise_personal_bests` (invoker, `GREATEST`). In `private`, non esposto da PostgREST: il trigger che
+materializza le tratte (definer), il trigger di guardia di `match_requests` sulla riga vecchia (attivo
+solo per `authenticated`/`anon`), il trigger di monotonia, il trigger su `notes.maxLength`,
+`lower_note_max_length` (solo `postgres`). `search_path` vuoto, `EXECUTE` revocato a `public` e `anon`
+ovunque.
+
+**Cosa resta permesso a un client ostile, dichiarato:** il richiedente di una candidatura `accepted` può
+ripetere il +1 finché la riga è `accepted` (fino a `seats_total`, non oltre). Nota del 25/10 sulla voce
+*"Atomicità e idempotenza dell'accettazione"*.
+
+**Come girano gli usecase sotto queste policy**, verificato a mano su ciascuno: `requestSeat`,
+`acceptRequest` (cascata compresa: l'owner vede e chiude le righe della sua tratta), `rejectRequest`,
+`refreshPersonalBests` funzionano. `cancelRequest` funziona tranne il **reintegro** (dipendenza
+mancante, sopra). `computeCompanyKpi` **no**: nessuno legge le candidature di tutti — voce nuova in
+`IDEAS.md` e riquadro su T16.
+
+### Le decisioni, una riga ciascuna con l'alternativa scartata
+
+1. **Tratta eliminata con candidature:** foreign key `RESTRICT` + guard in `save` su **qualunque**
+   candidatura, su entrambi gli adapter. *Alt.:* `RESTRICT` e l'usecase che annulla prima — non c'è
+   l'usecase (modifica trasferta). `CASCADE` escluso dall'umano.
+2. **Candidature già chiuse:** stesso guard, nessuna cancellazione. *Alt.:* cancellare le chiuse prima
+   di togliere la tratta: logica di un task che non esiste, e perde la storia di un rifiuto motivato.
+3. **Incremento di `cancelRequest`:** `adjust_leg_seats` definer, che autorizza owner e richiedente
+   `accepted`. *Alt.:* policy di `UPDATE` su `trip_legs`: il client potrebbe scrivere qualunque valore
+   in [0, totale], e un aggiornamento relativo non si esprime comunque via PostgREST.
+4. **Reintegro:** `restore_system_rejected` definer. *Alt.:* policy dedicata alle transizioni `system`:
+   farebbe leggere al richiedente le note degli altri (contro la decisione sulla visibilità della nota)
+   e la `WITH CHECK` non saprebbe limitare la scrittura al solo cambio di stato. **Implica un metodo
+   nuovo del port, ⛔, che T09 dovrà implementare.**
+5. **Monotonia lato DB:** `raise_personal_bests` con `GREATEST` + trigger che **rifiuta** un abbassamento.
+   *Alt.:* `UPDATE … WHERE nuovo > corrente` — per riga, fallisce il caso misto; o un trigger che
+   **corregge** in silenzio invece di rifiutare.
+6. **Forma dei parametri:** chiave/valore `jsonb` con chiavi enumerate, più due tabelle per distanze e
+   badge. *Alt.:* una riga a colonne tipizzate: ripete le chiavi nel DDL e rende irrappresentabile il
+   parametro mancante.
+7. **Abbassare `note.maxLength`:** trigger che rifiuta + funzione `private.lower_note_max_length(n)`
+   chiamata da una migrazione (accorcia a `n − 1` + `…`, marca `notes_shortened`, controlla la nota
+   automatica, poi scrive il parametro). *Alt.:* una procedura scritta come documento: non eseguita, non
+   provata, quindi una garanzia finta.
+8. **Istanti:** `timestamptz` + `CHECK` al millisecondo. *Alt.:* `timestamptz(3)`: arrotonda.
+9. **`requester_trip_id`:** foreign key composta + policy. *Alt.:* la sola policy: non ferma `postgres`.
+10. **Condizioni sulla riga vecchia di `match_requests`:** trigger `BEFORE UPDATE`. *Alt.:* solo policy:
+    un owner potrebbe riscrivere a proprio nome la candidatura di un collega, che `memory` rifiuta.
+11. **Tratte:** trigger su `trips`. *Alt.:* una funzione `save_trip` (un RPC in più per T09) o più chiamate
+    REST da T09 (non atomiche, e non sanno aggiornare `seats_total` preservando il contatore).
+12. **Identità come enum** + asserzione di tipo. *Alt.:* `CHECK … IN`, invisibile ai tipi generati; o una
+    tabella `plants`, che non dà un tipo.
+13. **`invite_codes` a T10.** *Alt.:* crearla ora, pre-impegnando le policy di un flusso non disegnato.
+14. **Cartella `app/supabase/`.** *Alt.:* `projects/traveltogether/supabase/`: separa il DB dall'app, ma
+    test, script di seed e tipi generati vivono in `app/` e dovrebbero uscire dalla radice di jest.
+15. **Le righe invalide di candidatura diventano *solo memory*.** *Alt.:* niente `CHECK` sulla struttura,
+    per lasciarle rappresentabili: verifica più debole, e la priorità dice il contrario.
+
+### L'infrastruttura dei test di integrazione
+
+**Via SQL, non via REST.** Ogni test apre una transazione, inserisce le sue fixture come `postgres`
+(utenti in `auth.users`, profili, trasferte), poi `set local role authenticated` e
+`set_config('request.jwt.claims', '{"sub": …, "role": "authenticated"}', true)` — è ciò che legge
+`auth.uid()` — agisce, asserisce, e **`ROLLBACK`**. Staging non cambia. La via REST con `supabase-js`
+richiederebbe la dipendenza di T09, sign-in veri con password per utenti creati via API amministrativa
+(cioè la chiave `service_role`, che l'agente non ha), e niente transazioni: tutto andrebbe ripulito.
+
+**Lo schema nei test viene dai file, non da staging.** Un helper esegue, dentro la transazione, lo
+script di revert e poi le migrazioni in ordine: ogni test verifica **il SQL del repo**, prima e dopo
+l'applicazione, e "applicabile su un progetto vuoto" è lo stesso helper con le sue asserzioni. Che
+staging corrisponda al repo lo dice `db:status`. Prezzo: un lock esclusivo sulle tabelle per la durata
+del test, solo su staging; `test:int` gira **in serie** (`maxWorkers: 1`).
+
+**Solo la concorrenza conferma righe**, perché una seconda connessione non vede una transazione aperta.
+Profili di test con email `@t08.test.invalid` e nomi fittizi, cancellati alla fine nell'ordine delle
+foreign key (candidature, trasferte — le tratte vanno in cascata — massimi, profili, utenti), più una
+pulizia all'avvio dei residui di un'esecuzione interrotta, **per email di test**. Nessun dato della demo
+viene toccato (`ARCHITECTURE.md`: staging è per i test, prod per la demo; e comunque la cancellazione è
+per identità di test). I parametri non sono mai scritti fuori da una transazione annullata.
+
+**Dipendenza nuova, ⛔ — raccomandata, quindi applicabile per delega:**
+- **`postgres`** (postgres.js), `devDependency`, ultima `3.x` con almeno due settimane di vita (stessa
+  regola della CLI). **Motivo:** l'unico modo di parlare SQL con staging da un test su questa macchina:
+  niente `psql` (sarebbe un'installazione), niente Docker (quindi niente `supabase test db`/pgTAP), e
+  Node non ha un client Postgres. **Peso:** un pacchetto, **zero dipendenze transitive**, tipi inclusi,
+  nessuno script d'installazione — quindi nessun conflitto con la regola di Fase 1 (npm 11 blocca gli
+  script, e qui non ce ne sono: da verificare sul lockfile all'installazione). **Alternativa:** `pg` +
+  `@types/pg`, il client più diffuso, ma circa quindici pacchetti fra dipendenze e tipi (`pg-pool`,
+  `pg-protocol`, `pg-types`, `pgpass`, `postgres-*`, …), anch'essi senza script. Scelto il primo per la
+  superficie: un pacchetto da rivedere invece di quindici.
+- Nessun'altra dipendenza: lo script del seed usa Node 24, il wrapper della CLI `@expo/env`, già
+  presente.
+
+**Rischi da chiudere allo step 1, non assunti:** (a) TLS — il client deve verificare il certificato di
+Supabase; `rejectUnauthorized: false` **non** è accettabile con una credenziale da superutente su una
+rete aziendale con proxy; se serve il certificato radice di Supabase, è pubblico e si committa. (b) Il
+proxy aziendale può bloccare le porte 5432/6543: lo dice il primo `select 1`. (c) La stringa deve
+essere quella del **session pooler** (5432): il collegamento diretto è solo IPv6 sul piano gratuito, e il
+transaction pooler (6543) non regge `set local` fra istruzioni di sessione né le istruzioni preparate.
+L'agente non legge `.env`: lo verifica il test, e l'umano corregge. (d) Che `postgres` possa inserire in
+`auth.users` su un progetto ospitato: provato in una transazione annullata. (e) Che il preset
+`jest-expo` lasci girare un client di rete: `testEnvironment: 'node'` per `test:int`.
+
+### Tipi generati
+
+`app/src/adapters/supabase/database.types.ts`: dentro l'elemento `adapters`, quindi il lint vieta già a
+`core/` e `ui/` di importarlo, con due reti (`boundaries` e `no-restricted-imports`); una sonda lo
+mostra. Il file passa il lint come gli altri: se il generato violasse una regola di stile, un override
+mirato su quel file e solo su regole di stile, dichiarato. Un modulo di conformità (non un `.test.ts`,
+che senza `it` sarebbe una suite vuota e farebbe fallire jest) asserisce l'uguaglianza nei due versi fra
+ogni enum generato e la union di dominio; e se il generatore emette l'oggetto `Constants` con i valori
+degli enum (le versioni recenti lo fanno), un test di integrazione li confronta con `pg_enum` di staging:
+è la deriva fra file e schema, verificata senza rigenerare.
+
+### Migrazioni: struttura, applicazione, ritorno indietro
+
+`app/supabase/migrations/` con tre file, ciascuno **sicuro da solo** (nessuna tabella nasce senza RLS):
+(1) tipi, tabelle, vincoli, RLS, policy, trigger di guardia; (2) funzioni e trigger; (3) seed dei
+parametri, **generato**. `app/supabase/rollback/` con lo script che annulla tutti e tre (`drop … if
+exists`, così funziona anche su uno schema vuoto), provato a ogni `test:int`. Se la CLI lo richiede,
+`supabase/config.toml` lo crea `supabase init` (locale, nessuna rete) e si committa dopo averlo letto.
+`supabase/.temp/` è già ignorato dal `.gitignore` di radice.
+
+**Applicazione:** `npm run db:push` = wrapper (`scripts/supabase-db.js`) che carica `.env` con
+`@expo/env`, chiama `supabase db push --db-url …` (la CLI da `tools/supabase`, in testa al PATH) e
+**maschera** stringa e password nell'output. `npm run db:status` = `supabase migration list --db-url …`.
+`npm run db:preflight` = conteggio in sola lettura di tabelle, tipi e funzioni in `public`/`private` e
+delle righe di `supabase_migrations`.
+
+**Seed:** funzione pura `renderParameterSeedSql(seed)` in `app/src/adapters/supabase/` (solo `import
+type`, così Node la esegue togliendo i tipi), script `app/scripts/generate-parameter-seed.mjs` che la
+chiama su `SEED_PARAMETERS` e scrive il file. Test unitario senza rete (`fs` è permesso fuori da
+`core/`): il file committato è **uguale** all'output. Ripiego, se la rimozione dei tipi di Node non
+regge l'import: la scrittura la fa un test lanciato con una variabile d'ambiente, e il test normale
+confronta.
+
+**Ritorno indietro, senza reset.** Una migrazione applicata non si riscrive. Se è sbagliata: una
+migrazione **nuova** — una correzione mirata, oppure la copia dello script di `rollback/`, già provato in
+transazione — applicata con `db:push`. Se un file fallisce durante il push, la CLI annulla quel file
+(una transazione per file: **da confermare allo step 0**); quelli prima restano, e si corregge in
+avanti. **Vietati senza l'umano:** `supabase db reset`, `supabase migration repair` (riscrive la storia
+in remoto), modifiche dalla dashboard, modifiche a un file già applicato.
+
+### Il piano, in dieci step (un commit solo)
+
+Marcati **⚠️ STAGING** i passi che modificano staging: li esegue l'orchestratore, uno alla volta, e solo
+quelli. Tutti gli altri toccano staging al massimo con letture e transazioni annullate.
+
+**Step 0 — Verifiche e decisioni. Nessun file.** L'orchestratore esegue, in sola lettura: `supabase
+--version`; `--help` di `db push`, `migration list`, `gen types typescript`, `init` (esistono
+`--db-url` e `--dry-run`? l'help di `gen types` nomina Docker?); `node -p process.features.typescript`
+(atteso `strip`); `npm view postgres version time`. Porta all'umano: **il metodo dei tipi generati** (⛔,
+raccomandazione sopra) e **il task del port del reintegro** (⛔ interfaccia). Applica per delega: la
+dipendenza `postgres`. **Se `gen types --db-url` non richiede Docker, il primo ⛔ cade.**
+
+**Step 1 — Harness SQL.** File: `package.json`, `package-lock.json` (`postgres`), `jest.int.config.js`
+(`testEnvironment: 'node'`, `maxWorkers: 1`, `testTimeout`), `tests/integration/support/db.ts`
+(connessione da `SUPABASE_DB_URL` con errore rumoroso se manca; transazione annullata; `comeUtente`,
+`comeAnonimo`; schema dai file), `tests/integration/support/fixtures.ts` (utenti e profili in
+transazione; fixture confermate con pulizia), `tests/integration/connessione.test.ts` (`select 1`;
+`auth.uid()` restituisce il `sub` impostato; insert in `auth.users` annullato),
+`tests/integration/credenziali.test.ts` (+ `SUPABASE_DB_URL`), `.env.example` (oggi non risulta nel
+repo: se manca si crea, con valori finti), `scripts/supabase-db.js`, `scripts/db-preflight.js`, script in
+`package.json`. **Staging:** solo letture e una transazione annullata. **Verde da solo:** sì, se `.env`
+ha `SUPABASE_DB_URL` (la mette l'umano). *Sonde:* senza la variabile `test:int` è rosso con il
+messaggio giusto; con un `sub` diverso da quello atteso l'asserzione su `auth.uid()` cade.
+
+**Step 2 — Lo specchio in RAM, prima del SQL.** Le regole nuove in `memory`, perché il SQL le
+rispecchi e non il contrario. File: `memory-trip-repository.ts` (guard di `save` su una tratta
+referenziata da qualunque candidatura → `invalid-record`, storage intatto; `adjustLegSeats` autorizza
+owner o richiedente `accepted`, ordine esistenza → identità → limiti; con identità nulla le letture di
+trasferte e tratte sono vuote), `memory-profile-repository.ts` (idem per i profili),
+`memory-match-request-repository.ts` (un'interrogazione non di port, usata dal collegamento: "ci sono
+candidature su questa tratta?", "questo profilo ha una `accepted` qui?" — su **tutte** le righe, come un
+indice), `memory-conditions.ts` (il collegamento e il doc), `memory.contract.test.ts` (cabla),
+`repository-contract.ts` (test nuovi: tratta tolta con candidatura **chiusa** → `invalid-record` e tutto
+intatto; estraneo che chiama `adjustLegSeats` → `storage-unavailable` e posti invariati; richiedente
+`accepted` +1 → ok; richiedente `pending` → rifiutato; i quattro test della riga invalida **escono**, e
+con loro `seminaCandidaturaGrezza`), `memory-match-request-repository.test.ts` (li riceve, identici),
+`memory-conditions.test.ts` (identità nulla: trasferte, tratte, profili invisibili), doc di
+`trip-repository.ts`. **Verde da solo:** sì, solo unit. *Sonde:* togliere il guard → cade la tratta
+tolta; togliere il ramo del richiedente `accepted` → cade il +1; togliere l'autorizzazione → cade
+l'estraneo; filtro su identità nulla tolto → cade `memory-conditions.test.ts`. **A esito noto, da non
+chiedere:** un controllo d'unicità che guardi anche l'id (già sondato a T07g). **Cambiano:** solo i
+quattro test spostati, con le asserzioni identiche; verificabile con `git diff` sulle `expect`.
+
+**Step 3 — Migrazione 1: tipi, tabelle, vincoli, RLS, guardia.** File:
+`app/supabase/migrations/<ts>_schema.sql`, `app/supabase/rollback/<ts>_revert.sql`,
+`tests/integration/migrazioni.test.ts` (applicabile su schema vuoto; nessuna istruzione di controllo
+della transazione), `tests/integration/schema.test.ts` (RLS su ogni tabella dal catalogo; ogni `CHECK`
+con il suo confine; foreign key composta come `postgres`; istante al ms), `tests/integration/rls.test.ts`
+(una lettura permessa e una negata per tabella; ogni regola di scrittura della tabella di T07g, positiva
+e negativa; `anon` a zero righe). **Staging:** solo transazioni annullate. **Verde da solo:** sì.
+*Sonde, una alla volta, ciascuna deve far cadere il suo test:* `WITH CHECK` di `INSERT` su `trips` senza
+l'owner; `USING (true)` sull'`UPDATE` di `trips` (cade il dirottamento via upsert); `USING (true)` sulla
+lettura di `match_requests`; la proprietà di `requester_trip_id` tolta dalla policy (cade il test che
+pretende `42501`: la foreign key darebbe `23503`); la foreign key composta tolta (cade il test come
+`postgres`); il trigger di guardia tolto (cade l'owner che riscrive a proprio nome); il `CHECK` di
+coppia nota/`resolved_by` tolto; il `CHECK` `has_car`; `timestamptz(3)` al posto del `CHECK` al ms; RLS
+disattivata su una tabella; una policy di lettura per `anon` su `trips`; `USING (true)` sulla lettura di
+`personal_bests`; il `UNIQUE` della coppia.
+
+**Step 4 — Migrazione 2: funzioni e trigger.** File: `…_functions.sql`, il revert aggiornato,
+`tests/integration/funzioni.test.ts`: `adjust_leg_seats` (owner, richiedente `accepted`, `pending`
+rifiutato, estraneo `42501`, tratta inesistente `P0002`, fuori limite **zero righe**);
+`restore_system_rejected` (come richiedente: `UPDATE` diretto → zero righe, funzione → `pending`;
+`rejected`/`owner` e `cancelled` intatti; tratta a zero → niente); `raise_personal_bests` (caso misto;
+altro profilo `42501`); trigger delle tratte (con e senza rientro, senza auto, contatore preservato,
+totale cambiato, contatore fuori dal nuovo totale rifiutato, rientro tolto con candidatura rifiutato);
+monotonia (`UPDATE` diretto che abbassa → errore); `notes.maxLength` (sotto la nota più lunga →
+rifiutato, anche come `postgres`); `lower_note_max_length` (testo con `…`, marcatura, parametro;
+rifiuto se la nota automatica sfora); `EXECUTE` (`anon` sulle tre, `authenticated` su quella privata).
+**Staging:** solo transazioni annullate. **Verde da solo:** sì. *Sonde:* autorizzazione tolta da
+`adjust_leg_seats`; ramo del richiedente tolto; condizione `BETWEEN` tolta dal `WHERE` (il test pretende
+zero righe, e il `CHECK` darebbe un errore: cade); condizione sui posti liberi tolta da
+`restore_system_rejected`; filtro `resolved_by = 'system'` tolto; `GREATEST` sostituito dal valore nuovo
+(cade il caso misto, per il trigger); trigger di monotonia tolto; ramo di cancellazione tolto dal trigger
+delle tratte; contatore sovrascritto invece che preservato; trigger su `maxLength` tolto; funzione senza
+`…` o senza marcatura; `REVOKE` tolto.
+
+**Step 5 — Seed dei parametri.** File: `app/src/adapters/supabase/parameter-seed-sql.ts` e il suo test
+(confronto con il file committato; un caso con un apostrofo, che il seed di oggi non ha, per la
+quotatura), `app/scripts/generate-parameter-seed.mjs`, `…_parameter_seed.sql` (generato), test di
+integrazione: righe → `parseParameters` uguale a `parseParameters(SEED_PARAMETERS)`, e i casi P3 e P4
+rappresentabili (una riga tolta, un'etichetta con *"Ticket"*: inseribili, rifiutate dal parser).
+**Verde da solo:** sì. *Sonde:* un valore cambiato nel seed → rosso il test unitario; quotatura rotta →
+rosso il caso con l'apostrofo; numero scritto come testo jsonb → rosso il confronto di integrazione.
+
+**Step 6 — ⚠️ STAGING: applicazione.** Solo l'orchestratore, in quest'ordine, fermandosi al primo
+esito inatteso: `npm run db:preflight` (nessuna tabella in `public`, nessuna migrazione registrata);
+`npm run db:status`; `npm run verify` verde (lo schema nei test viene dai file, quindi è già verificato);
+**`npm run db:push`** — l'unico comando del task che cambia lo schema di staging; `npm run db:status`
+(tutte applicate); `npm run test:int`. Se il push fallisce a metà: nessun reset, si corregge in avanti
+con un file nuovo.
+
+**Step 7 — ⚠️ STAGING (righe di test, ripulite): concorrenza.** File:
+`tests/integration/concorrenza.test.ts`. Tre casi su due connessioni, contro lo schema **applicato**:
+l'ultimo posto conteso (B ottiene zero righe); la corsa fra la cascata e una candidatura nuova (esito
+pinnato come nel criterio); l'annullamento con due rifiutati dal sistema e il reintegro via funzione.
+Pulizia alla fine e all'avvio. **Verde da solo:** sì, dopo lo step 6. *Sonde:* **nessuna sullo schema**,
+perché questi test girano sullo schema applicato e sondarlo vorrebbe dire modificare staging; la
+condizione `BETWEEN` è già sondata allo step 4, in transazione. La sonda qui è sull'intercalatura:
+invertire l'ordine (B conferma prima che A prenda il lock) deve far cadere il test, che pinna **chi**
+ottiene il posto. Se il developer non trova un'inversione che possa fallire, la dichiara a esito noto
+invece di registrarla come prova.
+
+**Step 8 — Tipi generati.** Dipende dal ⛔ dello step 0. File: `database.types.ts`, il modulo di
+conformità degli enum, il test di deriva sugli enum se `Constants` esiste. **Staging:** sola lettura.
+*Sonde:* un membro aggiunto a `LegDirection` (o a un enum nel file generato) → rosso `typecheck`;
+`import` del file da `core/` → rosso `lint`.
+
+**Step 9 — Documenti.** `ARCHITECTURE.md` § Modello dati (schema applicato, non bozza; funzioni;
+`invite_codes` a T10; la riga *"il decremento… va risolta nel DB"* diventa *"è risolta in
+`adjust_leg_seats`"*), doc dei port e di `memory-conditions.ts` (il `rg` del criterio). `CLAUDE.md` di
+progetto, § Dati e sicurezza: accanto a *"La `service_role` key serve solo alle migrazioni"*, una riga
+che dica lo stesso di `SUPABASE_DB_URL` (solo CLI e `test:int`, mai nel bundle, mai `EXPO_PUBLIC_`) —
+**all'orchestratore**, non al developer.
+
+**Chiusura:** `npm run verify` verde, ogni sonda eseguita **da sola** dal developer con l'esito in questa
+voce e ripristinata con Edit, niente scritture da shell, niente worktree. Commit unico; il push su
+staging è avvenuto prima, quindi **il commit va fatto subito dopo lo step 9**: finché non c'è, staging
+contiene uno schema che il repo ha solo nel working tree.
+
+**Stima: L.** Tre migrazioni e un revert, una cinquantina di test di integrazione stimati (non una
+previsione), una decina di test di contratto e memory, due script. Il rischio di calendario non è nel
+codice: sono lo step 0 (Docker) e i rischi di rete dello step 1, che possono fermare il task prima di una
+riga di SQL.
+
+### Voci in `IDEAS.md`
+
+Tre nuove: *"I KPI aziendali hanno bisogno di candidature che la RLS non lascia leggere"*, *"Nessun task
+applica le migrazioni a prod"*, *"Come cambia il seed dei parametri dopo la prima migrazione"*. Due note
+su voci esistenti, invece di duplicarle: il reintegro come metodo del port (su *"La cascata e il
+reintegro scrivono N righe una alla volta"*) e il +1 ripetibile dal richiedente (su *"Atomicità e
+idempotenza dell'accettazione"*). Verificato sui titoli e sul contenuto.
+
+
+### Decisioni dell'orchestratore sul piano di T08 (25/10)
+
+- **⛔ 1, tipi generati: cade.** Provato `supabase gen types typescript --db-url … --schema public` sul
+  database vuoto di staging: **exit 0, nessun Docker richiesto**, file di tipi generato. Niente token
+  personale, niente passo umano: lo step 8 lo esegue l'agente.
+- **⛔ 2, reintegro: aperto come task a sé, T08b**, fra T08 e T09, con i suoi criteri. Il ⛔ (port che
+  cambia) sarà sciolto per delega all'apertura, come per T07b.
+- **Dipendenza `postgres` (postgres.js) come devDependency: approvata per delega**, perché è la
+  raccomandazione del planner. Un pacchetto, zero transitive, nessuno script d'installazione; da
+  ricontrollare sul lockfile allo step 1. Alternativa scartata: `pg` + `@types/pg`, ~15 pacchetti.
+- **Connessione verificata prima di partire:** Session pooler `aws-0-eu-west-1`, TLS, database vuoto
+  (nessuna tabella). La Direct connection non è raggiungibile da questa rete: l'host ha solo un record
+  AAAA. La password esposta in chat è stata reimpostata dall'umano; il pooler l'ha recepita con
+  qualche minuto di ritardo.
+- **Ordine di esecuzione:** il developer fa gli step 0–5, che non modificano staging; **review delle
+  migrazioni prima di applicarle**; lo step 6 (`db:push`) lo esegue l'orchestratore, un passo per volta;
+  poi il developer fa gli step 7–9 e c'è la review finale; commit subito dopo.
