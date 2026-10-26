@@ -5594,3 +5594,129 @@ terze parti `supabase/agent-skills`.
    developer fermati dal limite di utilizzo sono ripartiti dal working tree senza perdere niente; e T08
    è stato committato in due parti perché, dopo il push, uno schema applicato senza i suoi file nel repo
    era il rischio più grande della giornata.
+
+
+---
+
+## 2026-10-26 — Macchina del lavoro: prerequisiti, e il database non si raggiunge
+
+**Nessun codice di produzione scritto, nessun task aperto.** La sessione era una ripresa del loop di
+Fase 2 su T08b e T09; si è fermata ai prerequisiti perché da questa macchina `verify` **non può
+diventare verde**. Il motivo è la rete, non il repo.
+
+### Quello che ora funziona su questa macchina
+
+- `git pull` su `auto/build`: da `0608d1f` a **`0f2a20c`**, cioè tutto il lavoro della sessione di casa
+  (T07f, T07g, T07h, T07b, T08).
+- **`py tools/setup.py`**: Node 24.22.1 e Supabase CLI 2.120.0 in `tools/`, SHA256 verificati. La CLI
+  risponde `2.120.0`.
+- **`npm ci`**: 1335 pacchetti. Nessuna dipendenza aggiunta.
+- **`.env`**: tutte e quattro le variabili presenti. `SUPABASE_DB_URL` ha porta 5432, pooler
+  `aws-?-eu-west-1`, utente `postgres.<ref>`, e **non** ha prefisso `EXPO_PUBLIC_`. Verificato
+  **senza leggere il file** (è in deny rule): solo tramite `loadProjectEnv`, stampando booleani.
+
+### Il download della CLI è bloccato dal proxy, e come si è chiuso
+
+`tools/setup.py` scarica Node da `nodejs.org` (passa) e la CLI da un *release asset* di GitHub
+(**non** passa). Sia `urllib` sia `curl` hanno ricevuto una **pagina di blocco Zscaler** al posto dello
+zip: 17 850 byte di HTML invece di ~64 MB. `urllib` lo riporta come `HTTP Error 403`.
+
+Risolto **senza toccare lo script**: l'umano ha scaricato lo zip da un'altra rete e l'ha messo in
+`tools/.cache/` col nome atteso; `setup.py` l'ha trovato, ne ha ricalcolato lo SHA256 — **corrisponde**
+(`0db5224f…74c92e`) — e ha estratto. La verifica dei byte è rimasta quella dello script, che è il motivo
+per cui lo script esiste: un file arrivato per chiavetta è stato trattato come un download qualsiasi.
+
+### La diagnosi: il proxy accetta il TCP e poi mangia il protocollo Postgres
+
+Cinque sonde, in ordine. Nessuna ha mai stampato la stringa di connessione.
+
+| Sonda | Esito |
+|---|---|
+| DNS del pooler | risolve, 3 record IPv4 |
+| TCP su 5432 / 6543 / 443 | **tutte aperte** |
+| `SSLRequest` di Postgres (8 byte, `80877103`) sul socket aperto | **nessuna risposta, mai** (timeout a 15 s) |
+| `npm run db:preflight`, due tentativi | `CONNECT_TIMEOUT`, poi `ECONNRESET` |
+| `npm run db:status` (la CLI, altro client) | `DbConnectError … Connection terminated unexpectedly` |
+
+La terza riga è la diagnosi, e le altre la confermano da due client indipendenti: **il TCP si apre
+perché risponde il proxy**, non il pooler, e il protocollo Postgres non attraversa l'ispezione. Porta e
+credenziali **non sono in causa** — una porta chiusa darebbe `ECONNREFUSED`, una credenziale sbagliata
+un errore di autenticazione dopo l'handshake. Non è aggirabile dall'agente.
+
+Da registrare perché è il tranello: tutti e tre i messaggi d'errore (`CONNECT_TIMEOUT`, `ECONNRESET`,
+`Connection terminated unexpectedly`) **somigliano** a una credenziale sbagliata o a un progetto in
+pausa. Voce in `IDEAS.md` per una sonda che distingua i due casi.
+
+Nota di sicurezza, positiva: `oscura.js` ha funzionato: nell'errore della CLI host e utente erano
+`<host>` e `<utente>`.
+
+### Stato di `verify` qui: quattro quinti verdi, e il quinto non è eseguibile
+
+| Parte | Esito |
+|---|---|
+| `lint` | **verde** |
+| `typecheck` (due progetti) | **verde** |
+| `test:unit` | **verde, 679 test in 32 suite** — identico al handoff del 25/10 |
+| `smoke` | **verde, 1 test**; `expo export` produce il bundle (580 moduli, 1.4 MB) |
+| `test:int` (139 test, 11 suite) | **non eseguibile**: rete |
+
+Quindi: il codice portato da casa è sano su tutto ciò che non tocca il database, e il numero dei test
+unitari conferma che il `pull` è completo e `npm ci` corretto.
+
+### Perché mi sono fermato invece di scrivere T08b e T09
+
+`CLAUDE.md` dice che **a `verify` rosso non si committa**, e `test:int` non è eseguibile qui. Avrei
+potuto scrivere il codice e committarlo con `verify` parziale, ma **T09 è l'adapter Supabase**: i suoi
+test veri *sono* quelli di integrazione. Sarebbe stato un commit il cui comportamento contro il
+database non è mai stato misurato — esattamente il verde falso che le regole vietano.
+
+**Decisione dell'umano, posta come domanda a scelta multipla** (quattro opzioni: cambio rete /
+`verify` parziale dichiarato / sola pianificazione / punto saldo). Ha scelto **punto saldo**: si
+riprende da casa, dove il database si raggiunge. La mia raccomandazione era il **cambio rete**
+(hotspot), scartata dall'umano.
+
+### Una cosa che il handoff di casa segnalava, e qui è diversa
+
+**L'hook guard di git funziona su questa macchina**, entrambi i rami, provato con due sonde scelte
+perché le deny rules **non** le coprono (così la sonda misura l'hook, non il primo filtro) e perché
+sarebbero state innocue anche se fossero passate:
+
+- `git config core.hooksPath` **senza valore** (è una lettura) → *"Modifica della configurazione che
+  governa gli hook: vietata in automatico."*
+- `Write` su un `…/scratchpad/sonda.pem`, fuori dal repo → *"è un file di credenziali."*
+
+A casa l'hook non parte (`python` è l'alias del Microsoft Store e il percorso in `settings.json` è di
+questa macchina). Qui `python` è **Python 3.12.3** reale. `settings.json` non è stato toccato.
+
+### Dichiarazioni: cosa non ho fatto
+
+- **`npm run db:status` non ha mai prodotto l'elenco delle migrazioni**, quindi *"lo schema del repo
+  coincide con staging"* **oggi non è stato riverificato**: resta vero sulla parola del handoff del
+  25/10, che l'aveva verificato al momento dell'applicazione.
+- **`test:int` non eseguito**: i 139 test di integrazione non sono stati rieseguiti su questo codice.
+- **Heartbeat non armato**, su istruzione esplicita dell'umano in apertura di sessione.
+- **Nessun `db:push`, nessuna modifica a staging.** Il solo accesso tentato era in sola lettura
+  (`db:preflight` apre una transazione `read only`) e non è andato a buon fine.
+- **Nessun task di `TASKS.md` aperto o modificato.** `TASKS.md` non è stato toccato.
+- `dist/` è prodotto dallo smoke ed è ignorato da git.
+
+### Prossimi passi, invariati rispetto al 25/10
+
+1. **T08b ⛔** — reintegro via un metodo del port (`restore_system_rejected` è già nel DB).
+2. **T09 ⛔** — adapter Supabase, **dipendenza nuova `@supabase/supabase-js` da approvare**. Non l'ho
+   presentata: presentare una dipendenza per un task che non posso chiudere avrebbe speso una
+   decisione dell'umano senza poterla usare.
+3. **T10** — **prima, l'umano sostituisce `EXPO_PUBLIC_INVITE_CODE` nel `.env`**: oggi è un segnaposto.
+4. **T13, T14, T15**: non si aprono senza riscriverne prima i criteri.
+
+**Da aggiungere ai passi di ripresa:** su una rete che ispeziona il traffico, `test:int` non gira e
+**nessun task si può chiudere**. Conviene verificarlo per primo, con `npm run db:preflight`, prima di
+installare qualsiasi cosa: su questa macchina la diagnosi è arrivata dopo i prerequisiti.
+
+### La lezione della sessione
+
+**Una porta aperta non è una connessione.** `Test-NetConnection` e un `net.connect` riuscito avrebbero
+fatto concludere che la rete era a posto e che il problema erano le credenziali o il progetto; la sonda
+che ha deciso è stata quella che ha parlato il **protocollo applicativo** e ha aspettato la risposta.
+Vale come regola per ogni diagnosi di rete futura: si verifica il livello che serve davvero, non quello
+sotto.

@@ -709,3 +709,18 @@ Sono già elencate come fuori scope in [PRD.md](PRD.md): qui restano tracciate p
 - **Impatto** — `tests/integration/concorrenza.test.ts`.
 - **Costo** — XS.
 - **Stato** — proposta
+
+
+### Nessun test prova che il bundle non contenga le variabili non pubbliche
+- **Cosa** — un test smoke che, dopo `expo export`, cerchi in `dist/**` i **valori** delle variabili di `.env` che non hanno il prefisso `EXPO_PUBLIC_` (oggi solo `SUPABASE_DB_URL`) e falliresca se ne trova uno. Da scrivere senza mai stampare il valore cercato, come fa `oscura.js`.
+- **Perché** — trovato il 26/10 guardando l'output di `smoke`: `@expo/env` stampa `env: export EXPO_PUBLIC_INVITE_CODE … SUPABASE_DB_URL`, cioè carica in `process.env` anche la credenziale del database, e da lì passa a Metro. Che non finisca nel bundle dipende **solo** dalla convenzione di Expo di inlinare il solo prefisso `EXPO_PUBLIC_`. L'ho verificato a mano su `dist/` (stringa intera, host e password: tutti assenti), ma è una proprietà di sicurezza affidata a una regola di terze parti e nessuna verifica la tiene. Un file `.env` con una variabile nuova, o un cambio di comportamento di Expo, non farebbe diventare rosso niente.
+- **Impatto** — `jest.smoke.config.js` e un test nuovo. Il test legge `.env` tramite `loadProjectEnv`, come già fanno gli script.
+- **Costo** — S.
+- **Stato** — proposta
+
+### La connessione al database non è raggiungibile da reti che ispezionano il traffico
+- **Cosa** — far fallire `test:int` con un messaggio che **distingue** la rete dalle credenziali: una sonda preliminare che apra il TCP e mandi la `SSLRequest` di Postgres (8 byte, `80877103`), e se non arriva né `S` né `N` dica *"la rete non lascia passare il protocollo Postgres: credenziali non in causa"*.
+- **Perché** — dal 26/10, sulla macchina del lavoro: il proxy aziendale accetta il TCP su 5432 (la porta risulta **aperta**) ma non risponde mai alla `SSLRequest`, e il driver riporta `CONNECT_TIMEOUT` o `ECONNRESET`, la CLI `Connection terminated unexpectedly`. Tutti e tre i messaggi somigliano a una credenziale sbagliata o a un progetto in pausa, e la diagnosi è costata un giro di sonde. Chi riprende il lavoro da una rete filtrata ripagherebbe lo stesso costo.
+- **Impatto** — `tests/integration/support/db.ts` o `jest.setup.int.js`, più il paragrafo sulla ripresa. Non cambia nessun test esistente: un ambiente sano non la vede.
+- **Costo** — S.
+- **Stato** — proposta
